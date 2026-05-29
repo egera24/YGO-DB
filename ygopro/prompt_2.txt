@@ -1,0 +1,202 @@
+
+
+I have a comma separated csv file called my_collection.csv which looks like this:
+
+Folder Name,Quantity,Trade Quantity,Card Name,Set Code,Set Name,Card Number,Rarity,Condition,Printing,Language,Price Bought,Date Bought,AVG,LOW,TREND
+AAA_COLLECTION,1,0,Diabellstar the Black Witch,25LP,Limited Pack World Championship 2025,25LP-EN001,UR,NearMint,Limited,English,0.02,2025-09-18,0.02,0.02,0.02
+AAA_COLLECTION,3,0,Snake-Eyes Poplar,25LP,Limited Pack World Championship 2025,25LP-EN002,UR,NearMint,Limited,English,0.12,2025-09-18,0.75,0.02,0.46
+
+
+Furterhmore I have a json file called all_cards.json which looks like this:
+
+
+{
+    "data": [
+        {
+            "id": 80181649,
+            "name": "\"A Case for K9\"",
+            "type": "Spell Card",
+            "humanReadableCardType": "Continuous Spell",
+            "frameType": "spell",
+            "desc": "When this card is activated: You can add 1 \"K9\" monster from your Deck to your hand. \"K9\" monsters you control gain 900 ATK during any turn in which your opponent has activated a monster effect in the hand or GY. If this card in the Spell & Trap Zone is destroyed by card effect: You can Set 1 \"K9\" Quick-Play Spell from your Deck or GY. You can only use this effect of \"\"A Case for K9\"\" once per turn. You can only activate 1 \"\"A Case for K9\"\" per turn.",
+            "race": "Continuous",
+            "archetype": "K9",
+            "ygoprodeck_url": "https://ygoprodeck.com/card/a-case-for-k9-14990",
+            "card_sets": [
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Starlight Rare",
+                    "set_rarity_code": "(StR)",
+                    "set_price": "0"
+                },
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "(SR)",
+                    "set_price": "0"
+                }
+            ],
+            "card_images": [
+                {
+                    "id": 80181649,
+                    "image_url": "https://images.ygoprodeck.com/images/cards/80181649.jpg",
+                    "image_url_small": "https://images.ygoprodeck.com/images/cards_small/80181649.jpg",
+                    "image_url_cropped": "https://images.ygoprodeck.com/images/cards_cropped/80181649.jpg"
+                }
+            ],
+            "card_prices": [
+                {
+                    "cardmarket_price": "0.30",
+                    "tcgplayer_price": "0.22",
+                    "ebay_price": "0.00",
+                    "amazon_price": "0.00",
+                    "coolstuffinc_price": "0.00"
+                }
+            ]
+        },
+        {
+            "id": 34541863,
+            "name": "\"A\" Cell Breeding Device",
+            "type": "Spell Card",
+            "humanReadableCardType": "Continuous Spell",
+            "frameType": "spell",
+            "desc": "During each of your Standby Phases, put 1 A-Counter on 1 face-up monster your opponent controls.",
+            "race": "Continuous",
+            "archetype": "Alien",
+            "ygoprodeck_url": "https://ygoprodeck.com/card/a-cell-breeding-device-9766",
+            "card_sets": [
+                {
+                    "set_name": "Force of the Breaker",
+                    "set_code": "FOTB-EN043",
+                    "set_rarity": "Common",
+                    "set_rarity_code": "(C)",
+                    "set_price": "0"
+                }
+            ],
+            "card_images": [
+                {
+                    "id": 34541863,
+                    "image_url": "https://images.ygoprodeck.com/images/cards/34541863.jpg",
+                    "image_url_small": "https://images.ygoprodeck.com/images/cards_small/34541863.jpg",
+                    "image_url_cropped": "https://images.ygoprodeck.com/images/cards_cropped/34541863.jpg"
+                }
+            ],
+            "card_prices": [
+                {
+                    "cardmarket_price": "0.10",
+                    "tcgplayer_price": "0.11",
+                    "ebay_price": "0.99",
+                    "amazon_price": "24.45",
+                    "coolstuffinc_price": "0.25"
+                }
+            ]
+        },
+
+
+
+I want to have a Python script which extends the all_cards.json file. 
+
+First modification:
+
+The card_sets block should be extended with a new parameter: "owned". The value should be 0 if no and 1 if yes. 
+
+This is the logic how the script should decide the "owned" parameter's value:
+The my_collection.csv is containing all of the owned cards. The "Card Number" and the "Rarity" columns are the same as the "set_code" and "set_rarity_code" in the all_cards.json
+The only difference is that the "set_rarity_code" in the all_cards.json is put between parentheses﻿. 
+So the script should go over each card_sets block in the all_cards.json file and set the "owned" parameter to 1 if the given card is findable in the my_collection.csv file (otherwise it should be 0). The lookup should be performed based on: 
+"set_code" = "Card Number" AND "set_rarity_code" = "Rarity", but the "Rarity" parameter should be between parentheses﻿ because only thatswhy do equal the strings.
+
+
+Second modification:
+
+The card_sets block in the all_cards.json should be extended with the parameter "quantity". If the card is not owned, it should be set to 0. If it is owned, the value should be looked up in the my_collection.csv in the Quantity column and set that value.
+
+
+Third modification:
+
+The "set_price" value in the all_cards.json should remain the default given value if the given card is not owned. If it is owned, the "set_price" value should be the TREND value from the my_collection.csv
+
+
+
+The result should like this example block:
+
+
+
+            "card_sets": [
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Starlight Rare",
+                    "set_rarity_code": "(StR)",
+                    "set_price": "0"
+		    "owned": "1",
+		    "quantity": "3"
+                },
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "(SR)",
+                    "set_price": "0"
+		    "owned": "0",
+		    "quantity": "0"
+                }
+            ],
+
+
+
+We should cover the cases where the "set_code" is missing. For example:
+
+        {
+            "id": 2344618,
+            "name": "Lunalight Masquerade",
+            "type": "Spell Card",
+            "humanReadableCardType": "Continuous Spell",
+            "frameType": "spell",
+            "desc": "During your Main Phase, if this card was activated this turn: You can send 1 \"Lunalight\" monster from your Deck to the GY. If you Fusion Summon a \"Lunalight\" monster: You can add 1 \"Polymerization\" from your GY or banishment to your hand, then you can discard 1 card, and if you do, once, if you Fusion Summon a \"Lunalight\" monster this turn, you can also banish monsters from your GY as material. You can only use each effect of \"Lunalight Masquerade\" once per turn.",
+            "race": "Continuous",
+            "archetype": "Lunalight",
+            "ygoprodeck_url": "https://ygoprodeck.com/card/lunalight-masquerade-15030",
+            "card_images": [
+                {
+                    "id": 2344618,
+                    "image_url": "https://images.ygoprodeck.com/images/cards/2344618.jpg",
+                    "image_url_small": "https://images.ygoprodeck.com/images/cards_small/2344618.jpg",
+                    "image_url_cropped": "https://images.ygoprodeck.com/images/cards_cropped/2344618.jpg"
+                }
+            ],
+            "card_prices": [
+                {
+                    "cardmarket_price": "0.13",
+                    "tcgplayer_price": "0.06",
+                    "ebay_price": "0.00",
+                    "amazon_price": "0.00",
+                    "coolstuffinc_price": "0.00"
+                }
+            ]
+        },
+
+In the above example the whole "card_sets" block is missing. The script should extend these blocks and create the "card_sets" block. Search for the "name" in the my_collection.csv in the "Card Name" column. if there is only one result, use the values of that card in the csv for the json block. If it is not owned, set the values of the "card_sets" parameters to "unknown".
+
+
+The next step should be that the script checks all cards in the my_collection.csv if there is any, which are not in the all_cards.json file. If there is any, the two logical steps should be executed.
+
+The "Card Name" in the my_collection.csv should be searched in the all_cards.json throught the "name" parameters. If there is an instance in it, but the given card with "Card Number" and "Rarity" is not in the "card_sets" block in the json file, the "card_sets" block should be extended with the values of the card in the csv file.
+
+
+
+
+
+
+
+save them to a new csv file called rejected_cards.csv and inform the user that there are missing cards.
+
+
+
+If the all_cards.json is extended, the script should inform the user about:
+- the count of all cards in the new all_cards.json file
+- the count of all cards which "card_sets" is "unknown"
+- the count of all owned cards in the new all_cards.json file
+- the count of all cards in the my_collection.csv

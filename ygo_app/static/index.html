@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>YGO Collection & Deck Builder</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=5" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">YGO</span>
+      <div>
+        <h1>Collection & Deck Builder</h1>
+        <p id="status-line">Loading…</p>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-view="search">Search</button>
+      <button class="tab" data-view="collection">My Collection</button>
+      <button class="tab" data-view="decks">Decks</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-search" class="view active">
+      <form id="search-form" class="search-panel">
+        <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+        <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
+        <select id="frame-type"><option value="">Frame</option></select>
+        <select id="attribute"><option value="">Attribute</option></select>
+        <select id="race"><option value="">Race / type</option></select>
+        <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
+        <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
+        <button type="submit">Search</button>
+      </form>
+      <div id="search-results" class="card-grid"></div>
+    </section>
+
+    <section id="view-collection" class="view">
+      <form id="collection-filter" class="search-panel compact">
+        <input type="search" id="collection-q" placeholder="Filter by name or set code…" />
+        <select id="collection-folder"><option value="">All folders</option></select>
+        <button type="submit">Filter</button>
+        <button type="button" id="reimport-collection" class="secondary">Re-import CSV</button>
+      </form>
+      <div id="collection-stats" class="stats-bar"></div>
+      <div id="collection-list" class="collection-table-wrap"></div>
+    </section>
+
+    <section id="view-decks" class="view">
+      <div class="deck-layout">
+        <aside class="deck-sidebar">
+          <button id="new-deck-btn" class="primary">+ New deck</button>
+          <ul id="deck-list"></ul>
+        </aside>
+        <div id="deck-editor" class="deck-editor hidden">
+          <header class="deck-header">
+            <h2 id="deck-name"></h2>
+            <div class="deck-counts">
+              <span>Main: <strong id="count-main">0</strong></span>
+              <span>Extra: <strong id="count-extra">0</strong></span>
+              <span>Side: <strong id="count-side">0</strong></span>
+            </div>
+          </header>
+          <div id="deck-zones"></div>
+        </div>
+        <div id="deck-empty" class="deck-empty">
+          <p>Select or create a deck to start building.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="card-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-name" hidden>
+    <article class="modal-card">
+      <button type="button" id="modal-close" class="modal-close" aria-label="Close">&times;</button>
+      <div class="modal-body">
+        <img id="modal-image" alt="" />
+        <div class="modal-info">
+          <h2 id="modal-name"></h2>
+          <p id="modal-meta" class="muted"></p>
+          <p id="modal-desc"></p>
+          <div class="modal-actions">
+            <button type="button" id="modal-favorite">☆ Favorite</button>
+            <input type="text" id="tag-input" placeholder="Add tag…" />
+            <button type="button" id="tag-add-btn">Add tag</button>
+          </div>
+          <div id="modal-tags" class="tag-list"></div>
+          <h3>Printings (set code)</h3>
+          <div id="modal-printings" class="printings-list"></div>
+          <div class="add-owned">
+            <h3>Mark as owned</h3>
+            <select id="owned-printing"></select>
+            <input type="number" id="owned-qty" min="1" value="1" />
+            <button type="button" id="owned-add-btn">Add to collection</button>
+          </div>
+          <div class="deck-add-row">
+            <h3>Add to active deck</h3>
+            <select id="deck-zone"><option value="main">Main</option><option value="extra">Extra</option><option value="side">Side</option></select>
+            <button type="button" id="deck-add-card-btn">Add card</button>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <script src="/static/js/app.js?v=5" type="module"></script>
+</body>
+</html>

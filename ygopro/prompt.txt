@@ -1,0 +1,269 @@
+Task: Build a python application for windows with which i can:
+
+- view my yu-gi-oh cards (little picture with basic attributes and if i click on them i can see the big card picture and all of the attributes should be listed)
+
+- Search based on every possible parameter
+
+- create decks and store them locally
+
+- mark cards as favourites
+
+- create custom categorization for cards with "tags" which also will be searchable
+
+- It is important that it should be extendable, easily adjustable and modificateble later on
+
+- It should not be fancy but it has to have a graphical user interface
+
+- Use wxpython
+
+
+
+In dragonshield i have a bunch of scanned yugioh cards. But in this app i cannot search for all of the properties of the file. But it allows me to export a csv file which has the following headers:
+
+
+Folder Name: Custom grouping ID in Dragonshield
+
+Quantity: Number of cards which are owned
+
+Trade Quantity: Number of cards which is tradeable
+
+Card Name: Name of the card
+
+Set Code: The ID of the set.
+
+Set Name: The name of the set of the card
+
+Card Number: The ID of the card which identifies it inside the set. It means it can identify the set and the card as well. 
+
+Rarity: The rarity category of the card.
+
+Condition: The general condition of the card.
+
+Printing: 1st edition or not
+
+Language: The written language of the card's text.
+
+Price Bought: The purchasing unit price of the card.
+
+Date Bought: The purchasing date of the card
+
+LOW: The lowest unit price of the card on Cardmarket
+
+MID: The average unit price of the card on Cardmarket
+
+MARKET: The trending unit price of the card on Cardmarket
+
+
+Example:
+
+
+Folder Name: MySealedPurchases
+
+Quantity: 1
+
+Trade Quantity: 0
+
+Card Name: Maiden of White
+
+Set Code: SDWD
+
+Set Name: Structure Deck: Blue-Eyes White Destiny
+
+Card Number: SDWD-EN041
+
+Rarity: QCScR
+
+Condition: NearMint
+
+Printing: 1st Edition
+
+Language: English
+
+Price Bought: 0.23
+
+Date Bought: 45828
+
+LOW: 86
+
+MID: 93
+
+MARKET: 87.86
+
+
+
+It is important that my collection is ordered by the "Card Number" so it is the base parameter for me or for my collection.
+
+
+The problem is that the dragonshield csv is missing a lot of parameters.
+
+
+As a secondary database I want to use this:
+
+
+YGOProDeck API: https://db.ygoprodeck.com/api/v7/cardinfo.php
+
+
+It has all of the information about the card.
+
+
+Example:
+
+
+
+    {
+
+      "id": 17947697,
+
+      "name": "Maiden of White",
+
+      "typeline": [
+
+        "Spellcaster",
+
+        "Tuner",
+
+        "Effect"
+
+      ],
+
+      "type": "Tuner Monster",
+
+      "humanReadableCardType": "Tuner Effect Monster",
+
+      "frameType": "effect",
+
+      "desc": "You can send this card from your hand or field to the GY; place 1 \"True Light\" from your hand, Deck, or GY, face-up in your Spell & Trap Zone. If you Special Summon \"Blue-Eyes White Dragon\" while this card is in your GY (except during the Damage Step): You can Special Summon this card. When a card or effect is activated that targets this card on the field, or when this card is targeted for an attack (Quick Effect): You can Special Summon 1 \"Blue-Eyes White Dragon\" or 1 Level 1 LIGHT Tuner from your GY. You can only use each effect of \"Maiden of White\" once per turn.",
+
+      "race": "Spellcaster",
+
+      "atk": 0,
+
+      "def": 0,
+
+      "level": 1,
+
+      "attribute": "LIGHT",
+
+      "ygoprodeck_url": "https://ygoprodeck.com/card/maiden-of-white-14646",
+
+      "card_sets": [
+
+        {
+
+          "set_name": "Limited Pack World Championship 2025",
+
+          "set_code": "25LP-EN018",
+
+          "set_rarity": "Secret Rare",
+
+          "set_rarity_code": "(ScR)",
+
+          "set_price": "0"
+
+        },
+
+        {
+
+          "set_name": "Limited Pack World Championship 2025",
+
+          "set_code": "25LP-EN018",
+
+          "set_rarity": "Ultra Rare",
+
+          "set_rarity_code": "(UR)",
+
+          "set_price": "0"
+
+        },
+
+        {
+
+          "set_name": "Structure Deck: Blue-Eyes White Destiny",
+
+          "set_code": "SDWD-EN041",
+
+          "set_rarity": "Quarter Century Secret Rare",
+
+          "set_rarity_code": "",
+
+          "set_price": "0"
+
+        },
+
+        {
+
+          "set_name": "Structure Deck: Blue-Eyes White Destiny",
+
+          "set_code": "SDWD-EN041",
+
+          "set_rarity": "Secret Rare",
+
+          "set_rarity_code": "(ScR)",
+
+          "set_price": "0"
+
+        },
+
+        {
+
+          "set_name": "Structure Deck: Blue-Eyes White Destiny",
+
+          "set_code": "SDWD-EN041",
+
+          "set_rarity": "Ultra Rare",
+
+          "set_rarity_code": "(UR)",
+
+          "set_price": "0"
+
+        }
+
+      ],
+
+      "card_images": [
+
+        {
+
+          "id": 17947697,
+
+          "image_url": "https://images.ygoprodeck.com/images/cards/17947697.jpg",
+
+          "image_url_small": "https://images.ygoprodeck.com/images/cards_small/17947697.jpg",
+
+          "image_url_cropped": "https://images.ygoprodeck.com/images/cards_cropped/17947697.jpg"
+
+        }
+
+      ],
+
+      "card_prices": [
+
+        {
+
+          "cardmarket_price": "0.11",
+
+          "tcgplayer_price": "0.17",
+
+          "ebay_price": "0.00",
+
+          "amazon_price": "0.00",
+
+          "coolstuffinc_price": "0.00"
+
+        }
+
+      ]
+
+    }
+
+
+
+The YGOProDeck database differs from myn because it is categorized by the id which is the unique identification number of the card. Konami calls it password. A password is the eight-digit number printed in the bottom-left corner on most OCG/TCG cards (certain cards, such as "Gate Guardian", do not have a password, and some cards instead have limitation text in this spot). The password for a card is always the same in all languages and all prints of that card, including alternate artwork versions, except for two ("Dark Magician" has an Arkana version, and "Polymerization" has an alternate artwork version, both with different passwords from their main versions). Because of this consistency, passwords can be useful for identifying cards. Passwords, while serving no real purpose in the OCG/TCG, are used in some video games. By entering a card's password (usually in a "Password" screen), the player may obtain that card for their virtual collection.
+
+
+The key between the two databases is:
+
+dragonshield.Card Number = ygoprodeck.set_code AND dragonshield.Rarity = ygoprodeck.set_rarity_code
+
+
+Create for me a step by step comprehensive and full guide how to build up this application. It has to be so detailed that a junior developer with no experiences can follow it and build up the whole application based on your guide. 

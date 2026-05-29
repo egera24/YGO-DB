@@ -1,0 +1,414 @@
+Now I have the yugipedia_passcode_list.json file which contains all of the available cards and their url on the yugipedia.com. 
+
+Content example:
+
+  {
+    "name": "Parallel Teleport",
+    "card_type": "Spell Card",
+    "password": "00000483",
+    "url": "https://yugipedia.com/wiki/Parallel_Teleport"
+  },
+
+
+I need a Python script which iterates through the json file and gathers the card informations from their respective pages. In the above example the card's page is: https://yugipedia.com/wiki/Parallel_Teleport
+
+The goal of the script is to create the yugipedia_all_cards.json file which contains all cards and their respective data.
+
+There should also be a yugipedia_rejected_cards.json file which contains all cards which somehow cannot be scraped from the website (eg: 404 not found, password not the same on it's respective page as in the yugipedia_passcode_list.json, other discrepancies, etc...). The reject json file should contain all the infos from the yugipedia_passcode_list.json and the specified error why it was rejected.
+
+Based on the yugipedia_passcode_list.json file there are three types of cards:
+Monster Card
+Spell Card
+Trap Card
+
+The script should handle all three cards differently because they could have different parameters on their respective pages.
+
+I will go through the three card type groups and i will describe how the script should handle them.
+
+During the script creation you should involve all previous concepts, solutions and yugipedia policies which have been used for the previous scripts.
+
+
+1) Monster Card:
+
+id: The "password" of the card. The script should check on the card's page if there the password is the same as the password in the yugipedia_passcode_list.json file. If not, the card data should be saved into the yugipedia_rejected_cards.json file. The password html code looks like this:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Password" title="Password">Password</a></th>
+          <td class="">
+<a href="/wiki/72181263" class="mw-redirect" title="72181263">72181263</a></td></tr>
+
+
+name: The name of the card. You shall use the name from the yugipedia_passcode_list.json file.
+
+
+attribute: It should be the value of the "Attribute" from the card page. HTML code part:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Attribute" title="Attribute">Attribute</a></th>
+          <td class="">
+<a href="/wiki/DARK" title="DARK">DARK</a> <a href="/wiki/File:DARK.svg" class="image"><img alt="" src="https://ms.yugipedia.com//d/de/DARK.svg" width="28" height="28" class="noviewer"></a></td></tr>
+
+
+typeline: It is in the row where the "Types" are listed. There can be 2 or more values here separated with slash. In the output json these values should be comma separated. The html code part looks like this:
+
+<th scope="row" style="text-align: left;"><a href="/wiki/Type" title="Type">Types</a></th>
+
+<td class="">
+<a href="/wiki/Fiend" title="Fiend">Fiend</a> / <a href="/wiki/Pendulum_Monster" title="Pendulum Monster">Pendulum</a> / <a href="/wiki/Tuner_monster" title="Tuner monster">Tuner</a> / <a href="/wiki/Effect_Monster" title="Effect Monster">Effect</a></td>
+
+
+type: It can have 25 different values: Aqua, Beast, Beast-Warrior, Cyberse, Dinosaur, Divine-Beast, Dragon, Fairy, Fiend, Fish, Insect, Machine, Plant, Psychic, Pyro, Reptile, Rock, Sea Serpent, Spellcaster, Thunder, Warrior, Winged Beast, Wyrm, Zombie, Illusion
+A Monster Card can have only one type. The script should check which appears under the "Types" part and set that value as "type" in the output json.
+
+
+mechanic: This also derives from the "Types". It can have the following 12 values: Normal, Ritual, Fusion, Synchro, Xyz, Pendulum, Link, Flip, Union, Gemini, Toon, Spirit. Normally only one can occur, but if there are more than one, the script should set them comma separated as different values for the mechanic.
+
+effect:  This also derives from the "Types". If the "Effect" value occurs in it, the value of this parameter should be yes, otherwise no.
+
+level/rank: This value is in the row where the first column contains the "Level" or "Rank" expressions. The value is always an integer. A card can only have either level or either rank, but both of them never. Code part is the following:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Level" title="Level">Level</a></th>
+          <td class="">
+<a href="/wiki/Level_4_Monster_Cards" title="Level 4 Monster Cards">4</a> <a href="/wiki/File:CG_Star.svg" class="image"><img alt="CG Star.svg" src="https://ms.yugipedia.com//e/e3/CG_Star.svg" width="18" height="18" class="noviewer"></a><a href="/wiki/File:CG_Star.svg" class="image"><img alt="CG Star.svg" src="https://ms.yugipedia.com//e/e3/CG_Star.svg" width="18" height="18" class="noviewer"></a><a href="/wiki/File:CG_Star.svg" class="image"><img alt="CG Star.svg" src="https://ms.yugipedia.com//e/e3/CG_Star.svg" width="18" height="18" class="noviewer"></a><a href="/wiki/File:CG_Star.svg" class="image"><img alt="CG Star.svg" src="https://ms.yugipedia.com//e/e3/CG_Star.svg" width="18" height="18" class="noviewer"></a></td></tr>
+
+pendulum_scale: Not all of the cards have this parameter, only the cards which have the "Pendulum" expression under "Types". If the given card do not have the "Pendulum" expression, this parameter should be not present for the given card. It is always an integer. The html code snippet is the following:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Pendulum_Scale" title="Pendulum Scale">Pendulum Scale</a></th>
+          <td class="">
+<a href="/wiki/File:Pendulum_Scale.png" class="image"><img alt="Pendulum Scale.png" src="https://ms.yugipedia.com//thumb/0/08/Pendulum_Scale.png/18px-Pendulum_Scale.png" width="18" height="18" class="noviewer" srcset="https://ms.yugipedia.com//0/08/Pendulum_Scale.png 1.5x" data-file-width="22" data-file-height="22"></a> <a href="/wiki/Pendulum_Scale_3_Monster_Cards" title="Pendulum Scale 3 Monster Cards">3</a></td></tr>
+
+
+
+link_markers: Not all of the cards have this parameter, only the cards which have the "Link" expression under "Types". It can have 8 different values. I want the script to set them in the output json comma separeted if there are more than one. But I want to replace the original value of the yugipedia based on the followings:
+
+Top-Left to Top-Left
+Top-Center to Top
+Top-Right to Top-Right
+Middle-Left to Left
+Middle-Right to Right
+Bottom-Left to Bottom-Left
+Bottom-Center to Bottom
+Bottom-Right to Bottom-Right
+
+Code snippet from yugipedia:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Link_Arrow" title="Link Arrow">Link Arrows</a></th>
+          <td class="">
+<div style="display: flex; align-items: center;"><div style="display: inline-table; position: relative; width: 35px; height: 46px; vertical-align: middle;">
+<div>
+<p><span style="position:absolute;top: 0; left: 0;">
+<a href="/wiki/File:LM-TopLeft2.png" class="image" title="Top-Left"><img alt="" src="https://ms.yugipedia.com//thumb/4/4e/LM-TopLeft2.png/10px-LM-TopLeft2.png" width="10" height="10" class="noviewer" srcset="https://ms.yugipedia.com//thumb/4/4e/LM-TopLeft2.png/15px-LM-TopLeft2.png 1.5x, https://ms.yugipedia.com//4/4e/LM-TopLeft2.png 2x" data-file-width="20" data-file-height="20"></a>
+</span>
+<span style="position:absolute;top: 0; left: 10px;">
+<a href="/wiki/File:LM-TopCenter.png" class="image" title="Top-Center"><img alt="" src="https://ms.yugipedia.com//thumb/d/d4/LM-TopCenter.png/15px-LM-TopCenter.png" width="15" height="10" class="noviewer" srcset="https://ms.yugipedia.com//thumb/d/d4/LM-TopCenter.png/23px-LM-TopCenter.png 1.5x, https://ms.yugipedia.com//d/d4/LM-TopCenter.png 2x" data-file-width="30" data-file-height="20"></a>
+</span>
+<span style="position:absolute;top: 0; right: 0;">
+<a href="/wiki/File:LM-TopRight.png" class="image" title="Top-Right"><img alt="" src="https://ms.yugipedia.com//thumb/f/f0/LM-TopRight.png/10px-LM-TopRight.png" width="10" height="10" class="noviewer" srcset="https://ms.yugipedia.com//thumb/f/f0/LM-TopRight.png/15px-LM-TopRight.png 1.5x, https://ms.yugipedia.com//f/f0/LM-TopRight.png 2x" data-file-width="20" data-file-height="20"></a>
+</span>
+</p>
+</div>
+<div>
+<p><span style="position:absolute;top: 11px; left: 0;">
+<a href="/wiki/File:LM-MiddleLeft2.png" class="image" title="Middle-Left"><img alt="" src="https://ms.yugipedia.com//thumb/7/7b/LM-MiddleLeft2.png/10px-LM-MiddleLeft2.png" width="10" height="15" class="noviewer" srcset="https://ms.yugipedia.com//thumb/7/7b/LM-MiddleLeft2.png/15px-LM-MiddleLeft2.png 1.5x, https://ms.yugipedia.com//7/7b/LM-MiddleLeft2.png 2x" data-file-width="20" data-file-height="30"></a>
+</span>
+<span style="position:absolute;top: 11px; right: 0;">
+<a href="/wiki/File:LM-MiddleRight.png" class="image" title="Middle-Right"><img alt="" src="https://ms.yugipedia.com//thumb/f/f8/LM-MiddleRight.png/10px-LM-MiddleRight.png" width="10" height="15" class="noviewer" srcset="https://ms.yugipedia.com//thumb/f/f8/LM-MiddleRight.png/15px-LM-MiddleRight.png 1.5x, https://ms.yugipedia.com//f/f8/LM-MiddleRight.png 2x" data-file-width="20" data-file-height="30"></a>
+</span>
+</p>
+</div>
+<div>
+<p><span style="position:absolute;bottom: 0; left: 0;">
+<a href="/wiki/File:LM-BottomLeft2.png" class="image" title="Bottom-Left"><img alt="" src="https://ms.yugipedia.com//thumb/6/6f/LM-BottomLeft2.png/10px-LM-BottomLeft2.png" width="10" height="10" class="noviewer" srcset="https://ms.yugipedia.com//thumb/6/6f/LM-BottomLeft2.png/15px-LM-BottomLeft2.png 1.5x, https://ms.yugipedia.com//6/6f/LM-BottomLeft2.png 2x" data-file-width="20" data-file-height="20"></a>
+</span>
+<span style="position:absolute;bottom: 0; left: 10px;">
+<a href="/wiki/File:LM-BottomCenter.png" class="image" title="Bottom-Center"><img alt="" src="https://ms.yugipedia.com//thumb/9/96/LM-BottomCenter.png/15px-LM-BottomCenter.png" width="15" height="10" class="noviewer" srcset="https://ms.yugipedia.com//thumb/9/96/LM-BottomCenter.png/23px-LM-BottomCenter.png 1.5x, https://ms.yugipedia.com//9/96/LM-BottomCenter.png 2x" data-file-width="30" data-file-height="20"></a>
+</span>
+<span style="position:absolute;bottom: 0; right: 0;">
+<a href="/wiki/File:LM-BottomRight.png" class="image" title="Bottom-Right"><img alt="" src="https://ms.yugipedia.com//thumb/3/31/LM-BottomRight.png/10px-LM-BottomRight.png" width="10" height="10" class="noviewer" srcset="https://ms.yugipedia.com//thumb/3/31/LM-BottomRight.png/15px-LM-BottomRight.png 1.5x, https://ms.yugipedia.com//3/31/LM-BottomRight.png 2x" data-file-width="20" data-file-height="20"></a>
+</span>
+</p>
+</div>
+</div>&nbsp;<div class="hlist hcomma">
+<ul><li><a href="/wiki/Bottom-Center_Link_Arrow_cards" title="Bottom-Center Link Arrow cards">Bottom-Center</a></li>
+<li><a href="/wiki/Bottom-Right_Link_Arrow_cards" title="Bottom-Right Link Arrow cards">Bottom-Right</a></li>
+<li><a href="/wiki/Middle-Right_Link_Arrow_cards" title="Middle-Right Link Arrow cards">Middle-Right</a></li>
+<li><a href="/wiki/Top-Right_Link_Arrow_cards" title="Top-Right Link Arrow cards">Top-Right</a></li>
+<li><a href="/wiki/Top-Center_Link_Arrow_cards" title="Top-Center Link Arrow cards">Top-Center</a></li></ul></div></div></td></tr>
+
+
+atk: It is always an integer and all Monster cards have this.
+
+def: It is always an integer, all Monster cards have it except the cards which have the "Link" expression under Types. For the "Link" cards this parameter should be skipped. Code snippet is the following:
+
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/ATK" title="ATK">ATK</a> / <a href="/wiki/DEF" title="DEF">DEF</a></th>
+          <td class="">
+<a href="/wiki/600_ATK_Monster_Cards" title="600 ATK Monster Cards">600</a> / <a href="/wiki/1800_DEF_Monster_Cards" title="1800 DEF Monster Cards">1800</a></td></tr>
+
+
+link_rating: It is always an integer and only the the cards have it which have the "Link" expression under Types. They have it insted of the "def" parameter. Code snippet is the following:
+
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/ATK" title="ATK">ATK</a>  / <a href="/wiki/Link_Rating" title="Link Rating">LINK</a></th>
+          <td class="">
+<a href="/wiki/3000_ATK_Monster_Cards" title="3000 ATK Monster Cards">3000</a>  / <a href="/wiki/Link_5_Monster_Cards" title="Link 5 Monster Cards">5</a></td></tr>
+
+
+description: This part is always marked in the html code as "lore". Extract the human-readable core text from the given HTML segment, removing all tags except for <br>. For any <br> tag, insert a newline character (\n) at that point in the text. Maintain the structure, so each heading and its description appear in the exported JSON, preserving natural line breaks. Do not include links, HTML tags, or attributes—only the clean text with line breaks where <br> tags occur.
+
+<div class="lore">
+<dl><dt>Pendulum Effect</dt>
+<dd><a href="/wiki/Once_per_turn" title="Once per turn">Once per turn</a>: You can <a href="/wiki/Target" title="Target">target</a> 1 <a href="/wiki/Spell_Card" title="Spell Card">Spell</a>/<a href="/wiki/Trap_Card" title="Trap Card">Trap Card</a> on the <a href="/wiki/Field" title="Field">field</a> and 1 other "<a href="/wiki/D/D" title="D/D">D/D</a>" or "<a href="/wiki/Dark_Contract" title="Dark Contract">Dark Contract</a>" card you <a href="/wiki/Control" title="Control">control</a>; <a href="/wiki/Destroy" title="Destroy">destroy</a> them.</dd>
+<dt>Monster Effect</dt>
+<dd>When you take <a href="/wiki/Battle_damage" title="Battle damage">battle</a> or <a href="/wiki/Effect_damage" title="Effect damage">effect damage</a>: You can <a href="/wiki/Special_Summon" title="Special Summon">Special Summon</a> this card from your <a href="/wiki/Hand" title="Hand">hand</a>. If this card is Special Summoned to your field, you cannot Special Summon <a href="/wiki/Monster_Card" title="Monster Card">monsters</a> for the rest of this <a href="/wiki/Turn" title="Turn">turn</a>, except <a href="/wiki/Fiend" title="Fiend">Fiend</a>-<a href="/wiki/Type" title="Type">Type</a> monsters.</dd></dl>
+</div>
+
+
+pendulum_description: Only the Monster cards have this section which have "Pendulum" expression under "Types". Extract only the core text that appears under "Pendulum Effect" in the provided HTML. Ignore any other sections, such as "Monster Effect." Strip all HTML tags except for <br>. When a <br> tag is encountered, insert a line break (\n) in the output text. The result should be a single text string containing only the human-readable description under "Pendulum Effect," formatted naturally and with line breaks represented as \n wherever they occur. No links, tags, or attributes—just clean text from the relevant section.
+
+Example input:
+<div class="lore">
+<dl><dt>Pendulum Effect</dt>
+<dd>Once per turn: You can target ... <br> Destroy them.</dd>
+<dt>Monster Effect</dt>
+<dd>...</dd></dl>
+</div>
+
+Expected output:
+{
+  "Pendulum Effect": "Once per turn: You can target ...\nDestroy them."
+}
+
+
+monster_description: Only the Monster cards have this section which have "Pendulum" expression under "Types". Extract only the core text that appears under "Monster Effect" in the provided HTML. Ignore any other parts, such as "Pendulum Effect." Strip all HTML tags except for <br>. For every <br> tag, insert a line break (\n) at that position in the text. The output should be a single text string containing only the human-readable "Monster Effect" description, cleaned and with line breaks represented as \n. No hyperlinks, HTML tags, or attributes—just plain text from the relevant section.
+
+Example input:
+<div class="lore">
+<dl><dt>Pendulum Effect</dt>
+<dd>...</dd>
+<dt>Monster Effect</dt>
+<dd>When you take ... <br> Except Fiend-Type monsters.</dd></dl>
+</div>
+
+Expected output:
+{
+  "Monster Effect": "When you take ...\nExcept Fiend-Type monsters."
+}
+
+
+summoning_condition: If the card under "Types" have one of the following expression: Link, Synchro, Xyz, Fusion; Extract the core text from the very first line before the first break tag. If the card has none of the listed expression in "Types", this parameter has to be skipped and not set for the given card.
+
+archetype: If there are more than one values for it, set them in the output json comma separated. If the given card on it's page do not have this section, the script should skip this parameter and not set it. HTML code snippet:
+
+<div class="hlist">
+<dl><dt><a href="/wiki/Archetype" title="Archetype">Archetypes</a> and <a href="/wiki/Series" title="Series">series</a></dt>
+<dd><a href="/wiki/D/D" title="D/D">D/D</a></dd></dl>
+</div>
+
+
+card_sets: You can find the example html code part below. It contains a table with different parameters regarding the sets in which the card has been printed:
+Release: This is the release date of the set.
+Number: The card id in the set.
+Set: The name of the set.
+Rarity: The rarity of the given card.
+
+The card_set object can have more than one set. 
+
+The mapping of the card's webpage and the output json:
+Release = set_release_date
+Number = set_code
+Set = set_name
+Rarity = set_rarity
+
+Furthermore there is a set_rarity_code parameter in the output json. It should be defined based on the set_rarity and based on the following mapping: 
+
+Common: C
+Rare: R
+Super Rare: SR
+Ultra Rare: UR
+Secret Rare: ScR
+Ultimate Rare: UtR
+Ghost Rare: GR
+Holographic Rare: HR
+Gold Rare: GR
+Collector’s Rare: CR
+Starlight Rare: StR
+Prismatic Secret Rare: PSR
+Platinum Rare: PlR
+Quarter Century Secret Rare: QCR
+Parallel Rare: PR
+Starfoil Rare: SFR
+Mosaic Rare: MR
+Duel Terminal Rare: DTR
+
+If the given value is not in this list, the "New" expression should be used.
+
+Example html code snippet from the below card's webpage:
+
+<table id="cts--EN" class="wikitable sortable card-list cts jquery-tablesorter"><thead><tr><th scope="col" class="cts__header--release headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Release</th><th scope="col" class="cts__header--number headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Number</th><th scope="col" class="cts__header--set headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Set</th><th scope="col" class="cts__header--rarity headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Rarity</th></tr></thead><tbody><tr><td>2017-01-19</td><td><a href="/wiki/SDPD-EN004" class="mw-redirect" title="SDPD-EN004">SDPD-EN004</a></td><td><a href="/wiki/Pendulum_Domination_Structure_Deck" title="Pendulum Domination Structure Deck"><i>Pendulum Domination Structure Deck</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a></td></tr></tbody><tfoot></tfoot></table>
+
+
+It is really important that the script's logic should be able to handle if there are more than one Rarity values on the webpage. In that case the script should create two blocks with the same set information, but with different rarities. Example html code:
+
+<td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a><br><a href="/wiki/Starlight_Rare" title="Starlight Rare">Starlight Rare</a></td>
+
+
+        {
+            "id": 72181263,
+            "name": "D/D Orthros",
+            "typeline": [
+                "Fiend",
+                "Pendulum",
+                "Tuner",
+                "Effect"
+            ],
+	    "attribute": "Fiend",
+	    "mechanic": "Pendulum",
+	    "effect": "yes",
+            "level/rank": 4,
+            "pendulum_scale": 3,
+            "atk": 600,
+            "def": 1800,
+            "description": "[ Pendulum Effect ] \nOnce per turn: You can target 1 Spell/Trap Card on the field and 1 other \"D/D\" or \"Dark Contract\" card you control; destroy them.\n\n[ Monster Effect ] \nWhen you take battle or effect damage: You can Special Summon this card from your hand. If this card is Special Summoned to your field, you cannot Special Summon monsters for the rest of this turn, except Fiend-Type monsters.",
+            "pendulum_description": "Once per turn: You can target 1 Spell/Trap Card on the field and 1 other \"D/D\" or \"Dark Contract\" card you control; destroy them.",
+            "monster_description": "When you take battle or effect damage: You can Special Summon this card from your hand. If this card is Special Summoned to your field, you cannot Special Summon monsters for the rest of this turn, except Fiend-Type monsters.",
+            "archetype": "D/D",
+            "card_sets": [
+                {
+                    "set_name": "Pendulum Domination Structure Deck",
+                    "set_code": "SDPD-EN004",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "SR",
+                    "set_release_date": "2017-01-19"
+                }
+            ]
+        },
+
+
+
+
+
+
+
+
+2) Spell Card:
+
+
+id: The "password" of the card. The script should check on the card's page if there the password is the same as the password in the yugipedia_passcode_list.json file. If not, the card data should be saved into the yugipedia_rejected_cards.json file. The password html code looks like this:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Password" title="Password">Password</a></th>
+          <td class="">
+<a href="/wiki/72181263" class="mw-redirect" title="72181263">72181263</a></td></tr>
+
+
+name: The name of the card. You shall use the name from the yugipedia_passcode_list.json file.
+
+
+property: It should be the value of the "Attribute" from the card page. HTML code part:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Property" title="Property">Property</a></th>
+          <td class="">
+<a href="/wiki/Continuous_Spell_Card" title="Continuous Spell Card">Continuous</a> <a href="/wiki/File:Continuous.svg" class="image"><img alt="" src="https://ms.yugipedia.com//7/7c/Continuous.svg" width="28" height="28" class="noviewer"></a></td></tr>
+
+type: It should be always set as "Spell".
+
+description: This part is always marked in the html code as "lore". Extract the human-readable core text from the given HTML segment, removing all tags except for <br>. For any <br> tag, insert a newline character (\n) at that point in the text. Maintain the structure, so each heading and its description appear in the exported JSON, preserving natural line breaks. Do not include links, HTML tags, or attributes—only the clean text with line breaks where <br> tags occur.
+
+<div class="lore">When this card is <a href="/wiki/Activate" title="Activate">activated</a>: You can <a href="/wiki/Add_a_card" title="Add a card">add</a> 1 "<a href="/wiki/K9" title="K9">K9</a>" <a href="/wiki/Monster" class="mw-redirect" title="Monster">monster</a> from your <a href="/wiki/Main_Deck" title="Main Deck">Deck</a> to your <a href="/wiki/Hand" title="Hand">hand</a>. "K9" <a href="/wiki/Monsters" class="mw-redirect" title="Monsters">monsters</a> you <a href="/wiki/Control" title="Control">control</a> gain 900 <a href="/wiki/ATK" title="ATK">ATK</a> during any <a href="/wiki/Turn" title="Turn">turn</a> in which your opponent has <a href="/wiki/Activate" title="Activate">activated</a> a <a href="/wiki/Monster_effect" title="Monster effect">monster effect</a> in the <a href="/wiki/Hand" title="Hand">hand</a> or <a href="/wiki/GY" class="mw-redirect" title="GY">GY</a>. If this card in the <a href="/wiki/Spell_%26_Trap_Zone" title="Spell &amp; Trap Zone">Spell &amp; Trap Zone</a> is destroyed by card <a href="/wiki/Effect" title="Effect">effect</a>: You can <a href="/wiki/Set" title="Set">Set</a> 1 "K9" <a href="/wiki/Quick-Play_Spell" class="mw-redirect" title="Quick-Play Spell">Quick-Play Spell</a> from your Deck or GY. You can only use this effect of ""A Case for K9"" <a href="/wiki/Once_per_turn" title="Once per turn">once per turn</a>. You can only activate 1 ""A Case for K9"" per turn.
+</div>
+
+
+archetype: If there are more than one values for it, set them in the output json comma separated. If the given card on it's page do not have this section, the script should skip this parameter and not set it. HTML code snippet:
+
+<div class="hlist">
+<dl><dt><a href="/wiki/Archetype" title="Archetype">Archetypes</a> and <a href="/wiki/Series" title="Series">series</a></dt>
+<dd><a href="/wiki/K9" title="K9">K9</a></dd></dl>
+</div>
+
+card_sets: This part should be handled the same way as in the Monster Card section above. It is really important that the script's logic should be able to handle if there are more than one Rarity values on the webpage. In that case the script should create two blocks with the same set information, but with different rarities. The following is just the html code snippet from the belowe example card's page:
+
+<table id="cts--EN" class="wikitable sortable card-list cts jquery-tablesorter"><thead><tr><th scope="col" class="cts__header--release headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Release</th><th scope="col" class="cts__header--number headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Number</th><th scope="col" class="cts__header--set headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Set</th><th scope="col" class="cts__header--rarity headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Rarity</th></tr></thead><tbody><tr><td>2025-07-31</td><td><a href="/wiki/JUSH-EN040" class="mw-redirect" title="JUSH-EN040">JUSH-EN040</a></td><td><a href="/wiki/Justice_Hunters" title="Justice Hunters"><i>Justice Hunters</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a><br><a href="/wiki/Starlight_Rare" title="Starlight Rare">Starlight Rare</a></td></tr></tbody><tfoot></tfoot></table>
+
+
+        {
+            "id": 80181649,
+            "name": "\"A Case for K9\"",
+            "type": "Spell",
+            "property": "Continuous",
+            "description": "When this card is activated: You can add 1 \"K9\" monster from your Deck to your hand. \"K9\" monsters you control gain 900 ATK during any turn in which your opponent has activated a monster effect in the hand or GY. If this card in the Spell & Trap Zone is destroyed by card effect: You can Set 1 \"K9\" Quick-Play Spell from your Deck or GY. You can only use this effect of \"\"A Case for K9\"\" once per turn. You can only activate 1 \"\"A Case for K9\"\" per turn.",
+            "archetype": "K9",
+            "card_sets": [
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Starlight Rare",
+                    "set_rarity_code": "StR",
+                    "set_release_date": "2025-07-31"
+                },
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "SR",
+                    "set_release_date": "2025-07-31"
+                }
+            ]
+        }
+
+
+
+3) Trap Card:
+
+
+id: The "password" of the card. The script should check on the card's page if there the password is the same as the password in the yugipedia_passcode_list.json file. If not, the card data should be saved into the yugipedia_rejected_cards.json file. The password html code looks like this:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Password" title="Password">Password</a></th>
+          <td class="">
+<a href="/wiki/86885905" class="mw-redirect" title="86885905">86885905</a></td></tr>
+
+
+name: The name of the card. You shall use the name from the yugipedia_passcode_list.json file.
+
+
+property: It should be the value of the "Attribute" from the card page. HTML code part:
+
+<tr class=""><th scope="row" style="text-align: left;"><a href="/wiki/Property" title="Property">Property</a></th>
+          <td class="">
+<a href="/wiki/Continuous_Trap_Card" title="Continuous Trap Card">Continuous</a> <a href="/wiki/File:Continuous.svg" class="image"><img alt="" src="https://ms.yugipedia.com//7/7c/Continuous.svg" width="28" height="28" class="noviewer"></a></td></tr>
+
+type: It should be always set as "Trap".
+
+
+archetype: If there are more than one values for it, set them in the output json comma separated. If the given card on it's page do not have this section, the script should skip this parameter and not set it. HTML code snippet:
+
+<dl><dt><a href="/wiki/Archetype" title="Archetype">Archetypes</a> and <a href="/wiki/Series" title="Series">series</a></dt>
+<dd><a href="/wiki/Altergeist" title="Altergeist">Altergeist</a></dd>
+<dd><a href="/wiki/Trap_Monster" title="Trap Monster">Trap Monster</a></dd></dl>
+
+
+card_sets: This part should be handled the same way as in the Monster Card section above. It is really important that the script's logic should be able to handle if there are more than one Rarity values on the webpage. In that case the script should create two blocks with the same set information, but with different rarities. The following is just the html code snippet from the belowe example card's page:
+
+<table id="cts--EN" class="wikitable sortable card-list cts jquery-tablesorter"><thead><tr><th scope="col" class="cts__header--release headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Release</th><th scope="col" class="cts__header--number headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Number</th><th scope="col" class="cts__header--set headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Set</th><th scope="col" class="cts__header--rarity headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Rarity</th></tr></thead><tbody><tr><td>2018-05-03</td><td><a href="/wiki/FLOD-EN070" class="mw-redirect" title="FLOD-EN070">FLOD-EN070</a></td><td><a href="/wiki/Flames_of_Destruction" title="Flames of Destruction"><i>Flames of Destruction</i></a></td><td><a href="/wiki/Common" title="Common">Common</a></td></tr><tr><td>2019-08-29</td><td><a href="/wiki/MP19-EN047" class="mw-redirect" title="MP19-EN047">MP19-EN047</a></td><td><a href="/wiki/2019_Gold_Sarcophagus_Tin_Mega_Pack" title="2019 Gold Sarcophagus Tin Mega Pack"><i>2019 Gold Sarcophagus Tin Mega Pack</i></a></td><td><a href="/wiki/Common" title="Common">Common</a></td></tr></tbody><tfoot></tfoot></table>
+
+        {
+            "id": 6885905,
+            "name": "Altergeist Emulatelf",
+            "type": "Trap",
+            "property": "Continuous",
+            "description": "Special Summon this card as an Effect Monster (Spellcaster/LIGHT/Level 4/ATK 1400/DEF 1800). (This card is also still a Trap.) If Summoned this way, while it is in the Monster Zone, other \"Altergeist\" Traps you control cannot be destroyed by card effects, also neither player can target them with card effects.",
+            "archetype": ["Altergeist", "Trap Monster"],
+            "card_sets": [
+                {
+                    "set_name": "2019 Gold Sarcophagus Tin Mega Pack",
+                    "set_code": "MP19-EN047",
+                    "set_rarity": "Common",
+                    "set_rarity_code": "C",
+                    "set_release_date": "2019-08-29"
+                },
+                {
+                    "set_name": "Flames of Destruction",
+                    "set_code": "FLOD-EN070",
+                    "set_rarity": "Common",
+                    "set_rarity_code": "C",
+                    "set_release_date": "2018-05-03"
+                }
+            ]
+        }

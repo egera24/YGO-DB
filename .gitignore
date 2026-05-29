@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+.cursor/
+
+# Local databases and generated app data
+data/
+*.db
+
+# Large exports, scraper outputs, and personal collection data
+*.json
+*.csv
+
+# Downloaded card images (regenerate with scrapers locally)
+yugipedia/image_big/
+yugipedia/image_small/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+
+# Logs
+*.log

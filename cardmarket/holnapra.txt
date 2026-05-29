@@ -1,0 +1,7 @@
+cardmarket_expansion_list_scraper.py
+
+If "Rush Duel", "Japanese", "Korean" - also exclude
+Bármi más az empty list alapján?
+
+
+Kipróbálni a card_details scrapert.

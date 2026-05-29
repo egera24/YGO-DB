@@ -1,0 +1,60 @@
+Now I have the yugipedia_passcode_list.json file which contains all of the available cards and their url on the yugipedia.com. 
+
+I need a Python script which iterates through the json file and gathers the card informations from their respective pages. 
+
+The goal of the script is to create the yugipedia_all_cards.json file which contains all cards and their data.
+
+The structure of the output json file should look like this:
+
+{
+    "data": [
+        {
+            "passcode_id": 80181649,
+            "name": "\"A Case for K9\"",
+            "type": "Spell",
+            "property": "Continuous",
+            "desc": "When this card is activated: You can add 1 \"K9\" monster from your Deck to your hand. \"K9\" monsters you control gain 900 ATK during any turn in which your opponent has activated a monster effect in the hand or GY. If this card in the Spell & Trap Zone is destroyed by card effect: You can Set 1 \"K9\" Quick-Play Spell from your Deck or GY. You can only use this effect of \"\"A Case for K9\"\" once per turn. You can only activate 1 \"\"A Case for K9\"\" per turn.",
+            "archetype": "K9",
+            "yugipedia_url": "https://yugipedia.com/wiki/%22A_Case_for_K9%22",
+            "card_sets": [
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Starlight Rare",
+                    "set_rarity_code": "(StR)",
+                    "set_price": "0"
+                },
+                {
+                    "set_name": "Justice Hunters",
+                    "set_code": "JUSH-EN040",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "(SR)",
+                    "set_price": "0"
+                }
+            ],
+            "card_images": [
+                {
+                    "id": 80181649,
+                    "image_url": "https://images.ygoprodeck.com/images/cards/80181649.jpg",
+                    "image_url_small": "https://images.ygoprodeck.com/images/cards_small/80181649.jpg",
+                    "image_url_cropped": "https://images.ygoprodeck.com/images/cards_cropped/80181649.jpg"
+                }
+            ],
+            "card_prices": [
+                {
+                    "low": "0.30",
+                    "mid": "0.22",
+                    "trend": "0.00"
+                }
+            ]
+        },
+
+In the name and description there can be UTF-8 charachters and special characthers. Later category needs excape characthers as you see in the above example.
+
+name = class="heading": The name of the card.
+passcode_id = Password: The eight-digit number is always the same in all languages and all prints of that card, it is the uniqe identifier for the given card name Independent from the it's set.
+type = Card Type: It can be Monster, Spell or Trap
+property = Properties: Kind of a subtype of the spell and trap cards.
+
+
+https://yugipedia.com/index.php?title=Special:Ask&limit=500&offset=0&q=%5B%5BConcept%3ACG+cards%5D%5D+%5B%5BPassword%3A%3A%2B%5D%5D&p=mainlabel%3D-2D%2Fformat%3Dbroadtable%2Fheaders%3Dplain%2Fclass%3Dwikitable-20sortable-20smwtable-20card-2Dlist&po=%3FEnglish+name+%28linked%29%3DName%0A%3FCard+type%3D%5B%5BCard+type%5D%5D%0A%3FPassword%0A&sort=Password&order=asc&eq=no#search

@@ -1,0 +1,27 @@
+I want to scrape the yugipedia.com page and I need a Python script for this purpose. 
+
+The base URL which should be used is the following:
+
+https://yugipedia.com/index.php?title=Special:Ask&limit=500&offset=0&q=%5B%5BConcept%3ACG+cards%5D%5D+%5B%5BPassword%3A%3A%2B%5D%5D&p=mainlabel%3D-2D%2Fformat%3Dbroadtable%2Fheaders%3Dplain%2Fclass%3Dwikitable-20sortable-20smwtable-20card-2Dlist&po=%3FEnglish+name+%28linked%29%3DName%0A%3FCard+type%3D%5B%5BCard+type%5D%5D%0A%3FPassword%0A&sort=Password&order=asc&eq=no#search
+
+
+This site contains the following card information: Name, Card type, Password
+
+The card information is ordered in a table. It's html code looks like this:
+
+<table class="wikitable sortable smwtable card-list broadtable jquery-tablesorter" width="100%"><thead><tr><th class="Name headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Name</th><th class="[[Card-type]] headerSort" tabindex="0" role="columnheader button" title="Sort ascending"><a class="JS-changed" href="wiki/Card type">Card type</a></th><th class="Password headerSort" tabindex="0" role="columnheader button" title="Sort ascending">Password</th></tr></thead><tbody><tr data-row-number="1" class="row-odd"><td class="Name smwtype_txt"><a href="/wiki/Parallel_Teleport" title="Parallel Teleport">Parallel Teleport</a></td><td class="[[Card-type]] smwtype_wpg"><a href="/wiki/Spell_Card" title="Spell Card">Spell Card</a></td><td class="Password smwtype_txt" data-sort-value="00000483">00000483</td>
+
+Az you see the following values are in this table for this block:
+Name = Parallel Teleport
+Card type = Spell Card
+Password = 00000483
+
+Furthermore you can see the URL of the card itself = href="/wiki/Parallel_Teleport" which is the yugipedia.com/wiki/Parallel_Teleport
+
+The Password is always a 8 digit number. I need the zeros at the beginning as well.
+
+If you check the based URL you can see that this site has multiple pages: &limit=500&offset=0
+
+I want to have a json file which contains all 4 parameters of the cards (Name, Card type, Password, Card href URL)
+
+

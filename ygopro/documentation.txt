@@ -1,0 +1,11 @@
+get_ygopro_database.py: Download the data of all cards from ygoprodeck: https://db.ygoprodeck.com/api/v7/cardinfo.php
+It will be stored as all_cards.json
+
+
+get_images.py: Download the pictures from ygoprodeck. It can be used in three modes:
+--big
+--small
+--both
+The pictures will be stored in separate folders based on their types. Name will be the card's passcode.
+
+get_my_cards.py: Transform the DragonShield CSV file to custom json file.

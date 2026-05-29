@@ -10,6 +10,7 @@ data/
 
 # Large exports, scraper outputs, and personal collection data
 *.json
+!.vscode/settings.json
 *.csv
 
 # Downloaded card images (regenerate with scrapers locally)

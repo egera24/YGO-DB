@@ -93,6 +93,10 @@ GET /api/collection?set_code=25LP
 POST /api/collection  { "set_code": "25LP-EN001", "rarity": "UR", "quantity": 1 }
 ```
 
+## Local data (not in Git)
+
+Large files stay on your machine (see `.gitignore`): `all_cards.json`, `my_collection.csv`, `data/ygo.db`, scraper JSON outputs, and `yugipedia/image_*` folders. After cloning, run the `ygopro` scripts and `python -m ygo_app.import_data` as in Quick start.
+
 ## Notes
 
 - Deck builder stores cards by **passcode** (card identity), not a specific printing — use Collection for printings you own.

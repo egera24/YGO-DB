@@ -8,9 +8,12 @@ __pycache__/
 data/
 *.db
 
+# Editor and workspace config (environment-specific)
+.vscode/
+*.code-workspace
+
 # Large exports, scraper outputs, and personal collection data
 *.json
-!.vscode/settings.json
 *.csv
 
 # Downloaded card images (regenerate with scrapers locally)

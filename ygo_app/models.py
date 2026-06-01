@@ -67,7 +67,7 @@ class Printing(Base):
     set_name: Mapped[str | None] = mapped_column(String(256))
     set_code: Mapped[str] = mapped_column(String(32), index=True)
     set_rarity: Mapped[str | None] = mapped_column(String(64))
-    set_rarity_code: Mapped[str] = mapped_column(String(16), index=True)
+    set_rarity_code: Mapped[str] = mapped_column(String(64), index=True)
     set_price: Mapped[str | None] = mapped_column(String(32))
 
     card: Mapped["Card"] = relationship(back_populates="printings")
@@ -84,7 +84,7 @@ class CollectionItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     set_code: Mapped[str] = mapped_column(String(32), index=True)
-    rarity_code: Mapped[str] = mapped_column(String(16), index=True)
+    rarity_code: Mapped[str] = mapped_column(String(64), index=True)
     card_name: Mapped[str | None] = mapped_column(String(256))
     expansion_code: Mapped[str | None] = mapped_column(String(32))
     set_name: Mapped[str | None] = mapped_column(String(256))

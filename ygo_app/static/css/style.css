@@ -60,6 +60,29 @@ body.modal-open {
 }
 .tab.active, .tab:hover { border-color: var(--accent); color: var(--accent); }
 
+.auth-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.auth-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.auth-form input {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  min-width: 120px;
+}
+.auth-user {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.hidden { display: none !important; }
+
 main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .view { display: none; }
 .view.active { display: block; }

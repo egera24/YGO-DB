@@ -1,57 +1,38 @@
-"""Import YGOProDeck JSON and DragonShield CSV into SQLite."""
+"""Import YGOProDeck catalog and DragonShield CSV into the database."""
 
 from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from pathlib import Path
 
-from ygo_app.config import DB_PATH
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
-from ygo_app.config import DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
-from ygo_app.database import Base, SessionLocal, engine
+from ygo_app.catalog import fetch_card_entries, load_card_entries
+from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
+from ygo_app.database import Base, SessionLocal, engine, is_sqlite
 from ygo_app.models import Card, CollectionItem, Printing
+from ygo_app.search_index import ensure_search_index, rebuild_search_index
 from ygo_app.utils import normalize_rarity_code
 
 
 def reset_db():
-    if engine.url.database and Path(engine.url.database).exists():
-        Path(engine.url.database).unlink()
+    if is_sqlite() and engine.url.database:
+        db_file = Path(engine.url.database)
+        if db_file.exists():
+            db_file.unlink()
+    else:
+        Base.metadata.drop_all(bind=engine)
     init_db()
 
 
 def init_db():
     Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
-                    name, desc, archetype, type, race
-                )
-                """
-            )
-        )
-        conn.commit()
-
-
-def _rebuild_fts(session: Session):
-    session.execute(text("DELETE FROM cards_fts"))
-    session.execute(
-        text(
-            """
-            INSERT INTO cards_fts(rowid, name, desc, archetype, type, race)
-            SELECT id, name, COALESCE(desc,''), COALESCE(archetype,''),
-                   COALESCE(type,''), COALESCE(race,'')
-            FROM cards
-            """
-        )
-    )
+        ensure_search_index(conn)
 
 
 def _card_from_api(entry: dict) -> Card:
@@ -106,8 +87,8 @@ def _float_or_none(value):
         return None
 
 
-def import_cards_json(
-    path: Path,
+def import_cards_entries(
+    entries: list[dict],
     *,
     limit: int | None = None,
     batch_size: int = 500,
@@ -118,9 +99,6 @@ def import_cards_json(
     printings_imported = 0
 
     try:
-        with path.open("r", encoding="utf-8") as f:
-            payload = json.load(f)
-        entries = payload.get("data", [])
         if limit:
             entries = entries[:limit]
 
@@ -174,11 +152,26 @@ def import_cards_json(
             cards_imported += len(batch_cards)
             printings_imported += len(batch_printings)
 
-        _rebuild_fts(session)
+        rebuild_search_index(session)
         session.commit()
         return cards_imported, printings_imported
     finally:
         session.close()
+
+
+def import_cards_json(
+    path: Path,
+    *,
+    limit: int | None = None,
+    batch_size: int = 500,
+) -> tuple[int, int]:
+    entries = load_card_entries(path)
+    return import_cards_entries(entries, limit=limit, batch_size=batch_size)
+
+
+def import_cards_from_api(*, limit: int | None = None) -> tuple[int, int]:
+    entries = fetch_card_entries()
+    return import_cards_entries(entries, limit=limit)
 
 
 def _link_printing(session: Session, set_code: str, rarity_code: str) -> int | None:
@@ -192,14 +185,18 @@ def _link_printing(session: Session, set_code: str, rarity_code: str) -> int | N
     return row[0] if row else None
 
 
-def import_collection_csv(path: Path, *, replace: bool = True) -> int:
+def import_collection_csv(
+    path: Path, *, user_id: int, replace: bool = True
+) -> int:
     init_db()
     session = SessionLocal()
     imported = 0
 
     try:
         if replace:
-            session.query(CollectionItem).delete()
+            session.query(CollectionItem).filter(
+                CollectionItem.user_id == user_id
+            ).delete()
             session.commit()
 
         with path.open("r", encoding="utf-8-sig", newline="") as f:
@@ -217,6 +214,7 @@ def import_collection_csv(path: Path, *, replace: bool = True) -> int:
             rarity_code = normalize_rarity_code(row.get("Rarity") or "")
 
             item = CollectionItem(
+                user_id=user_id,
                 set_code=set_code,
                 rarity_code=rarity_code,
                 card_name=row.get("Card Name"),
@@ -248,36 +246,45 @@ def import_collection_csv(path: Path, *, replace: bool = True) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Import card DB and collection into SQLite")
+    parser = argparse.ArgumentParser(description="Import card DB and collection")
     parser.add_argument("--cards", type=Path, default=DEFAULT_CARDS_JSON)
     parser.add_argument("--collection", type=Path, default=DEFAULT_COLLECTION_CSV)
+    parser.add_argument("--from-api", action="store_true", help="Fetch catalog from YGOProDeck API")
     parser.add_argument("--skip-cards", action="store_true")
     parser.add_argument("--skip-collection", action="store_true")
     parser.add_argument("--limit", type=int, default=None, help="Import only N cards (testing)")
+    parser.add_argument("--user-id", type=int, default=1, help="User ID for collection import")
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Delete existing database before import",
+        help="Delete existing database / tables before import",
     )
     args = parser.parse_args(argv)
 
-    if args.reset and DB_PATH.exists():
-        print(f"Removing {DB_PATH}")
-        DB_PATH.unlink()
+    if args.reset:
+        if DB_PATH is not None and DB_PATH.exists():
+            print(f"Removing {DB_PATH}")
+            DB_PATH.unlink()
+        else:
+            reset_db()
 
     if not args.skip_cards:
-        if not args.cards.exists():
-            print(f"Cards file not found: {args.cards}", file=sys.stderr)
-            return 1
-        c, p = import_cards_json(args.cards, limit=args.limit)
+        if args.from_api:
+            c, p = import_cards_from_api(limit=args.limit)
+        else:
+            if not args.cards.exists():
+                print(f"Cards file not found: {args.cards}", file=sys.stderr)
+                print("Use --from-api to fetch from YGOProDeck instead.", file=sys.stderr)
+                return 1
+            c, p = import_cards_json(args.cards, limit=args.limit)
         print(f"Imported {c} cards and {p} printings.")
 
     if not args.skip_collection:
         if not args.collection.exists():
             print(f"Collection file not found: {args.collection}", file=sys.stderr)
             return 1
-        n = import_collection_csv(args.collection)
-        print(f"Imported {n} collection rows.")
+        n = import_collection_csv(args.collection, user_id=args.user_id)
+        print(f"Imported {n} collection rows for user_id={args.user_id}.")
 
     return 0
 

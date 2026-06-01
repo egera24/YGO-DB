@@ -6,9 +6,11 @@ import subprocess
 import sys
 import webbrowser
 
+import os
+
 import uvicorn
 
-from ygo_app.config import DB_PATH
+from ygo_app.config import DB_PATH, PORT
 
 
 def _port_in_use(host: str, port: int) -> bool:
@@ -43,13 +45,14 @@ def _listening_pid(port: int) -> int | None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
+    default_host = "0.0.0.0" if os.getenv("ENV", "").lower() == "production" else "127.0.0.1"
+    parser.add_argument("--host", default=default_host)
+    parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--reload", action="store_true")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
-    if not DB_PATH.exists():
+    if DB_PATH is not None and not DB_PATH.exists():
         print("Database not found. Run first:")
         print("  python -m ygo_app.import_data")
         print()

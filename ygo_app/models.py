@@ -15,6 +15,20 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ygo_app.database import Base
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="user")
+    decks: Mapped[list["Deck"]] = relationship(back_populates="user")
+    favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="user")
+    card_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="user")
+
+
 class Card(Base):
     __tablename__ = "cards"
 
@@ -35,11 +49,11 @@ class Card(Base):
     ygoprodeck_url: Mapped[str | None] = mapped_column(String(512))
     image_url: Mapped[str | None] = mapped_column(String(512))
     image_url_small: Mapped[str | None] = mapped_column(String(512))
-    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     printings: Mapped[list["Printing"]] = relationship(back_populates="card")
-    tags: Mapped[list["CardTag"]] = relationship(back_populates="card", cascade="all, delete-orphan")
     deck_entries: Mapped[list["DeckCard"]] = relationship(back_populates="card")
+    user_favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="card")
+    user_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="card")
 
 
 class Printing(Base):
@@ -57,15 +71,18 @@ class Printing(Base):
     set_price: Mapped[str | None] = mapped_column(String(32))
 
     card: Mapped["Card"] = relationship(back_populates="printings")
-    collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="linked_printing")
+    collection_items: Mapped[list["CollectionItem"]] = relationship(
+        back_populates="linked_printing"
+    )
 
 
 class CollectionItem(Base):
-    """Physical ownership keyed by set code (card number) + rarity."""
+    """Physical ownership keyed by set code (card number) + rarity, per user."""
 
     __tablename__ = "collection_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     set_code: Mapped[str] = mapped_column(String(32), index=True)
     rarity_code: Mapped[str] = mapped_column(String(16), index=True)
     card_name: Mapped[str | None] = mapped_column(String(256))
@@ -85,24 +102,42 @@ class CollectionItem(Base):
     printing_id: Mapped[int | None] = mapped_column(ForeignKey("printings.id"), index=True)
     notes: Mapped[str | None] = mapped_column(Text)
 
-    linked_printing: Mapped["Printing | None"] = relationship(back_populates="collection_items")
+    user: Mapped["User"] = relationship(back_populates="collection_items")
+    linked_printing: Mapped["Printing | None"] = relationship(
+        back_populates="collection_items"
+    )
 
 
-class CardTag(Base):
-    __tablename__ = "card_tags"
-    __table_args__ = (UniqueConstraint("card_id", "tag", name="uq_card_tag"),)
+class UserFavorite(Base):
+    __tablename__ = "user_favorites"
+    __table_args__ = (UniqueConstraint("user_id", "card_id", name="uq_user_favorite"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
+
+    user: Mapped["User"] = relationship(back_populates="favorites")
+    card: Mapped["Card"] = relationship(back_populates="user_favorites")
+
+
+class UserCardTag(Base):
+    __tablename__ = "user_card_tags"
+    __table_args__ = (UniqueConstraint("user_id", "card_id", "tag", name="uq_user_card_tag"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
     tag: Mapped[str] = mapped_column(String(64), index=True)
 
-    card: Mapped["Card"] = relationship(back_populates="tags")
+    user: Mapped["User"] = relationship(back_populates="card_tags")
+    card: Mapped["Card"] = relationship(back_populates="user_tags")
 
 
 class Deck(Base):
     __tablename__ = "decks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(128), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -110,6 +145,7 @@ class Deck(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
+    user: Mapped["User"] = relationship(back_populates="decks")
     cards: Mapped[list["DeckCard"]] = relationship(
         back_populates="deck", cascade="all, delete-orphan"
     )

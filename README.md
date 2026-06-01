@@ -1,6 +1,10 @@
 # YGO Collection & Deck Builder
 
-Local web app for searching Yu-Gi-Oh! cards, tracking physical copies by **set code** (card number, e.g. `25LP-EN001`), building decks, favorites, and tags.
+Web app for searching Yu-Gi-Oh! cards, tracking physical copies by **set code** (card number, e.g. `25LP-EN001`), building decks, favorites, and tags. Supports local SQLite development and cloud deployment (Render + PostgreSQL) with per-user collections.
+
+## Card images (CDN, no local storage)
+
+Card art is **not** downloaded or stored on your server. Import copies `image_url` / `image_url_small` from YGOProDeck into the database; the browser loads images directly from `images.ygoprodeck.com`. The legacy scripts `ygopro/get_images.py` and `yugipedia/get_images.py` are deprecated and not used by the app.
 
 Built on your existing data:
 
@@ -15,10 +19,10 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# One-time import (several minutes for full card DB)
-python -m ygo_app.import_data
+# One-time catalog import from YGOProDeck API (several minutes)
+python -m ygo_app.import_data --from-api
 
-# Start the app (opens browser)
+# Start the app (opens browser); register an account in the header
 python run.py
 ```
 
@@ -31,7 +35,8 @@ API docs: http://127.0.0.1:8000/docs
 | **Search** | Name, description, archetype, passcode, set code, attribute, race, frame type |
 | **Set code** | Every printing lists `set_code`; search/filter collection by card number |
 | **Collection** | Import DragonShield CSV; view by folder; add owned copies from card detail |
-| **Decks** | Main / Extra / Side zones, local SQLite storage |
+| **Decks** | Main / Extra / Side zones; per-user on cloud (PostgreSQL) |
+| **Accounts** | Register / login; each user has their own collection, decks, favorites, and tags |
 | **Extras** | Favorites, custom tags (searchable via `tag` query param on API) |
 
 ## Import options
@@ -95,7 +100,21 @@ POST /api/collection  { "set_code": "25LP-EN001", "rarity": "UR", "quantity": 1 
 
 ## Local data (not in Git)
 
-Large files stay on your machine (see `.gitignore`): `all_cards.json`, `my_collection.csv`, `data/ygo.db`, scraper JSON outputs, and `yugipedia/image_*` folders. After cloning, run the `ygopro` scripts and `python -m ygo_app.import_data` as in Quick start.
+Large files stay on your machine (see `.gitignore`): `all_cards.json`, `my_collection.csv`, `data/ygo.db`, scraper JSON outputs. Do not download local JPG caches (`get_images.py` is deprecated). After cloning, run the `ygopro` scripts and `python -m ygo_app.import_data` as in Quick start.
+
+## Cloud deployment (Render)
+
+Copy `.env.example` to `.env` for local Postgres testing. On Render, use the Blueprint in `render.yaml` (Web Service + PostgreSQL + catalog import job).
+
+```bash
+# Production-style start (Linux / Render)
+uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
+
+# Seed shared card catalog (from API, no all_cards.json required)
+python -m ygo_app.jobs.import_catalog
+```
+
+Set `ENV=production`, `DATABASE_URL`, and a strong `SECRET_KEY`. Users sign up via the UI; collection CSV import requires login and uploads per user.
 
 ## Notes
 

@@ -1,3 +1,10 @@
+"""
+DEPRECATED — Legacy offline image downloader.
+
+The web app (ygo_app) loads card art from YGOPRODeck CDN URLs stored in the
+database. It does not read local JPG folders. Do not run this script for
+cloud or normal app usage; it can consume ~1–4 GB of disk space.
+"""
 import os
 import json
 import requests

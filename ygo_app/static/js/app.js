@@ -1,15 +1,29 @@
 const API = "/api";
+const IMG_PLACEHOLDER =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="174" viewBox="0 0 120 174"><rect fill="#1e293b" width="120" height="174"/><text x="60" y="87" text-anchor="middle" fill="#64748b" font-size="12" font-family="sans-serif">No image</text></svg>'
+  );
+
+function cardImgTag(url, attrs = "") {
+  const src = url ? escapeHtml(url) : IMG_PLACEHOLDER;
+  return `<img src="${src}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${IMG_PLACEHOLDER}'" ${attrs} />`;
+}
 
 const state = {
   activeView: "search",
   currentCardId: null,
   activeDeckId: null,
   filters: {},
+  token: localStorage.getItem("ygo_token") || null,
+  user: null,
 };
 
 async function api(path, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
   const res = await fetch(`${API}${path}`, {
-    headers: { Accept: "application/json", ...(options.headers || {}) },
+    headers,
     ...options,
   });
   if (!res.ok) {
@@ -32,19 +46,78 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+function updateAuthUI() {
+  const loggedIn = Boolean(state.token && state.user);
+  $("#auth-login-form")?.classList.toggle("hidden", loggedIn);
+  $("#auth-register-form")?.classList.toggle("hidden", loggedIn);
+  $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
+  const userEl = $("#auth-user");
+  if (loggedIn) {
+    userEl.textContent = state.user.email;
+    userEl.classList.remove("hidden");
+  } else {
+    userEl.classList.add("hidden");
+  }
+}
+
+async function login(email, password) {
+  const data = await api("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  state.token = data.access_token;
+  localStorage.setItem("ygo_token", state.token);
+  state.user = await api("/auth/me");
+  updateAuthUI();
+  await loadStatus();
+  await loadFilters();
+}
+
+async function register(email, password) {
+  const data = await api("/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  state.token = data.access_token;
+  localStorage.setItem("ygo_token", state.token);
+  state.user = await api("/auth/me");
+  updateAuthUI();
+}
+
+function logout() {
+  state.token = null;
+  state.user = null;
+  localStorage.removeItem("ygo_token");
+  updateAuthUI();
+  loadStatus();
+}
+
 async function loadStatus() {
   const status = await api("/status");
   const line = $("#status-line");
   if (!status.ready) {
     line.textContent =
-      "Database empty — run: python -m ygo_app.import_data";
+      "Catalog empty — run: python -m ygo_app.jobs.import_catalog (or import_data --from-api)";
     line.style.color = "#f87171";
     return;
   }
-  line.textContent = `${status.cards.toLocaleString()} cards · ${status.collection_items.toLocaleString()} owned printings · ${status.decks} decks`;
+  line.style.color = "";
+  const parts = [`${status.cards.toLocaleString()} cards`];
+  if (status.authenticated) {
+    parts.push(
+      `${status.collection_items.toLocaleString()} owned`,
+      `${status.decks} decks`
+    );
+  } else {
+    parts.push("log in for collection & decks");
+  }
+  line.textContent = parts.join(" · ");
 }
 
 async function loadFilters() {
+  if (!state.token) return;
   const data = await api("/filters");
   state.filters = data;
   for (const [id, key] of [
@@ -79,7 +152,7 @@ function switchView(name) {
   if (name === "decks") loadDecks();
 }
 
-const SEARCH_PAGE_SIZE = 1000;
+const SEARCH_PAGE_SIZE = 500;
 
 async function fetchAllSearchCards(baseParams) {
   const all = [];
@@ -111,7 +184,7 @@ function renderSearchResults(cards, total) {
         (c) => `
       <article class="card-tile ${c.owned ? "owned" : ""}" data-id="${c.id}">
         ${c.owned ? `<span class="badge">×${c.owned_quantity}</span>` : ""}
-        <img src="${escapeHtml(c.image_url_small)}" alt="" loading="lazy" />
+        ${cardImgTag(c.image_url_small)}
         <div class="info">
           <div class="name">${escapeHtml(c.name)}</div>
           <div class="muted">${escapeHtml(c.type || "")}</div>
@@ -190,8 +263,13 @@ async function openCardModal(cardId) {
   const card = await api(`/cards/${cardId}`);
   const dlg = $("#card-modal");
   $("#modal-name").textContent = card.name;
-  $("#modal-image").src = card.image_url || card.image_url_small || "";
-  $("#modal-image").alt = card.name;
+  const modalImg = $("#modal-image");
+  modalImg.onerror = () => {
+    modalImg.onerror = null;
+    modalImg.src = IMG_PLACEHOLDER;
+  };
+  modalImg.src = card.image_url || card.image_url_small || IMG_PLACEHOLDER;
+  modalImg.alt = card.name;
   const stats = [
     card.type,
     card.attribute,
@@ -234,6 +312,11 @@ async function openCardModal(cardId) {
 }
 
 async function loadCollection() {
+  if (!state.token) {
+    $("#collection-list").innerHTML =
+      '<p class="empty-msg">Log in to view your collection.</p>';
+    return;
+  }
   const params = new URLSearchParams({ limit: "500" });
   const q = $("#collection-q")?.value.trim();
   const folder = $("#collection-folder")?.value;
@@ -267,7 +350,7 @@ async function loadCollection() {
           .map(
             (i) => `
           <tr data-id="${i.id}" ${i.card_id ? `data-card="${i.card_id}"` : ""} class="${i.card_id ? "clickable" : ""}">
-            <td>${i.image_url_small ? `<img src="${escapeHtml(i.image_url_small)}" width="36" height="52" />` : ""}</td>
+            <td>${cardImgTag(i.image_url_small, 'width="36" height="52"')}</td>
             <td class="set-code">${escapeHtml(i.set_code)}</td>
             <td>${escapeHtml((i.rarity_code || "").replace(/[()]/g, ""))}</td>
             <td>${escapeHtml(i.card_name || "")}</td>
@@ -287,6 +370,11 @@ async function loadCollection() {
 }
 
 async function loadDecks() {
+  if (!state.token) {
+    $("#deck-list").innerHTML =
+      '<li class="empty-msg">Log in to manage decks.</li>';
+    return;
+  }
   const decks = await api("/decks");
   const list = $("#deck-list");
   list.innerHTML = decks
@@ -330,7 +418,7 @@ async function selectDeck(deckId) {
                     .map(
                       (c) => `
                 <div class="deck-card-chip" data-card="${c.card_id}" data-zone="${zone}">
-                  <img src="${escapeHtml(c.image_url_small)}" alt="" />
+                  ${cardImgTag(c.image_url_small)}
                   <span>${escapeHtml(c.name)} ×${c.quantity}</span>
                   <button type="button" class="deck-minus" title="Remove one">−</button>
                 </div>`
@@ -373,12 +461,64 @@ function wireEvents() {
     loadCollection();
   });
 
-  $("#reimport-collection")?.addEventListener("click", async () => {
-    if (!confirm("Re-import my_collection.csv from project root? This replaces collection data.")) return;
-    const res = await api("/collection/import-csv", { method: "POST" });
-    alert(`Imported ${res.imported} rows`);
-    loadCollection();
-    loadStatus();
+  $("#auth-login-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await login($("#login-email").value, $("#login-password").value);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  $("#auth-register-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await register($("#register-email").value, $("#register-password").value);
+      await loadStatus();
+      await loadFilters();
+      alert("Account created. You are logged in.");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  $("#auth-logout")?.addEventListener("click", logout);
+
+  $("#reimport-collection")?.addEventListener("click", () => {
+    if (!state.token) {
+      alert("Log in first.");
+      return;
+    }
+    $("#collection-csv-file")?.click();
+  });
+
+  $("#collection-csv-file")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!confirm(`Import ${file.name}? This replaces your collection.`)) {
+      e.target.value = "";
+      return;
+    }
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch(`${API}/collection/import-csv?replace=true`, {
+        method: "POST",
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || res.statusText);
+      }
+      const data = await res.json();
+      alert(`Imported ${data.imported} rows`);
+      loadCollection();
+      loadStatus();
+    } catch (err) {
+      alert(err.message);
+    }
+    e.target.value = "";
   });
 
   $("#modal-close").addEventListener("click", closeCardModalOverlay);
@@ -390,11 +530,19 @@ function wireEvents() {
   });
 
   $("#modal-favorite").addEventListener("click", async () => {
+    if (!state.token) {
+      alert("Log in to use favorites.");
+      return;
+    }
     await api(`/cards/${state.currentCardId}/favorite`, { method: "POST" });
     openCardModal(state.currentCardId);
   });
 
   $("#tag-add-btn").addEventListener("click", async () => {
+    if (!state.token) {
+      alert("Log in to add tags.");
+      return;
+    }
     const tag = $("#tag-input").value.trim();
     if (!tag) return;
     await api(`/cards/${state.currentCardId}/tags`, {
@@ -407,6 +555,10 @@ function wireEvents() {
   });
 
   $("#owned-add-btn").addEventListener("click", async () => {
+    if (!state.token) {
+      alert("Log in to add to your collection.");
+      return;
+    }
     const val = $("#owned-printing").value;
     const [set_code, rarity] = val.split("|");
     const qty = Number($("#owned-qty").value) || 1;
@@ -450,9 +602,20 @@ function wireEvents() {
 
 async function init() {
   wireEvents();
+  updateAuthUI();
   try {
+    if (state.token) {
+      try {
+        state.user = await api("/auth/me");
+      } catch {
+        state.token = null;
+        state.user = null;
+        localStorage.removeItem("ygo_token");
+      }
+    }
+    updateAuthUI();
     await loadStatus();
-    await loadFilters();
+    if (state.token) await loadFilters();
     await runSearch();
   } catch (err) {
     $("#status-line").textContent = err.message;

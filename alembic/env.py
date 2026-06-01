@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from ygo_app.config import DATABASE_URL
 from ygo_app.database import Base
+from ygo_app.migration_bootstrap import stamp_legacy_schema_if_needed
 from ygo_app import models  # noqa: F401
 
 config = context.config
@@ -35,6 +36,9 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        stamped = stamp_legacy_schema_if_needed(connection, config)
+        if stamped:
+            connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

@@ -70,7 +70,9 @@ def reset_db():
 
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
+    # SQLite local dev: create tables without Alembic. Postgres/cloud: migrations only.
+    if is_sqlite():
+        Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
         ensure_search_index(conn)
 

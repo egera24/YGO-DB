@@ -1,13 +1,22 @@
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from ygo_app.config import DATABASE_URL
 
-_connect_args = {}
+_connect_args: dict = {}
+_engine_url = DATABASE_URL
+
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
+elif DATABASE_URL.startswith("postgresql"):
+    url = make_url(DATABASE_URL)
+    query = dict(url.query)
+    if "sslmode" not in query:
+        # Neon and most cloud Postgres require TLS
+        _connect_args["sslmode"] = "require"
 
-engine = create_engine(DATABASE_URL, connect_args=_connect_args)
+engine = create_engine(_engine_url, connect_args=_connect_args)
 
 
 @event.listens_for(engine, "connect")

@@ -1,0 +1,27 @@
+name: Import YGO catalog
+
+on:
+  workflow_dispatch:
+  schedule:
+    # First day of each month, 03:00 UTC (optional catalog refresh)
+    - cron: "0 3 1 * *"
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import cards from YGOProDeck API
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENV: production
+        run: python -m ygo_app.jobs.import_catalog

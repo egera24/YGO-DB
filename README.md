@@ -102,19 +102,27 @@ POST /api/collection  { "set_code": "25LP-EN001", "rarity": "UR", "quantity": 1 
 
 Large files stay on your machine (see `.gitignore`): `all_cards.json`, `my_collection.csv`, `data/ygo.db`, scraper JSON outputs. Do not download local JPG caches (`get_images.py` is deprecated). After cloning, run the `ygopro` scripts and `python -m ygo_app.import_data` as in Quick start.
 
-## Cloud deployment (Render)
+## Cloud deployment
 
-Copy `.env.example` to `.env` for local Postgres testing. On Render, use the Blueprint in `render.yaml` (Web Service + PostgreSQL + catalog import job).
+### Free permanent stack (recommended for $0)
+
+**Neon** (Postgres, no 30-day expiry) + **Render** (free web) + **GitHub Actions** (catalog import).
+
+Full step-by-step: **[docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md)**
+
+1. Create Neon project → copy **pooled** `DATABASE_URL`
+2. GitHub secret `DATABASE_URL` → run **Import YGO catalog** workflow
+3. Deploy with [`render-free.yaml`](render-free.yaml) → set `DATABASE_URL` on the web service
+4. Register on the live URL; import collection CSV when logged in
 
 ```bash
 # Production-style start (Linux / Render)
 uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
-
-# Seed shared card catalog (from API, no all_cards.json required)
-python -m ygo_app.jobs.import_catalog
 ```
 
-Set `ENV=production`, `DATABASE_URL`, and a strong `SECRET_KEY`. Users sign up via the UI; collection CSV import requires login and uploads per user.
+### Paid all-in-one (Render)
+
+Blueprint [`render.yaml`](render.yaml): Starter web + Render Postgres + import job. Copy `.env.example` for local Postgres testing.
 
 ## Notes
 

@@ -1,3 +1,4 @@
+# Paid/starter all-in-one (Render Postgres + Job). For $0 permanent DB use render-free.yaml + docs/DEPLOY_FREE.md
 # Render Blueprint: https://render.com/docs/blueprint-spec
 services:
   - type: web

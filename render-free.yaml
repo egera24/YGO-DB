@@ -1,0 +1,20 @@
+# Permanent $0 stack: Render free web + external Neon Postgres (see docs/DEPLOY_FREE.md).
+# Paid all-in-one reference: render.yaml
+services:
+  - type: web
+    name: ygo-app
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: SECRET_KEY
+        generateValue: true
+      # Set in Render Dashboard after creating Neon (pooled connection string):
+      - key: DATABASE_URL
+        sync: false
+    healthCheckPath: /api/health

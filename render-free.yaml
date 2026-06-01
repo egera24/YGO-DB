@@ -1,5 +1,5 @@
-# Permanent $0 stack: Render free web + external Neon Postgres (see docs/DEPLOY_FREE.md).
-# Paid all-in-one reference: render.yaml
+# Alias for the default Blueprint (render.yaml). Kept for docs/backward compatibility.
+# Render discovers render.yaml automatically; this file matches it for explicit selection.
 services:
   - type: web
     name: ygo-app
@@ -14,7 +14,6 @@ services:
         value: "3.12.0"
       - key: SECRET_KEY
         generateValue: true
-      # Set in Render Dashboard after creating Neon (pooled connection string):
       - key: DATABASE_URL
         sync: false
     healthCheckPath: /api/health

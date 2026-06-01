@@ -1,10 +1,10 @@
-# Paid/starter all-in-one (Render Postgres + Job). For $0 permanent DB use render-free.yaml + docs/DEPLOY_FREE.md
-# Render Blueprint: https://render.com/docs/blueprint-spec
+# Free web app + external Neon Postgres (default Blueprint). See docs/DEPLOY_FREE.md
+# Paid Render Postgres + cron import: render-paid.yaml
 services:
   - type: web
     name: ygo-app
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -14,31 +14,7 @@ services:
         value: "3.12.0"
       - key: SECRET_KEY
         generateValue: true
+      # Set in Render Dashboard: Neon pooled DATABASE_URL
       - key: DATABASE_URL
-        fromDatabase:
-          name: ygo-db
-          property: connectionString
+        sync: false
     healthCheckPath: /api/health
-
-  - type: pserv
-    name: ygo-db
-    plan: starter
-    databaseName: ygo
-    user: ygo
-
-jobs:
-  - type: job
-    name: import-catalog
-    runtime: python
-    plan: starter
-    buildCommand: pip install -r requirements.txt && alembic upgrade head
-    startCommand: python -m ygo_app.jobs.import_catalog
-    envVars:
-      - key: ENV
-        value: production
-      - key: PYTHON_VERSION
-        value: "3.12.0"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ygo-db
-          property: connectionString

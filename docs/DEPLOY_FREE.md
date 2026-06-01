@@ -62,7 +62,7 @@ The **Neon DB keep-alive** workflow runs `SELECT 1` every few days so the databa
 
 1. Render Dashboard → **New** → **Blueprint**.
 2. Connect the GitHub repo.
-3. When prompted, use **`render-free.yaml`** (not `render.yaml`).
+3. Use the default **`render.yaml`** (free web only). Do **not** use `render-paid.yaml` unless you want paid Render Postgres.
 4. After the blueprint is created, open the **ygo-app** web service → **Environment**.
 5. Set **`DATABASE_URL`** to your Neon pooled URL (blueprint leaves it unset with `sync: false`).
 6. Confirm **`SECRET_KEY`** was generated (or add your own long random string).
@@ -147,4 +147,4 @@ python -m ygo_app.jobs.import_catalog
 
 ## Paid alternative
 
-For always-on web + managed Render Postgres + one-click job, use [`render.yaml`](../render.yaml) (Starter plans, monthly cost).
+For always-on web + managed Render Postgres + cron import, use [`render-paid.yaml`](../render-paid.yaml) (Starter plans, monthly cost).

@@ -54,7 +54,8 @@ ygo_app/
   api/main.py, api/routes/     # FastAPI app
   models.py                    # SQLAlchemy models (multi-user)
   database.py                  # ENGINE; Neon SSL via connect_args
-  import_data.py               # JSON/API/CSV import (+ temporary debug logs)
+  import_data.py               # JSON/API/CSV import
+  migration_bootstrap.py       # Alembic stamp when schema predates migrations
   jobs/import_catalog.py       # GHA / Render job entrypoint
   services.py, search_index.py # Search: SQLite FTS5 vs Postgres to_tsvector
   auth.py                      # JWT + bcrypt
@@ -121,11 +122,7 @@ The running workflow is almost certainly on **old code** and/or **old schema**:
    alembic upgrade head
    ```
 4. Re-run **Import YGO catalog**.
-5. If tables were created only via `init_db()` / `create_all()` before migration existed, `alembic upgrade head` is still required — `create_all` does not alter column widths.
-
-### Temporary debug instrumentation
-
-[`ygo_app/import_data.py`](ygo_app/import_data.py) writes NDJSON to `debug-39bea1.log` (session `39bea1`). **Remove** `_debug_log`, `_validate_printing_rarity_codes`, and related imports after import succeeds in CI.
+5. If tables were created only via `init_db()` / `create_all()` before migration existed, run `alembic upgrade head` (or rely on [`migration_bootstrap.py`](ygo_app/migration_bootstrap.py) stamp on deploy).
 
 ---
 
@@ -198,11 +195,10 @@ Full steps: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
 
 ## 10. Suggested next tasks (priority)
 
-1. **Unblock CI:** Ensure `002` applied on Neon; re-run import workflow; confirm ~14k cards imported.
-2. **Remove debug logs** from `import_data.py` after CI green.
-3. **Commit/push** if local fixes are not on `main` yet (user reported error persists — likely remote behind).
-4. Optional: strip debug regions; add note in README linking `agent_handoff.md`.
-5. Optional: Neon storage check after full import (stay under 0.5 GB free).
+1. **Verify live app:** Render URL, register, CSV import, search.
+2. **Commit/push** blueprint fixes (`render.yaml` free default) if not on `main` yet.
+3. Optional: Neon storage check after full import (stay under 0.5 GB free).
+4. Optional: add note in README linking `agent_handoff.md`.
 
 ---
 

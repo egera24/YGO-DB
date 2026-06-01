@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
-import time
 from pathlib import Path
 
 from sqlalchemy import select, text
@@ -19,44 +17,6 @@ from ygo_app.database import Base, SessionLocal, engine, is_sqlite
 from ygo_app.models import Card, CollectionItem, Printing
 from ygo_app.search_index import ensure_search_index, rebuild_search_index
 from ygo_app.utils import normalize_rarity_code
-
-_DEBUG_LOG = Path(__file__).resolve().parent.parent / "debug-39bea1.log"
-_RARITY_CODE_MAX = 64
-
-
-def _debug_log(hypothesis_id: str, message: str, data: dict) -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "39bea1",
-            "hypothesisId": hypothesis_id,
-            "location": "import_data.py",
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
-    except OSError:
-        pass
-    # #endregion
-
-
-def _validate_printing_rarity_codes(printings: list[Printing]) -> None:
-    """Log rarity codes that would exceed the DB column limit (hypothesis H1)."""
-    for p in printings:
-        code = p.set_rarity_code or ""
-        if len(code) > _RARITY_CODE_MAX:
-            _debug_log(
-                "H1",
-                "rarity_code_exceeds_limit",
-                {
-                    "len": len(code),
-                    "limit": _RARITY_CODE_MAX,
-                    "set_code": p.set_code,
-                    "preview": code[:80],
-                },
-            )
 
 
 def reset_db():
@@ -177,42 +137,25 @@ def import_cards_entries(
                 )
 
             if len(batch_cards) >= batch_size:
-                _validate_printing_rarity_codes(batch_printings)
                 session.add_all(batch_cards)
                 session.flush()
                 session.add_all(batch_printings)
                 session.commit()
-                _debug_log(
-                    "H1",
-                    "batch_committed",
-                    {"cards": len(batch_cards), "printings": len(batch_printings)},
-                )
                 cards_imported += len(batch_cards)
                 printings_imported += len(batch_printings)
                 batch_cards.clear()
                 batch_printings.clear()
 
         if batch_cards:
-            _validate_printing_rarity_codes(batch_printings)
             session.add_all(batch_cards)
             session.flush()
             session.add_all(batch_printings)
             session.commit()
             cards_imported += len(batch_cards)
             printings_imported += len(batch_printings)
-            _debug_log(
-                "H1",
-                "final_batch_committed",
-                {"cards": len(batch_cards), "printings": len(batch_printings)},
-            )
 
         rebuild_search_index(session)
         session.commit()
-        _debug_log(
-            "H1",
-            "import_complete",
-            {"cards_imported": cards_imported, "printings_imported": printings_imported},
-        )
         return cards_imported, printings_imported
     finally:
         session.close()

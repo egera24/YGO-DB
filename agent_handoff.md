@@ -14,9 +14,18 @@ Also referenced in user rules as `agend_handoff.md` (same content; use this path
 | **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user collection (set code + rarity), decks, favorites, tags |
 | **Stack** | Python 3.12, FastAPI, SQLAlchemy 2, Pydantic, static HTML/JS, Alembic |
 | **Local DB** | SQLite `data/ygo.db` when `DATABASE_URL` unset |
-| **Cloud DB** | PostgreSQL (intended: **Neon** free, permanent — not Render Postgres) |
+| **Cloud DB** | PostgreSQL on **Neon** (pooled URL, `sslmode=require`) — not Render Postgres |
 | **Card images** | **CDN only** — `image_url` / `image_url_small` from YGOProDeck; browser loads `images.ygoprodeck.com`. No local JPGs in app. |
 | **Auth** | JWT (bcrypt + python-jose); register/login in UI header |
+
+### Production status (user-confirmed)
+
+| Component | Status |
+|-----------|--------|
+| Neon Postgres | Ready (~**14,371** cards in catalog) |
+| GitHub **Import YGO catalog** | Succeeded (migrations + import) |
+| Render Blueprint (`render.yaml`) | Ready (free `ygo-app` web service) |
+| **Next for user** | Set `DATABASE_URL` on Render if not done; verify `/api/status`; register; import collection CSV |
 
 ---
 
@@ -31,19 +40,20 @@ flowchart LR
   Browser --> CDN["images.ygoprodeck.com"]
 ```
 
-### Free permanent cloud (target setup)
+### Free permanent cloud (active setup)
 
 | Piece | File / service |
 |-------|----------------|
-| Web | [`render-free.yaml`](render-free.yaml) — `plan: free`, set `DATABASE_URL` manually in Render env |
-| DB | Neon pooled connection string (`?sslmode=require`) |
+| Web | [`render.yaml`](render.yaml) — default Blueprint, `plan: free`; set `DATABASE_URL` in Render Dashboard |
+| DB | Neon pooled connection string |
 | Catalog seed | [`.github/workflows/import-catalog.yml`](.github/workflows/import-catalog.yml) |
 | DB ping | [`.github/workflows/db-keepalive.yml`](.github/workflows/db-keepalive.yml) (every 3 days) |
 | Docs | [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md) |
+| Blueprint alias | [`render-free.yaml`](render-free.yaml) — same as `render.yaml` |
 
 ### Paid alternative
 
-[`render.yaml`](render.yaml) — Starter web + Render Postgres + paid import job (not $0).
+[`render-paid.yaml`](render-paid.yaml) — Starter web + Render Postgres (`databases:`) + monthly `type: cron` import (not $0). Do **not** use for free stack.
 
 ---
 
@@ -51,20 +61,22 @@ flowchart LR
 
 ```
 ygo_app/
-  api/main.py, api/routes/     # FastAPI app
-  models.py                    # SQLAlchemy models (multi-user)
+  api/main.py, api/routes/     # FastAPI app; startup calls init_db() (search index only on Postgres)
+  models.py                    # SQLAlchemy models (multi-user); rarity columns String(64)
   database.py                  # ENGINE; Neon SSL via connect_args
-  import_data.py               # JSON/API/CSV import
-  migration_bootstrap.py       # Alembic stamp when schema predates migrations
-  jobs/import_catalog.py       # GHA / Render job entrypoint
+  import_data.py               # JSON/API/CSV import; create_all only on SQLite
+  migration_bootstrap.py       # Stamps Alembic if tables exist without alembic_version
+  jobs/import_catalog.py       # GHA entrypoint
   services.py, search_index.py # Search: SQLite FTS5 vs Postgres to_tsvector
   auth.py                      # JWT + bcrypt
   static/                      # UI
 alembic/versions/
-  001_initial_multiuser.py
-  002_widen_rarity_code.py     # REQUIRED for cloud import — see §5
-render-free.yaml               # Free web only
-render.yaml                    # Paid blueprint
+  001_initial_multiuser.py     # Full schema; printings already use VARCHAR(64) in 001
+  002_widen_rarity_code.py     # Alters 16→64 for DBs created before model fix
+alembic/env.py                 # Calls stamp_legacy_schema_if_needed before migrate
+render.yaml                    # Free web Blueprint (Render default)
+render-paid.yaml               # Paid Blueprint
+render-free.yaml               # Alias of render.yaml
 docs/DEPLOY_FREE.md
 .github/workflows/
 ```
@@ -74,55 +86,39 @@ docs/DEPLOY_FREE.md
 ## 4. What was implemented (recent sessions)
 
 1. **Cloud-ready refactor:** env config ([`ygo_app/config.py`](ygo_app/config.py)), multi-user models, JWT auth, per-user collection/decks/favorites/tags.
-2. **Image strategy:** Documented CDN-only; deprecated `ygopro/get_images.py` and `yugipedia/get_images.py`.
-3. **Permanent free stack:** Neon + Render free + GitHub Actions (no Render 30-day Postgres).
-4. **Import from API:** `--from-api` and `python -m ygo_app.jobs.import_catalog` (no `all_cards.json` required on server).
+2. **Image strategy:** CDN-only; deprecated `ygopro/get_images.py` and `yugipedia/get_images.py`.
+3. **Permanent free stack:** Neon + Render free + GitHub Actions catalog import.
+4. **Import from API:** `python -m ygo_app.jobs.import_catalog` (no `all_cards.json` on server).
+5. **Rarity column fix:** `String(64)` + migration `002`; GHA runs `alembic upgrade head` before import.
+6. **Alembic bootstrap:** [`migration_bootstrap.py`](ygo_app/migration_bootstrap.py) stamps `001` or `002` when schema was created via `create_all` (fixes `DuplicateTable: users` on deploy).
+7. **Postgres schema:** `init_db()` skips `create_all` on Postgres; Alembic owns cloud DDL.
+8. **Render Blueprint fix:** Root `render.yaml` = free web only; paid stack moved to `render-paid.yaml` with valid `databases:` + `type: cron` (old `render.yaml` had invalid `pserv`/`jobs` keys).
 
 ---
 
-## 5. OPEN ISSUE — GitHub import fails (may still occur)
+## 5. Resolved issues (reference)
 
-### Symptom
+### GitHub import — `varchar(16)` truncation (fixed)
 
-```
-psycopg2.errors.StringDataRightTruncation: value too long for type character varying(16)
-```
+- **Was:** `StringDataRightTruncation` on long synthesized rarity labels (e.g. `(Quarter Century Secret Rare)`).
+- **Fix:** Model + migration `002`; workflow runs migrations before import.
+- **Verify:** `printings.set_rarity_code` max length **64** in Neon; import log ends with `Catalog import complete: …`.
 
-On `INSERT INTO printings`, during batch commit (~500 cards), when running **Import YGO catalog** workflow.
+### Alembic — `relation "users" already exists` (fixed)
 
-### Root cause (confirmed with API scan)
+- **Was:** `alembic upgrade` from empty version while tables existed (Render/`init_db` `create_all`).
+- **Fix:** `stamp_legacy_schema_if_needed` in [`alembic/env.py`](alembic/env.py); Postgres no longer uses `create_all` in [`init_db()`](ygo_app/import_data.py).
 
-- Column `printings.set_rarity_code` was **`VARCHAR(16)`**.
-- When YGOProDeck omits `set_rarity_code`, [`_printing_rarity_code()`](ygo_app/import_data.py) builds e.g. `(Quarter Century Secret Rare)` (**29 chars**; max seen **41**).
-- **~1115** printings exceed 16 characters.
+### Render Blueprint validation errors (fixed)
 
-### Fix already in repo (verify deployed)
+- **Was:** `databaseName`/`user` on service; top-level `jobs:` invalid.
+- **Fix:** Free blueprint in `render.yaml`; Postgres + cron in `render-paid.yaml`.
 
-| Change | Path |
-|--------|------|
-| Model `String(64)` for `set_rarity_code` and `collection_items.rarity_code` | [`ygo_app/models.py`](ygo_app/models.py) |
-| Alembic migration | [`alembic/versions/002_widen_rarity_code.py`](alembic/versions/002_widen_rarity_code.py) |
-| GHA runs migrations before import | [`.github/workflows/import-catalog.yml`](.github/workflows/import-catalog.yml) |
+### If catalog empty on live site
 
-### If error **still** appears
-
-The running workflow is almost certainly on **old code** and/or **old schema**:
-
-1. **Push** latest commits to GitHub (must include migration `002` and workflow `alembic upgrade head` step).
-2. Re-run workflow; confirm step **Run database migrations** succeeds.
-3. On Neon SQL console, verify column type:
-   ```sql
-   SELECT character_maximum_length
-   FROM information_schema.columns
-   WHERE table_name = 'printings' AND column_name = 'set_rarity_code';
-   ```
-   Expected: **64**. If **16**, run locally:
-   ```powershell
-   $env:DATABASE_URL="postgresql://...neon pooled url..."
-   alembic upgrade head
-   ```
-4. Re-run **Import YGO catalog**.
-5. If tables were created only via `init_db()` / `create_all()` before migration existed, run `alembic upgrade head` (or rely on [`migration_bootstrap.py`](ygo_app/migration_bootstrap.py) stamp on deploy).
+1. Render `DATABASE_URL` must match Neon DB used by GitHub Actions secret.
+2. Re-run **Import YGO catalog** workflow.
+3. Check `GET /api/status` → `cards` should be ~14k.
 
 ---
 
@@ -152,15 +148,17 @@ python -m ygo_app.jobs.import_catalog
 uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
 ```
 
+Build (Blueprint): `pip install -r requirements.txt && alembic upgrade head`
+
 ---
 
 ## 7. Environment variables
 
 | Variable | Local | Cloud |
 |----------|-------|-------|
-| `DATABASE_URL` | unset → SQLite | Neon pooled URL (required) |
+| `DATABASE_URL` | unset → SQLite | Neon pooled URL (required on Render + GitHub secret) |
 | `ENV` | `development` | `production` |
-| `SECRET_KEY` | dev default | strong random (Render generated) |
+| `SECRET_KEY` | dev default | strong random (Render `generateValue`) |
 | `PORT` | 8000 | Render `$PORT` |
 
 See [`.env.example`](.env.example).
@@ -174,7 +172,7 @@ See [`.env.example`](.env.example).
 | `cards`, `printings` | Global catalog (import job) |
 | `users` | Auth |
 | `collection_items`, `decks`, `deck_cards` | `user_id` FK |
-| `user_favorites`, `user_card_tags` | Per user (replaced `Card.is_favorite` / global `card_tags`) |
+| `user_favorites`, `user_card_tags` | Per user |
 
 **Rarity matching:** DragonShield `UR` → stored as `(UR)` via [`normalize_rarity_code`](ygo_app/utils.py). Collection joins printings on `(set_code, rarity_code)`.
 
@@ -182,12 +180,14 @@ See [`.env.example`](.env.example).
 
 ## 9. Deploy order (free stack)
 
-1. Neon project → copy **pooled** `DATABASE_URL`
-2. GitHub secret `DATABASE_URL`
-3. Push repo with migration `002` + updated workflow
-4. Run **Import YGO catalog** (migrations then import)
-5. Render **Blueprint `render-free.yaml`** → set same `DATABASE_URL`
-6. Register on live URL; CSV import via UI (logged in)
+| Step | Action | Status |
+|------|--------|--------|
+| 1 | Neon project → pooled `DATABASE_URL` | Done |
+| 2 | GitHub secret `DATABASE_URL` | Done |
+| 3 | Push repo (migrations, bootstrap, `render.yaml`) | Done |
+| 4 | **Import YGO catalog** workflow | Done (~14k cards) |
+| 5 | Render Blueprint **`render.yaml`** → set `DATABASE_URL` + `SECRET_KEY` | Done |
+| 6 | Verify `/api/health`, `/api/status`, register, CSV import | **User next** |
 
 Full steps: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
 
@@ -195,10 +195,11 @@ Full steps: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
 
 ## 10. Suggested next tasks (priority)
 
-1. **Verify live app:** Render URL, register, CSV import, search.
-2. **Commit/push** blueprint fixes (`render.yaml` free default) if not on `main` yet.
-3. Optional: Neon storage check after full import (stay under 0.5 GB free).
-4. Optional: add note in README linking `agent_handoff.md`.
+1. **Live app:** Confirm Render `DATABASE_URL`; open `/api/status` (`cards` ~14371); register; import DragonShield CSV.
+2. **Push handoff/blueprint commits** to `main` if any local changes are unpushed.
+3. **Catalog refresh:** Re-run GitHub import workflow monthly (or use schedule in workflow).
+4. Optional: Neon storage dashboard (stay under 0.5 GB free).
+5. Optional: README link to this handoff file.
 
 ---
 
@@ -208,6 +209,7 @@ Full steps: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
 - Run `get_images.py` (deprecated; wastes disk)
 - Use Render free Postgres (30-day expiry)
 - Commit secrets or `DATABASE_URL` to git
+- Use `render-paid.yaml` for the free Neon stack
 
 ---
 
@@ -216,6 +218,7 @@ Full steps: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
 | Check | Expected |
 |-------|----------|
 | `GET /api/health` | `{"ok": true}` |
-| `GET /api/status` | `ready: true`, `cards` > 0 after import |
+| `GET /api/status` | `ready: true`, `cards` ~**14371** |
 | GitHub import log end | `Catalog import complete: N cards, M printings` |
-| Neon column | `printings.set_rarity_code` length **64** |
+| Neon | ~14k rows in `cards`; `set_rarity_code` length **64** |
+| Render build | `alembic upgrade head` succeeds (bootstrap stamp if legacy schema) |

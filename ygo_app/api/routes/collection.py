@@ -108,17 +108,6 @@ async def import_csv(
     replace: bool = True,
     user: User = Depends(get_current_user),
 ):
-    # #region agent log
-    import json, time
-    from pathlib import Path as LogPath
-    _log_path = LogPath(__file__).resolve().parents[3] / "debug-95565b.log"
-    def _dbg(msg, data, hyp):
-        try:
-            with open(_log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"95565b","location":"collection.py:import_csv","message":msg,"data":data,"hypothesisId":hyp,"timestamp":int(time.time()*1000),"runId":"pre-fix"}) + "\n")
-        except Exception:
-            pass
-    # #endregion
     if not file or not file.filename:
         raise HTTPException(400, "Upload a CSV file (multipart form field: file)")
     suffix = ".csv"
@@ -126,17 +115,5 @@ async def import_csv(
         content = await file.read()
         tmp.write(content)
         path = tmp.name
-    # #region agent log
-    _dbg("upload saved", {"filename": file.filename, "bytes": len(content), "pathType": type(path).__name__}, "A")
-    # #endregion
-    try:
-        count = import_collection_csv(path, user_id=user.id, replace=replace)
-        # #region agent log
-        _dbg("import ok", {"imported": count, "userId": user.id}, "A")
-        # #endregion
-        return {"imported": count}
-    except Exception as exc:
-        # #region agent log
-        _dbg("import failed", {"errorType": type(exc).__name__, "error": str(exc)[:500]}, "A")
-        # #endregion
-        raise
+    count = import_collection_csv(path, user_id=user.id, replace=replace)
+    return {"imported": count}

@@ -39,19 +39,6 @@ def search(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ):
-    # #region agent log
-    import json, time
-    from pathlib import Path
-    _log_path = Path(__file__).resolve().parents[3] / "debug-95565b.log"
-    _t0 = time.time()
-    def _dbg(msg, data, hyp):
-        try:
-            with open(_log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"95565b","location":"cards.py:search","message":msg,"data":data,"hypothesisId":hyp,"timestamp":int(time.time()*1000),"runId":"pre-fix"}) + "\n")
-        except Exception:
-            pass
-    _dbg("search start", {"offset": offset, "limit": limit, "authenticated": user is not None}, "F")
-    # #endregion
     effective_limit = limit if limit is not None else SEARCH_DEFAULT_LIMIT
     cards, total = search_cards(
         db,
@@ -93,9 +80,6 @@ def search(
                 owned_quantity=extra["owned_quantity"],
             )
         )
-    # #region agent log
-    _dbg("search done", {"offset": offset, "items": len(results), "total": total, "ms": int((time.time()-_t0)*1000)}, "F")
-    # #endregion
     return CardSearchPage(
         items=results, total=total, limit=effective_limit, offset=offset
     )

@@ -191,6 +191,37 @@ def search_cards(
     return list(cards), int(total)
 
 
+def card_summaries_batch(
+    session: Session, cards: list[Card], user_id: int | None
+) -> dict[int, dict]:
+    if not cards:
+        return {}
+    if user_id is None:
+        return {
+            c.id: {"owned": False, "owned_quantity": 0, "is_favorite": False} for c in cards
+        }
+    card_ids = [c.id for c in cards]
+    owned_map = _owned_by_card(session, card_ids, user_id)
+    fav_ids = set(
+        session.execute(
+            select(UserFavorite.card_id).where(
+                UserFavorite.user_id == user_id,
+                UserFavorite.card_id.in_(card_ids),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        cid: {
+            "owned": owned_map.get(cid, 0) > 0,
+            "owned_quantity": owned_map.get(cid, 0),
+            "is_favorite": cid in fav_ids,
+        }
+        for cid in card_ids
+    }
+
+
 def card_to_summary(session: Session, card: Card, user_id: int | None) -> dict:
     if user_id is None:
         return {"owned": False, "owned_quantity": 0, "is_favorite": False}

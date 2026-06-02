@@ -1,4 +1,23 @@
 const API = "/api";
+
+// #region agent log
+function _dbg(location, message, data, hypothesisId) {
+  fetch("http://127.0.0.1:7367/ingest/7f5f8718-6e23-436a-8207-46a7d2058bd3", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "95565b" },
+    body: JSON.stringify({
+      sessionId: "95565b",
+      location,
+      message,
+      data,
+      hypothesisId,
+      timestamp: Date.now(),
+      runId: "pre-fix",
+    }),
+  }).catch(() => {});
+}
+// #endregion
+
 const IMG_PLACEHOLDER =
   "data:image/svg+xml," +
   encodeURIComponent(
@@ -22,10 +41,22 @@ const state = {
 async function api(path, options = {}) {
   const headers = { Accept: "application/json", ...(options.headers || {}) };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  // #region agent log
+  const _t0 = Date.now();
+  _dbg("app.js:api", "request start", { path, hasToken: Boolean(state.token) }, "A");
+  // #endregion
   const res = await fetch(`${API}${path}`, {
     headers,
     ...options,
   });
+  // #region agent log
+  _dbg(
+    "app.js:api",
+    "request done",
+    { path, status: res.status, ok: res.ok, ms: Date.now() - _t0 },
+    "A"
+  );
+  // #endregion
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || res.statusText);
@@ -154,21 +185,23 @@ function switchView(name) {
 
 const SEARCH_PAGE_SIZE = 500;
 
-async function fetchAllSearchCards(baseParams) {
-  const all = [];
-  let offset = 0;
-  let total = 0;
-  while (true) {
-    const pageParams = new URLSearchParams(baseParams);
-    pageParams.set("limit", String(SEARCH_PAGE_SIZE));
-    pageParams.set("offset", String(offset));
-    const page = await api(`/cards/search?${pageParams}`);
-    all.push(...page.items);
-    total = page.total;
-    if (!page.items.length || all.length >= total) break;
-    offset += page.items.length;
-  }
-  return { cards: all, total };
+async function fetchSearchPage(baseParams, offset = 0) {
+  const pageParams = new URLSearchParams(baseParams);
+  pageParams.set("limit", String(SEARCH_PAGE_SIZE));
+  pageParams.set("offset", String(offset));
+  // #region agent log
+  _dbg("app.js:fetchSearchPage", "page request", { offset, params: String(baseParams) }, "B");
+  // #endregion
+  const page = await api(`/cards/search?${pageParams}`);
+  // #region agent log
+  _dbg(
+    "app.js:fetchSearchPage",
+    "page fetched",
+    { offset, items: page.items.length, total: page.total },
+    "B"
+  );
+  // #endregion
+  return page;
 }
 
 function renderSearchResults(cards, total) {
@@ -178,7 +211,7 @@ function renderSearchResults(cards, total) {
     return;
   }
   grid.innerHTML =
-    `<p class="empty-msg search-count">${cards.length.toLocaleString()} of ${total.toLocaleString()} cards</p>` +
+    `<p class="empty-msg search-count">${cards.length.toLocaleString()} of ${total.toLocaleString()} cards shown</p>` +
     cards
       .map(
         (c) => `
@@ -216,10 +249,19 @@ async function runSearch(e) {
   const grid = $("#search-results");
   grid.innerHTML = '<p class="empty-msg">Searching…</p>';
 
+  // #region agent log
+  _dbg("app.js:runSearch", "search start", { q: $("#q").value.trim(), hasToken: Boolean(state.token) }, "E");
+  // #endregion
   try {
-    const { cards, total } = await fetchAllSearchCards(params);
-    renderSearchResults(cards, total);
+    const page = await fetchSearchPage(params, 0);
+    // #region agent log
+    _dbg("app.js:runSearch", "search success", { cards: page.items.length, total: page.total }, "E");
+    // #endregion
+    renderSearchResults(page.items, page.total);
   } catch (err) {
+    // #region agent log
+    _dbg("app.js:runSearch", "search error", { message: err.message }, "E");
+    // #endregion
     grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;
   }
 }
@@ -601,13 +643,22 @@ function wireEvents() {
 }
 
 async function init() {
+  // #region agent log
+  _dbg("app.js:init", "init start", { hasToken: Boolean(state.token) }, "C");
+  // #endregion
   wireEvents();
   updateAuthUI();
   try {
     if (state.token) {
       try {
         state.user = await api("/auth/me");
-      } catch {
+        // #region agent log
+        _dbg("app.js:init", "auth/me ok", { email: state.user?.email }, "D");
+        // #endregion
+      } catch (err) {
+        // #region agent log
+        _dbg("app.js:init", "auth/me failed", { message: err?.message }, "D");
+        // #endregion
         state.token = null;
         state.user = null;
         localStorage.removeItem("ygo_token");
@@ -615,9 +666,21 @@ async function init() {
     }
     updateAuthUI();
     await loadStatus();
+    // #region agent log
+    _dbg("app.js:init", "loadStatus done", {}, "C");
+    // #endregion
     if (state.token) await loadFilters();
+    // #region agent log
+    _dbg("app.js:init", "before runSearch", { hasToken: Boolean(state.token) }, "C");
+    // #endregion
     await runSearch();
+    // #region agent log
+    _dbg("app.js:init", "init complete", {}, "C");
+    // #endregion
   } catch (err) {
+    // #region agent log
+    _dbg("app.js:init", "init error", { message: err.message }, "C");
+    // #endregion
     $("#status-line").textContent = err.message;
   }
 }

@@ -16,7 +16,12 @@ elif DATABASE_URL.startswith("postgresql"):
         # Neon and most cloud Postgres require TLS
         _connect_args["sslmode"] = "require"
 
-engine = create_engine(_engine_url, connect_args=_connect_args)
+engine = create_engine(
+    _engine_url,
+    connect_args=_connect_args,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 
 @event.listens_for(engine, "connect")

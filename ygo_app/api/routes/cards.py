@@ -9,6 +9,7 @@ from ygo_app.models import Card, Printing, User
 from ygo_app.schemas import CardDetail, CardSearchPage, CardSummary, PrintingOut, TagMutate
 from ygo_app.services import (
     add_user_tag,
+    card_summaries_batch,
     card_to_summary,
     get_card_detail,
     get_user_tags,
@@ -38,6 +39,19 @@ def search(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ):
+    # #region agent log
+    import json, time
+    from pathlib import Path
+    _log_path = Path(__file__).resolve().parents[3] / "debug-95565b.log"
+    _t0 = time.time()
+    def _dbg(msg, data, hyp):
+        try:
+            with open(_log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId":"95565b","location":"cards.py:search","message":msg,"data":data,"hypothesisId":hyp,"timestamp":int(time.time()*1000),"runId":"pre-fix"}) + "\n")
+        except Exception:
+            pass
+    _dbg("search start", {"offset": offset, "limit": limit, "authenticated": user is not None}, "F")
+    # #endregion
     effective_limit = limit if limit is not None else SEARCH_DEFAULT_LIMIT
     cards, total = search_cards(
         db,
@@ -56,8 +70,11 @@ def search(
         offset=offset,
     )
     results = []
+    extras = card_summaries_batch(db, cards, user.id if user else None)
     for card in cards:
-        extra = card_to_summary(db, card, user.id if user else None)
+        extra = extras.get(
+            card.id, {"owned": False, "owned_quantity": 0, "is_favorite": False}
+        )
         results.append(
             CardSummary(
                 id=card.id,
@@ -76,6 +93,9 @@ def search(
                 owned_quantity=extra["owned_quantity"],
             )
         )
+    # #region agent log
+    _dbg("search done", {"offset": offset, "items": len(results), "total": total, "ms": int((time.time()-_t0)*1000)}, "F")
+    # #endregion
     return CardSearchPage(
         items=results, total=total, limit=effective_limit, offset=offset
     )

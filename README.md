@@ -108,16 +108,20 @@ Large files stay on your machine (see `.gitignore`): `all_cards.json`, `my_colle
 
 ## Cloud deployment
 
+### Environments (local → staging → production)
+
+**[docs/ENVIRONMENTS.md](docs/ENVIRONMENTS.md)** — branch `develop` → Render **ygo-app-dev** (staging); `main` → **ygo-app** (production). Separate Neon DBs and GitHub secrets.
+
 ### Free permanent stack (recommended for $0)
 
 **Neon** (Postgres, no 30-day expiry) + **Render** (free web) + **GitHub Actions** (catalog import).
 
 Full step-by-step: **[docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md)**
 
-1. Create Neon project → copy **pooled** `DATABASE_URL`
-2. GitHub secret `DATABASE_URL` → run **Import YGO catalog** workflow
-3. Deploy with [`render-free.yaml`](render-free.yaml) → set `DATABASE_URL` on the web service
-4. Register on the live URL; import collection CSV when logged in
+1. Create Neon project (production + **dev** branch) → pooled URLs
+2. GitHub secrets `DATABASE_URL` (prod) and `DATABASE_URL_DEV` (dev) → **Import YGO catalog** workflow per environment
+3. Deploy [`render.yaml`](render.yaml) → set `DATABASE_URL` on **ygo-app** (main) and **ygo-app-dev** (develop)
+4. Register on staging/prod URLs; import collection CSV when logged in
 
 ```bash
 # Production-style start (Linux / Render)

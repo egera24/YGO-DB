@@ -41,32 +41,37 @@ alembic upgrade head
 ## Step 2: GitHub secrets and catalog import
 
 1. Open your repo on GitHub → **Settings** → **Secrets and variables** → **Actions**.
-2. **New repository secret**:
-   - Name: `DATABASE_URL`
-   - Value: Neon **pooled** connection string from Step 1.
-3. Go to **Actions** → **Import YGO catalog** → **Run workflow** (manual).
+2. **Repository secrets**:
+   - `DATABASE_URL` — Neon **production** branch pooled URL
+   - `DATABASE_URL_DEV` — Neon **dev** branch pooled URL (for staging / local parity)
+3. Go to **Actions** → **Import YGO catalog** → **Run workflow** → choose **production** or **dev**.
 4. Wait until the job finishes (several minutes for ~14k cards). Logs should end with:  
    `Catalog import complete: … cards, … printings.`
 
-To refresh card data later, run the same workflow again (or wait for the monthly schedule if enabled).
+To refresh card data later, run the workflow again (monthly schedule runs **production** only).
 
 ### Optional: DB keep-alive workflow
 
-The **Neon DB keep-alive** workflow runs `SELECT 1` every few days so the database wakes from scale-to-zero less often. It uses the same `DATABASE_URL` secret.
+The **Neon DB keep-alive** workflow pings **production** and **dev** databases every few days (requires both secrets).
+
+See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → production workflow.
 
 ---
 
-## Step 3: Render web service (free)
+## Step 3: Render web services (free)
+
+[`render.yaml`](../render.yaml) defines **two** services: **ygo-app-dev** (`develop` branch) and **ygo-app** (`main`).
 
 ### Option A — Blueprint
 
 1. Render Dashboard → **New** → **Blueprint**.
 2. Connect the GitHub repo.
 3. Use the default **`render.yaml`** (free web only). Do **not** use `render-paid.yaml` unless you want paid Render Postgres.
-4. After the blueprint is created, open the **ygo-app** web service → **Environment**.
-5. Set **`DATABASE_URL`** to your Neon pooled URL (blueprint leaves it unset with `sync: false`).
-6. Confirm **`SECRET_KEY`** was generated (or add your own long random string).
-7. Deploy / wait for **Live**.
+4. After the blueprint is created, open each web service → **Environment**:
+   - **ygo-app-dev** → `DATABASE_URL` = Neon **dev** pooled URL
+   - **ygo-app** → `DATABASE_URL` = Neon **production** pooled URL
+5. Confirm **`SECRET_KEY`** was generated per service (or add your own).
+6. Deploy / wait for **Live** on both.
 
 ### Option B — Manual web service
 

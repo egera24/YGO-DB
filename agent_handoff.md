@@ -193,14 +193,14 @@ See [`.env.example`](.env.example).
 
 | Step | Action | Status |
 |------|--------|--------|
-| 1 | Neon project → pooled `DATABASE_URL` | Done |
-| 2 | GitHub secret `DATABASE_URL` | Done |
-| 3 | Push repo (migrations, bootstrap, `render.yaml`) | Done |
-| 4 | **Import YGO catalog** workflow | Done (~14k cards) |
-| 5 | Render Blueprint **`render.yaml`** → set `DATABASE_URL` + `SECRET_KEY` | Done |
-| 6 | Verify `/api/health`, `/api/status`, register, CSV import | **User next** |
+| 1 | Neon project → prod + **dev** branch pooled URLs | Done |
+| 2 | GitHub secrets `DATABASE_URL` + `DATABASE_URL_DEV` | User |
+| 3 | Git branches `main` + `develop` | User |
+| 4 | **Import YGO catalog** (prod + dev as needed) | Done (~14k on prod) |
+| 5 | Render **`ygo-app`** (main) + **`ygo-app-dev`** (develop) | User |
+| 6 | Verify staging then prod `/api/status`, register, CSV import | User |
 
-Full steps: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
+Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md). Deploy details: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
 
 ---
 

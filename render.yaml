@@ -1,10 +1,12 @@
-# Free web app + external Neon Postgres (default Blueprint). See docs/DEPLOY_FREE.md
+# Free web apps + external Neon Postgres. See docs/DEPLOY_FREE.md and docs/ENVIRONMENTS.md
 # Paid Render Postgres + cron import: render-paid.yaml
 services:
+  # Staging — deploys from develop; set DATABASE_URL to Neon *dev* branch in Dashboard
   - type: web
-    name: ygo-app
+    name: ygo-app-dev
     runtime: python
     plan: free
+    branch: develop
     buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -14,7 +16,25 @@ services:
         value: "3.12.0"
       - key: SECRET_KEY
         generateValue: true
-      # Set in Render Dashboard: Neon pooled DATABASE_URL
+      - key: DATABASE_URL
+        sync: false
+    healthCheckPath: /api/health
+
+  # Production — deploys from main only; set DATABASE_URL to Neon *production* branch
+  - type: web
+    name: ygo-app
+    runtime: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: SECRET_KEY
+        generateValue: true
       - key: DATABASE_URL
         sync: false
     healthCheckPath: /api/health

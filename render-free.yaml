@@ -1,10 +1,28 @@
-# Alias for the default Blueprint (render.yaml). Kept for docs/backward compatibility.
-# Render discovers render.yaml automatically; this file matches it for explicit selection.
+# Alias for render.yaml (two services: ygo-app-dev + ygo-app). See docs/ENVIRONMENTS.md
 services:
+  - type: web
+    name: ygo-app-dev
+    runtime: python
+    plan: free
+    branch: develop
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+    healthCheckPath: /api/health
+
   - type: web
     name: ygo-app
     runtime: python
     plan: free
+    branch: main
     buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
     envVars:

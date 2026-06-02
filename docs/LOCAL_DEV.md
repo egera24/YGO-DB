@@ -121,4 +121,4 @@ This does **not** match Render behavior (different DB engine, search limits, and
 | 401 on collection/decks | Log in on the dev site (separate from Render login). |
 | Port in use | `python run.py --port 8001 --no-browser` |
 
-See also [DEPLOY_FREE.md](DEPLOY_FREE.md) for Render and GitHub Actions setup.
+See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [DEPLOY_FREE.md](DEPLOY_FREE.md) for Render and GitHub Actions setup.

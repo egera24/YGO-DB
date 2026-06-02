@@ -2,8 +2,17 @@ name: Import YGO catalog
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Target database
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - dev
   schedule:
-    # First day of each month, 03:00 UTC (optional catalog refresh)
+    # First day of each month, 03:00 UTC — production catalog refresh only
     - cron: "0 3 1 * *"
 
 jobs:
@@ -22,11 +31,11 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
         run: alembic upgrade head
 
       - name: Import cards from YGOProDeck API
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
           ENV: production
         run: python -m ygo_app.jobs.import_catalog

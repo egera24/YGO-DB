@@ -13,6 +13,10 @@ Built on your existing data:
 
 ## Quick start
 
+**Production-parity local dev** (same as Render: Neon Postgres, `ENV=production`): see **[docs/LOCAL_DEV.md](docs/LOCAL_DEV.md)**.
+
+**Lightweight SQLite** (offline, not like production):
+
 ```powershell
 cd "c:\Python Projects\YGO App Cursor"
 python -m venv .venv

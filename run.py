@@ -1,16 +1,18 @@
 """Start the YGO Collection & Deck Builder web app."""
 
 import argparse
+import os
 import socket
 import subprocess
 import sys
 import webbrowser
 
-import os
-
 import uvicorn
+from dotenv import load_dotenv
 
-from ygo_app.config import DB_PATH, PORT
+from ygo_app.config import DB_PATH, ENV, IS_PRODUCTION, PORT, ROOT_DIR
+
+load_dotenv(ROOT_DIR / ".env")
 
 
 def _port_in_use(host: str, port: int) -> bool:
@@ -52,9 +54,16 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
+    db_label = "postgres" if DB_PATH is None else "sqlite"
+    print(f"ENV={ENV} · database={db_label} · http://{args.host}:{args.port}/")
+
     if DB_PATH is not None and not DB_PATH.exists():
         print("Database not found. Run first:")
-        print("  python -m ygo_app.import_data")
+        print("  python -m ygo_app.import_data --from-api")
+        print()
+    elif DB_PATH is None and IS_PRODUCTION:
+        print("Postgres mode — ensure alembic upgrade head and catalog import are done.")
+        print("  See docs/LOCAL_DEV.md")
         print()
 
     port_busy = _port_in_use(args.host, args.port)
@@ -71,7 +80,8 @@ def main():
         )
         sys.exit(1)
 
-    url = f"http://{args.host}:{args.port}"
+    browse_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
+    url = f"http://{browse_host}:{args.port}"
     if not args.no_browser:
         webbrowser.open(url)
 

@@ -126,11 +126,22 @@ docs/DEPLOY_FREE.md
 
 ### Local dev
 
+**Production-parity** (Neon dev branch + `.env`): [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)
+
 ```powershell
 cd "c:\Python Projects\YGO App Cursor"
 pip install -r requirements.txt
-python -m ygo_app.import_data --from-api          # catalog → SQLite
-python run.py                                      # http://127.0.0.1:8000
+copy .env.example .env   # ENV=production + dev branch DATABASE_URL
+alembic upgrade head
+python -m ygo_app.jobs.import_catalog
+python run.py
+```
+
+**SQLite fallback** (not like Render):
+
+```powershell
+python -m ygo_app.import_data --from-api
+python run.py
 ```
 
 ### Cloud catalog import (from PC)

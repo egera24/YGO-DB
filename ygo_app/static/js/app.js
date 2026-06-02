@@ -36,6 +36,9 @@ const state = {
   filters: {},
   token: localStorage.getItem("ygo_token") || null,
   user: null,
+  searchPage: 0,
+  searchTotal: 0,
+  searchParams: new URLSearchParams(),
 };
 
 async function api(path, options = {}) {
@@ -204,15 +207,62 @@ async function fetchSearchPage(baseParams, offset = 0) {
   return page;
 }
 
-function renderSearchResults(cards, total) {
+function buildSearchParams() {
+  const params = new URLSearchParams();
+  const q = $("#q").value.trim();
+  const setCode = $("#set-code").value.trim();
+  if (q) params.set("q", q);
+  if (setCode) params.set("set_code", setCode);
+  const frame = $("#frame-type").value;
+  const attr = $("#attribute").value;
+  const race = $("#race").value;
+  if (frame) params.set("frame_type", frame);
+  if (attr) params.set("attribute", attr);
+  if (race) params.set("race", race);
+  if ($("#owned-only").checked) params.set("owned_only", "true");
+  if ($("#favorites-only").checked) params.set("favorites_only", "true");
+  return params;
+}
+
+function renderSearchPagination() {
+  const bar = $("#search-pagination");
+  if (!bar) return;
+  const total = state.searchTotal;
+  const totalPages = Math.max(1, Math.ceil(total / SEARCH_PAGE_SIZE));
+  const page = state.searchPage;
+
+  if (totalPages <= 1) {
+    bar.classList.add("hidden");
+    bar.innerHTML = "";
+    return;
+  }
+
+  const start = page * SEARCH_PAGE_SIZE + 1;
+  const end = Math.min((page + 1) * SEARCH_PAGE_SIZE, total);
+
+  bar.classList.remove("hidden");
+  bar.innerHTML = `
+    <button type="button" id="search-prev" class="secondary"${page === 0 ? " disabled" : ""}>← Previous</button>
+    <span class="search-page-info">Page ${page + 1} of ${totalPages} · ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}</span>
+    <button type="button" id="search-next" class="secondary"${page >= totalPages - 1 ? " disabled" : ""}>Next →</button>`;
+
+  $("#search-prev")?.addEventListener("click", () => {
+    if (state.searchPage > 0) loadSearchPage(state.searchPage - 1);
+  });
+  $("#search-next")?.addEventListener("click", () => {
+    const lastPage = Math.ceil(state.searchTotal / SEARCH_PAGE_SIZE) - 1;
+    if (state.searchPage < lastPage) loadSearchPage(state.searchPage + 1);
+  });
+}
+
+function renderSearchResults(cards) {
   const grid = $("#search-results");
   if (!cards.length) {
     grid.innerHTML = '<p class="empty-msg">No cards found.</p>';
+    $("#search-pagination")?.classList.add("hidden");
     return;
   }
-  grid.innerHTML =
-    `<p class="empty-msg search-count">${cards.length.toLocaleString()} of ${total.toLocaleString()} cards shown</p>` +
-    cards
+  grid.innerHTML = cards
       .map(
         (c) => `
       <article class="card-tile ${c.owned ? "owned" : ""}" data-id="${c.id}">
@@ -230,40 +280,42 @@ function renderSearchResults(cards, total) {
   });
 }
 
-async function runSearch(e) {
-  e?.preventDefault();
-  const params = new URLSearchParams();
-  const q = $("#q").value.trim();
-  const setCode = $("#set-code").value.trim();
-  if (q) params.set("q", q);
-  if (setCode) params.set("set_code", setCode);
-  const frame = $("#frame-type").value;
-  const attr = $("#attribute").value;
-  const race = $("#race").value;
-  if (frame) params.set("frame_type", frame);
-  if (attr) params.set("attribute", attr);
-  if (race) params.set("race", race);
-  if ($("#owned-only").checked) params.set("owned_only", "true");
-  if ($("#favorites-only").checked) params.set("favorites_only", "true");
-
+async function loadSearchPage(pageIndex) {
+  state.searchPage = pageIndex;
+  const offset = pageIndex * SEARCH_PAGE_SIZE;
   const grid = $("#search-results");
   grid.innerHTML = '<p class="empty-msg">Searching…</p>';
+  $("#search-pagination")?.classList.add("hidden");
+
+  // #region agent log
+  _dbg("app.js:loadSearchPage", "page load", { pageIndex, offset }, "E");
+  // #endregion
+  try {
+    const page = await fetchSearchPage(state.searchParams, offset);
+    state.searchTotal = page.total;
+    // #region agent log
+    _dbg("app.js:loadSearchPage", "page success", { pageIndex, cards: page.items.length, total: page.total }, "E");
+    // #endregion
+    renderSearchResults(page.items);
+    renderSearchPagination();
+    $("#search-pagination")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    // #region agent log
+    _dbg("app.js:loadSearchPage", "page error", { message: err.message }, "E");
+    // #endregion
+    grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function runSearch(e) {
+  e?.preventDefault();
+  state.searchParams = buildSearchParams();
+  state.searchPage = 0;
 
   // #region agent log
   _dbg("app.js:runSearch", "search start", { q: $("#q").value.trim(), hasToken: Boolean(state.token) }, "E");
   // #endregion
-  try {
-    const page = await fetchSearchPage(params, 0);
-    // #region agent log
-    _dbg("app.js:runSearch", "search success", { cards: page.items.length, total: page.total }, "E");
-    // #endregion
-    renderSearchResults(page.items, page.total);
-  } catch (err) {
-    // #region agent log
-    _dbg("app.js:runSearch", "search error", { message: err.message }, "E");
-    // #endregion
-    grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;
-  }
+  await loadSearchPage(0);
 }
 
 const MODAL_TEXT = "#e8eef7";

@@ -116,6 +116,28 @@ button.primary, .search-panel button[type="submit"] {
   font-weight: 600;
 }
 button.secondary { background: transparent; }
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.search-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.search-page-info {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
 
 .check { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 0.35rem; }
 

@@ -546,6 +546,9 @@ function wireEvents() {
         headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
         body: form,
       });
+      // #region agent log
+      fetch("http://127.0.0.1:7367/ingest/7f5f8718-6e23-436a-8207-46a7d2058bd3",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"95565b"},body:JSON.stringify({sessionId:"95565b",location:"app.js:import-csv",message:"import response",data:{status:res.status,ok:res.ok},timestamp:Date.now(),hypothesisId:"A",runId:"pre-fix"})}).catch(()=>{});
+      // #endregion
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || res.statusText);

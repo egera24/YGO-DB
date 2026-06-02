@@ -188,8 +188,9 @@ def _link_printing(session: Session, set_code: str, rarity_code: str) -> int | N
 
 
 def import_collection_csv(
-    path: Path, *, user_id: int, replace: bool = True
+    path: Path | str, *, user_id: int, replace: bool = True
 ) -> int:
+    path = Path(path)
     init_db()
     session = SessionLocal()
     imported = 0

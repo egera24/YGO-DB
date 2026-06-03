@@ -1,4 +1,6 @@
-name: Import YGO catalog
+name: Import YGO catalog (YGOProDeck API fallback)
+
+# Emergency rollback only — primary catalog is import-catalog-yugipedia.yml
 
 on:
   workflow_dispatch:
@@ -11,9 +13,6 @@ on:
         options:
           - production
           - dev
-  schedule:
-    # First day of each month, 03:00 UTC — production catalog refresh only
-    - cron: "0 3 1 * *"
 
 jobs:
   import:

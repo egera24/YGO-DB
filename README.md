@@ -4,11 +4,11 @@ Web app for searching Yu-Gi-Oh! cards, tracking physical copies by **set code** 
 
 ## Card images (CDN, no local storage)
 
-Card art is **not** downloaded or stored on your server. Import copies `image_url` / `image_url_small` from YGOProDeck into the database; the browser loads images directly from `images.ygoprodeck.com`. The legacy scripts `ygopro/get_images.py` and `yugipedia/get_images.py` are deprecated and not used by the app.
+Card art is **not** downloaded or stored on your server. Catalog import stores YGOPRODeck CDN URLs (`images.ygoprodeck.com`); the browser loads them at view time.
 
-Built on your existing data:
+**Catalog source (production):** Yugipedia scrape → [`ygo_app/yugipedia/`](ygo_app/yugipedia/) → Neon/Postgres. Fallback: YGOProDeck API (`python -m ygo_app.jobs.import_catalog`).
 
-- `all_cards.json` — YGOProDeck API export (`ygopro/get_ygopro_database.py`)
+- `data/catalog/yugipedia_all_cards.json` — scraped catalog (gitignored)
 - `my_collection.csv` — DragonShield export (`ygopro/get_my_cards.py`)
 
 ## Quick start
@@ -23,7 +23,9 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# One-time catalog import from YGOProDeck API (several minutes)
+# One-time catalog: Yugipedia scrape (~1–2 h) + import, or fast API fallback:
+# python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+# python -m ygo_app.jobs.import_catalog_yugipedia
 python -m ygo_app.import_data --from-api
 
 # Start the app (opens browser); register an account in the header
@@ -79,7 +81,8 @@ ygo_app/           # Application
   api/             # FastAPI routes
   static/          # Web UI
 ygopro/            # Your existing download/merge scripts
-yugipedia/         # Optional extended scrapers
+yugipedia/         # Legacy CLI wrappers; logic in ygo_app/yugipedia/
+  data/catalog/    # Scrape outputs (gitignored)
 cardmarket/        # Optional price scrapers
 all_cards.json
 my_collection.csv
@@ -119,7 +122,7 @@ Large files stay on your machine (see `.gitignore`): `all_cards.json`, `my_colle
 Full step-by-step: **[docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md)**
 
 1. Create Neon project (production + **dev** branch) → pooled URLs
-2. GitHub secrets `DATABASE_URL` (prod) and `DATABASE_URL_DEV` (dev) → **Import YGO catalog** workflow per environment
+2. GitHub secrets `DATABASE_URL` (prod) and `DATABASE_URL_DEV` (dev) → **Import Yugipedia catalog** workflow per environment
 3. Deploy [`render.yaml`](render.yaml) → set `DATABASE_URL` on **ygo-app** (main) and **ygo-app-dev** (develop)
 4. Register on staging/prod URLs; import collection CSV when logged in
 
@@ -135,5 +138,5 @@ Blueprint [`render.yaml`](render.yaml): Starter web + Render Postgres + import j
 ## Notes
 
 - Deck builder stores cards by **passcode** (card identity), not a specific printing — use Collection for printings you own.
-- Optional scrapers (`yugipedia`, `cardmarket`) are not wired in yet; the schema can be extended later for extra prices or images.
+- Yugipedia is the primary catalog pipeline (bi-monthly GitHub Actions + manual). Cardmarket scrapers remain optional for prices.
 - Your original `prompt.txt` mentioned wxPython; this stack uses a browser UI for easier search on large databases. The scrapers in this folder stay unchanged.

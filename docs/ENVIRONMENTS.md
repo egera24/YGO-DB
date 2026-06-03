@@ -75,11 +75,11 @@ If you already had a single `ygo-app` service, set its branch to **main** and ad
 
 **Production** (monthly schedule or manual):
 
-- Actions → **Import YGO catalog** → environment **production**
+- Actions → **Import Yugipedia catalog** → environment **production**
 
 **Dev** (after new branch or reset):
 
-- Actions → **Import YGO catalog** → environment **dev**
+- Actions → **Import Yugipedia catalog** → environment **dev**
 
 Or locally with dev URL in `.env`:
 
@@ -108,7 +108,7 @@ python -m ygo_app.jobs.import_catalog
 
 | Workflow | Purpose |
 |----------|---------|
-| **Import YGO catalog** | Manual: choose **production** or **dev**. Schedule: **production** only. |
+| **Import Yugipedia catalog** | Manual: **production** or **dev**. Schedule: **1st & 15th**, production only. Fallback: Import YGO catalog (YGOProDeck API). |
 | **Neon DB keep-alive** | Pings both DBs (needs both secrets). |
 
 ---

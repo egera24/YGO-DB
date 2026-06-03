@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-01  
+**Last updated:** 2026-06-03  
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 Also referenced in user rules as `agend_handoff.md` (same content; use this path).
@@ -12,215 +12,258 @@ Also referenced in user rules as `agend_handoff.md` (same content; use this path
 | Item | Detail |
 |------|--------|
 | **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user collection (set code + rarity), decks, favorites, tags |
-| **Stack** | Python 3.12, FastAPI, SQLAlchemy 2, Pydantic, static HTML/JS, Alembic |
-| **Local DB** | SQLite `data/ygo.db` when `DATABASE_URL` unset |
+| **Stack** | Python 3.12, FastAPI, SQLAlchemy 2, Pydantic, static HTML/JS, Alembic, `python-dotenv` |
+| **Local DB (fallback)** | SQLite `data/ygo.db` when `DATABASE_URL` unset in `.env` |
+| **Recommended local** | Neon **dev** branch via `.env` (`ENV=production`) — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) |
 | **Cloud DB** | PostgreSQL on **Neon** (pooled URL, `sslmode=require`) — not Render Postgres |
-| **Card images** | **CDN only** — `image_url` / `image_url_small` from YGOProDeck; browser loads `images.ygoprodeck.com`. No local JPGs in app. |
-| **Auth** | JWT (bcrypt + python-jose); register/login in UI header |
+| **Card images** | **CDN only** — YGOProDeck URLs; browser loads `images.ygoprodeck.com` |
+| **Auth** | JWT (`SECRET_KEY` signs tokens; bcrypt for passwords) |
 
-### Production status (user-confirmed)
+### Environments (three tiers)
 
-| Component | Status |
+| Tier | Git branch | Render service | Neon branch |
+|------|------------|----------------|-------------|
+| **Local** | any | — (`python run.py`) | **dev** (`.env`) |
+| **Staging** | `develop` | `ygo-app-dev` | **dev** |
+| **Production** | `main` | `ygo-app` | **main** (production) |
+
+Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md).
+
+### Status snapshot
+
+| Component | Notes |
 |-----------|--------|
-| Neon Postgres | Ready (~**14,371** cards in catalog) |
-| GitHub **Import YGO catalog** | Succeeded (migrations + import) |
-| Render Blueprint (`render.yaml`) | Ready (free `ygo-app` web service) |
-| **Next for user** | Set `DATABASE_URL` on Render if not done; verify `/api/status`; register; import collection CSV |
+| Neon prod | ~**14,371** cards (catalog import) |
+| Neon dev | Separate branch; same schema; own users/data |
+| GitHub | `develop` + `main` on origin; secrets `DATABASE_URL`, `DATABASE_URL_DEV` |
+| Render | Dual services in [`render.yaml`](render.yaml); user sets `DATABASE_URL` per service in Dashboard |
+| UI search | Paginated (500/page); batch owned/favorite queries on search API |
 
 ---
 
 ## 2. Architecture
 
 ```mermaid
-flowchart LR
-  Browser --> RenderWeb["Render free Web Service"]
-  RenderWeb --> Neon["Neon Postgres DATABASE_URL"]
-  GHA["GitHub Actions import-catalog"] --> Neon
-  GHA --> YGOAPI["db.ygoprodeck.com API"]
+flowchart TB
+  subgraph local [Local PC]
+    RunPy["python run.py"]
+    DotEnv[".env"]
+  end
+  subgraph github [GitHub]
+    Develop["branch develop"]
+    Main["branch main"]
+    GHA["Actions: import-catalog, db-keepalive"]
+  end
+  subgraph render [Render free]
+    DevWeb["ygo-app-dev"]
+    ProdWeb["ygo-app"]
+  end
+  subgraph neon [Neon Postgres]
+    DevDB["dev branch"]
+    ProdDB["production branch"]
+  end
+  Browser --> DevWeb
+  Browser --> ProdWeb
+  Browser --> RunPy
+  DotEnv --> RunPy
+  RunPy --> DevDB
+  Develop --> DevWeb
+  Main --> ProdWeb
+  DevWeb --> DevDB
+  ProdWeb --> ProdDB
+  GHA --> DevDB
+  GHA --> ProdDB
   Browser --> CDN["images.ygoprodeck.com"]
+  GHA --> Yugipedia["Yugipedia scrape"]
 ```
 
-### Free permanent cloud (active setup)
+### Free permanent cloud
 
 | Piece | File / service |
 |-------|----------------|
-| Web | [`render.yaml`](render.yaml) — default Blueprint, `plan: free`; set `DATABASE_URL` in Render Dashboard |
-| DB | Neon pooled connection string |
-| Catalog seed | [`.github/workflows/import-catalog.yml`](.github/workflows/import-catalog.yml) |
-| DB ping | [`.github/workflows/db-keepalive.yml`](.github/workflows/db-keepalive.yml) (every 3 days) |
-| Docs | [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md) |
-| Blueprint alias | [`render-free.yaml`](render-free.yaml) — same as `render.yaml` |
+| Staging web | `ygo-app-dev` — branch **`develop`** |
+| Production web | `ygo-app` — branch **`main`** |
+| Blueprint | [`render.yaml`](render.yaml), alias [`render-free.yaml`](render-free.yaml) |
+| DB | Neon pooled URLs (never Render free Postgres — 30-day expiry) |
+| Catalog | [`.github/workflows/import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) — scrape + import; **1st & 15th** monthly (prod); manual prod/dev; fallback: [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) |
+| DB ping | [`.github/workflows/db-keepalive.yml`](.github/workflows/db-keepalive.yml) — prod + dev jobs |
+| Docs | [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md), [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md), [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md) |
 
 ### Paid alternative
 
-[`render-paid.yaml`](render-paid.yaml) — Starter web + Render Postgres (`databases:`) + monthly `type: cron` import (not $0). Do **not** use for free stack.
+[`render-paid.yaml`](render-paid.yaml) — Starter web + Render Postgres + cron. **Do not** use for the free Neon stack.
 
 ---
 
-## 3. Repository layout (important paths)
+## 3. Git workflow (layman)
+
+| Action | Effect |
+|--------|--------|
+| **commit** | Save snapshot locally |
+| **push `develop`** | Updates GitHub → deploys **staging** only |
+| **merge `develop` → `main`** | Promotes code → deploys **production** |
+| **pull** | Download latest from GitHub |
+
+Day-to-day: work on `develop` → push → test staging URL → PR/merge to `main` → smoke-test prod.
+
+`.env` is **gitignored**; never commit secrets.
+
+---
+
+## 4. Repository layout (important paths)
 
 ```
 ygo_app/
-  api/main.py, api/routes/     # FastAPI app; startup calls init_db() (search index only on Postgres)
-  models.py                    # SQLAlchemy models (multi-user); rarity columns String(64)
-  database.py                  # ENGINE; Neon SSL via connect_args
-  import_data.py               # JSON/API/CSV import; create_all only on SQLite
-  migration_bootstrap.py       # Stamps Alembic if tables exist without alembic_version
-  jobs/import_catalog.py       # GHA entrypoint
-  services.py, search_index.py # Search: SQLite FTS5 vs Postgres to_tsvector
-  auth.py                      # JWT + bcrypt
-  static/                      # UI
-alembic/versions/
-  001_initial_multiuser.py     # Full schema; printings already use VARCHAR(64) in 001
-  002_widen_rarity_code.py     # Alters 16→64 for DBs created before model fix
-alembic/env.py                 # Calls stamp_legacy_schema_if_needed before migrate
-render.yaml                    # Free web Blueprint (Render default)
-render-paid.yaml               # Paid Blueprint
-render-free.yaml               # Alias of render.yaml
-docs/DEPLOY_FREE.md
+  yugipedia/             # passcodes, details scrape, adapter, CDN image URLs
+  jobs/                  # scrape_yugipedia_catalog, import_catalog_yugipedia
+  config.py              # load_dotenv; ENV, DATABASE_URL, search limits
+  database.py            # pool_pre_ping on Postgres; SQLite pragmas
+  api/main.py, routes/   # FastAPI; DevStaticFiles vs cached static by ENV
+  import_data.py         # CSV import; Path(str) for upload temp files
+  services.py            # card_summaries_batch (search N+1 fix)
+  auth.py                # JWT + bcrypt
+  static/js/app.js       # Search pagination; fetchSearchPage 500 limit
+alembic/versions/        # 001 initial, 002 rarity widen
+render.yaml              # ygo-app-dev (develop) + ygo-app (main)
+.env.example             # prod-parity template; copy to .env
+docs/
+  ENVIRONMENTS.md        # staging/prod promotion
+  LOCAL_DEV.md           # Neon dev + .env
+  DEPLOY_FREE.md         # Neon + Render + GHA setup
 .github/workflows/
+run.py                   # dotenv; startup ENV/db summary
 ```
 
 ---
 
-## 4. What was implemented (recent sessions)
+## 5. What was implemented (recent sessions)
 
-1. **Cloud-ready refactor:** env config ([`ygo_app/config.py`](ygo_app/config.py)), multi-user models, JWT auth, per-user collection/decks/favorites/tags.
-2. **Image strategy:** CDN-only; deprecated `ygopro/get_images.py` and `yugipedia/get_images.py`.
-3. **Permanent free stack:** Neon + Render free + GitHub Actions catalog import.
-4. **Import from API:** `python -m ygo_app.jobs.import_catalog` (no `all_cards.json` on server).
-5. **Rarity column fix:** `String(64)` + migration `002`; GHA runs `alembic upgrade head` before import.
-6. **Alembic bootstrap:** [`migration_bootstrap.py`](ygo_app/migration_bootstrap.py) stamps `001` or `002` when schema was created via `create_all` (fixes `DuplicateTable: users` on deploy).
-7. **Postgres schema:** `init_db()` skips `create_all` on Postgres; Alembic owns cloud DDL.
-8. **Render Blueprint fix:** Root `render.yaml` = free web only; paid stack moved to `render-paid.yaml` with valid `databases:` + `type: cron` (old `render.yaml` had invalid `pserv`/`jobs` keys).
+### Infrastructure and dev experience
 
----
+1. **Prod-parity local:** `python-dotenv`, `.env` + Neon dev branch, [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md).
+2. **Three-tier deploy:** `develop` → `ygo-app-dev`; `main` → `ygo-app`; [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md).
+3. **Dual GitHub secrets:** `DATABASE_URL` (prod), `DATABASE_URL_DEV` (dev); import workflow `environment` input; keepalive pings both.
 
-## 5. Resolved issues (reference)
+### App fixes (prod + local)
 
-### GitHub import — `varchar(16)` truncation (fixed)
+4. **Search at scale:** Client loads one page (500 cards), pagination UI; no full-catalog fetch (~29 requests).
+5. **Search API:** `card_summaries_batch()` — batch owned/favorite instead of per-card DB queries.
+6. **Postgres pool:** `pool_pre_ping=True`, `pool_recycle=300` in [`database.py`](ygo_app/database.py).
+7. **CSV import:** `import_collection_csv(Path | str)` — fixes 500 when API passed temp path string.
 
-- **Was:** `StringDataRightTruncation` on long synthesized rarity labels (e.g. `(Quarter Century Secret Rare)`).
-- **Fix:** Model + migration `002`; workflow runs migrations before import.
-- **Verify:** `printings.set_rarity_code` max length **64** in Neon; import log ends with `Catalog import complete: …`.
+### Earlier (still relevant)
 
-### Alembic — `relation "users" already exists` (fixed)
+8. Cloud refactor, CDN images, Alembic bootstrap, rarity `String(64)` + migration `002`, GHA catalog import.
 
-- **Was:** `alembic upgrade` from empty version while tables existed (Render/`init_db` `create_all`).
-- **Fix:** `stamp_legacy_schema_if_needed` in [`alembic/env.py`](alembic/env.py); Postgres no longer uses `create_all` in [`init_db()`](ygo_app/import_data.py).
+### Yugipedia catalog (2026-06-03)
 
-### Render Blueprint validation errors (fixed)
-
-- **Was:** `databaseName`/`user` on service; top-level `jobs:` invalid.
-- **Fix:** Free blueprint in `render.yaml`; Postgres + cron in `render-paid.yaml`.
-
-### If catalog empty on live site
-
-1. Render `DATABASE_URL` must match Neon DB used by GitHub Actions secret.
-2. Re-run **Import YGO catalog** workflow.
-3. Check `GET /api/status` → `cards` should be ~14k.
+9. **Catalog source:** Yugipedia scrape → `data/catalog/*.json` → DB (printings include multi-rarity per set code).
+10. **CLI:** `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` then `import_catalog_yugipedia`.
+11. **Multi-rarity fix:** `extract_rarities_from_cell` uses all `<a>` in rarity column (not `<br>` split).
 
 ---
 
-## 6. Commands cheat sheet
+## 6. Resolved issues (reference)
 
-### Local dev
+| Issue | Fix |
+|-------|-----|
+| Stuck on "Searching…" on Render | Paginated search + batch summaries (14k cards) |
+| CSV import Internal Server Error | `Path(path)` in `import_collection_csv` |
+| `varchar(16)` on import | Migration `002`, model `String(64)` |
+| `users already exists` on migrate | `stamp_legacy_schema_if_needed` in `alembic/env.py` |
+| Idle Neon connections | `pool_pre_ping` |
 
-**Production-parity** (Neon dev branch + `.env`): [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)
+### If catalog empty
+
+1. Match `DATABASE_URL` on Render service to the Neon branch used for import.
+2. Run **Import Yugipedia catalog** (correct environment: prod vs dev).
+3. `GET /api/status` → `cards` ~14k.
+
+---
+
+## 7. Commands cheat sheet
+
+### Local (recommended — Neon dev)
 
 ```powershell
 cd "c:\Python Projects\YGO App Cursor"
 pip install -r requirements.txt
-copy .env.example .env   # ENV=production + dev branch DATABASE_URL
+copy .env.example .env   # ENV=production, DATABASE_URL=dev branch, SECRET_KEY=any
 alembic upgrade head
-python -m ygo_app.jobs.import_catalog
-python run.py
+python -m ygo_app.jobs.import_catalog_yugipedia   # after scrape, or use YGOProDeck: import_catalog
+python run.py              # or: python run.py --reload
 ```
 
-**SQLite fallback** (not like Render):
+### Git (typical)
 
 ```powershell
-python -m ygo_app.import_data --from-api
-python run.py
+git checkout develop
+git add -A && git commit -m "message"
+git push
+# after staging OK:
+git checkout main && git merge develop && git push
 ```
 
-### Cloud catalog import (from PC)
+### GitHub Actions
 
-```powershell
-$env:DATABASE_URL="postgresql://...neon-pooler...?sslmode=require"
-$env:ENV="production"
-alembic upgrade head
-python -m ygo_app.jobs.import_catalog
-```
+- **Import Yugipedia catalog** → choose **production** or **dev** (optional: skip scrape, import-only)
+- **Import YGO catalog (YGOProDeck API fallback)** → emergency rollback
+- **Neon DB keep-alive** — both DBs (needs both secrets)
 
-### Production web (Render)
+### Render build (automatic on deploy)
 
-```bash
-uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT
-```
-
-Build (Blueprint): `pip install -r requirements.txt && alembic upgrade head`
+`pip install -r requirements.txt && alembic upgrade head`  
+`uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT`
 
 ---
 
-## 7. Environment variables
+## 8. Environment variables
 
-| Variable | Local | Cloud |
-|----------|-------|-------|
-| `DATABASE_URL` | unset → SQLite | Neon pooled URL (required on Render + GitHub secret) |
-| `ENV` | `development` | `production` |
-| `SECRET_KEY` | dev default | strong random (Render `generateValue`) |
-| `PORT` | 8000 | Render `$PORT` |
+| Variable | Local (`.env`) | Render / GHA |
+|----------|----------------|--------------|
+| `DATABASE_URL` | Neon **dev** pooled URL | **ygo-app-dev:** dev URL · **ygo-app:** prod URL |
+| `DATABASE_URL_DEV` | — | GitHub Actions dev jobs only |
+| `ENV` | `production` (parity) or unset → `development` + SQLite | `production` |
+| `SECRET_KEY` | any local string | per-service on Render (`generateValue`) |
+| `PORT` | `8000` | `$PORT` |
 
-See [`.env.example`](.env.example).
+Loaded from project-root `.env` via `load_dotenv` in [`config.py`](ygo_app/config.py) and [`run.py`](run.py). See [`.env.example`](.env.example).
 
----
-
-## 8. Data model notes (multi-user)
-
-| Table | Scope |
-|-------|--------|
-| `cards`, `printings` | Global catalog (import job) |
-| `users` | Auth |
-| `collection_items`, `decks`, `deck_cards` | `user_id` FK |
-| `user_favorites`, `user_card_tags` | Per user |
-
-**Rarity matching:** DragonShield `UR` → stored as `(UR)` via [`normalize_rarity_code`](ygo_app/utils.py). Collection joins printings on `(set_code, rarity_code)`.
+**Search limits** when `ENV=production`: default 200, max 500 per request (matches UI `SEARCH_PAGE_SIZE`).
 
 ---
 
-## 9. Deploy order (free stack)
+## 9. Deploy / setup checklist
 
-| Step | Action | Status |
-|------|--------|--------|
-| 1 | Neon project → prod + **dev** branch pooled URLs | Done |
-| 2 | GitHub secrets `DATABASE_URL` + `DATABASE_URL_DEV` | User |
-| 3 | Git branches `main` + `develop` | User |
-| 4 | **Import YGO catalog** (prod + dev as needed) | Done (~14k on prod) |
-| 5 | Render **`ygo-app`** (main) + **`ygo-app-dev`** (develop) | User |
-| 6 | Verify staging then prod `/api/status`, register, CSV import | User |
-
-Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md). Deploy details: [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md).
+| Step | Action |
+|------|--------|
+| 1 | Neon: **main** + **dev** branches; pooled URLs |
+| 2 | GitHub secrets: `DATABASE_URL`, `DATABASE_URL_DEV` |
+| 3 | Git: `main` + `develop` on origin |
+| 4 | Import catalog on prod (and dev if empty) |
+| 5 | Render: **ygo-app** (`main`, prod URL) + **ygo-app-dev** (`develop`, dev URL) |
+| 6 | Local `.env` → dev URL for daily coding |
+| 7 | Verify staging → merge to `main` → verify prod |
 
 ---
 
-## 10. Suggested next tasks (priority)
+## 10. Suggested next tasks
 
-1. **Live app:** Confirm Render `DATABASE_URL`; open `/api/status` (`cards` ~14371); register; import DragonShield CSV.
-2. **Push handoff/blueprint commits** to `main` if any local changes are unpushed.
-3. **Catalog refresh:** Re-run GitHub import workflow monthly (or use schedule in workflow).
-4. Optional: Neon storage dashboard (stay under 0.5 GB free).
-5. Optional: README link to this handoff file.
+1. Confirm Render **ygo-app-dev** exists and staging URL works after push to `develop`.
+2. Optional: GitHub branch protection on `main` (PR required).
+3. Optional: disable auto-deploy on prod Render for manual promote after merge.
+4. Yugipedia catalog runs on schedule (1st & 15th); manual re-run when printings should refresh.
 
 ---
 
 ## 11. Do not do without user ask
 
 - Edit `.cursor/plans/*.plan.md` files
-- Run `get_images.py` (deprecated; wastes disk)
+- Run deprecated `get_images.py` (use `ygo_app.yugipedia.images` URL builder instead)
 - Use Render free Postgres (30-day expiry)
-- Commit secrets or `DATABASE_URL` to git
+- Commit `.env` or real `DATABASE_URL` / secrets to git
 - Use `render-paid.yaml` for the free Neon stack
+- Push experimental work directly to `main` (use `develop`)
 
 ---
 
@@ -230,6 +273,6 @@ Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md). Deploy details: [
 |-------|----------|
 | `GET /api/health` | `{"ok": true}` |
 | `GET /api/status` | `ready: true`, `cards` ~**14371** |
-| GitHub import log end | `Catalog import complete: N cards, M printings` |
-| Neon | ~14k rows in `cards`; `set_rarity_code` length **64** |
-| Render build | `alembic upgrade head` succeeds (bootstrap stamp if legacy schema) |
+| Search UI | "Page 1 of N" with ~500 cards per page |
+| CSV import (logged in) | Success alert; no 500 |
+| `python run.py` startup | `ENV=production · database=postgres · http://127.0.0.1:8000/` (with `.env`) |

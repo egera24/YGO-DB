@@ -1,7 +1,8 @@
 """
 DEPRECATED — Legacy offline image downloader (not used by ygo_app).
 
-The web app loads card art from YGOPRODeck CDN URLs in the database.
+The web app stores YGOPRODeck CDN URLs in the database (see ygo_app.yugipedia.images).
+Use: python -m ygo_app.jobs.import_catalog_yugipedia
 """
 import os
 import json

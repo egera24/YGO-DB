@@ -8,7 +8,7 @@ Render’s free PostgreSQL **expires after 30 days**. This guide uses **Neon** f
 |-----------|---------|------|
 | Database | [Neon](https://neon.com) Free Postgres | $0, permanent |
 | Web app | [Render](https://render.com) Free Web Service | $0 (cold starts after idle) |
-| Catalog import | GitHub Actions | $0 on public repos |
+| Catalog import | GitHub Actions (Yugipedia scrape + import) | $0 on public repos |
 | Card images | YGOPRODeck CDN | $0 (browser loads URLs) |
 
 ## Prerequisites
@@ -44,11 +44,23 @@ alembic upgrade head
 2. **Repository secrets**:
    - `DATABASE_URL` — Neon **production** branch pooled URL
    - `DATABASE_URL_DEV` — Neon **dev** branch pooled URL (for staging / local parity)
-3. Go to **Actions** → **Import YGO catalog** → **Run workflow** → choose **production** or **dev**.
-4. Wait until the job finishes (several minutes for ~14k cards). Logs should end with:  
+3. Go to **Actions** → **Import Yugipedia catalog** → **Run workflow** → choose **production** or **dev**.
+4. Wait until the job finishes (**~1–2 hours** for full scrape + import on first run). Logs should end with:  
    `Catalog import complete: … cards, … printings.`
 
-To refresh card data later, run the workflow again (monthly schedule runs **production** only).
+The workflow runs automatically on the **1st and 15th** of each month (production DB). Use **skip scrape** to import-only from `data/catalog/` if you scraped locally.
+
+Emergency fallback: **Import YGO catalog (YGOProDeck API fallback)** — fast API import, no Yugipedia scrape.
+
+### Local Yugipedia pipeline
+
+```powershell
+pip install -r requirements.txt
+python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+# Resume interrupted scrape:
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume
+python -m ygo_app.jobs.import_catalog_yugipedia
+```
 
 ### Optional: DB keep-alive workflow
 
@@ -106,7 +118,7 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 - [ ] Repo on GitHub  
 - [ ] Neon project created; pooled `DATABASE_URL` copied  
 - [ ] GitHub secret `DATABASE_URL` set  
-- [ ] **Import YGO catalog** workflow succeeded  
+- [ ] **Import Yugipedia catalog** workflow succeeded  
 - [ ] Render free web deployed with same `DATABASE_URL` + `SECRET_KEY`  
 - [ ] Register on live site and test search + CSV import  
 
@@ -126,7 +138,7 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 
 ## Catalog refresh without Render Job
 
-GitHub → **Actions** → **Import YGO catalog** → **Run workflow**.
+GitHub → **Actions** → **Import Yugipedia catalog** → **Run workflow**.
 
 Or from your PC:
 

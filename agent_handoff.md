@@ -103,7 +103,7 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 - **`printings`:** one row per set code + rarity; FK `card_id` → `cards.id`.
 - GHA **environment `dev`** → secret `DATABASE_URL_DEV` → Neon **dev** branch. **production** → `DATABASE_URL` → Neon **main**.
 
-GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 hours**. Artifact `catalog-state` passes JSON between batches. `PYTHONUNBUFFERED=1` on the workflow. Cancel message `The operation was canceled` usually means **job timeout**, not a Python error.
+GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 hours**. Artifact `catalog-state` passes JSON between batches. `PYTHONUNBUFFERED=1` on the workflow. Details scrape logs **`[HEARTBEAT]`** every 60s, **`[FAIL]`** per error (will-retry vs final), **`[BATCH_RETRY]`** rounds, **`[BATCH_RESULT]`** at end (`expected/saved/rejected/missing`). Retries: HTTP 5× per request, then up to **2** batch rounds for transient failures + pool timeouts. CLI exit codes: **0** ok, **1** config, **2** stall (re-run `--resume`), **3** batch incomplete (GHA job fails). Cancel message `The operation was canceled` usually means **job timeout**, not a Python error.
 
 ### GitHub Actions workflows
 

@@ -15,6 +15,17 @@ RETRY_DELAYS = [3, 5, 10, 15, 20]
 
 CHECKPOINT_EVERY = 200
 
+# Details scrape: observability and safety (GHA batch jobs).
+HEARTBEAT_INTERVAL_SECONDS = 60
+STALL_WARN_SECONDS = 120
+STALL_ABORT_SECONDS = 600
+DEGRADED_RATE_THRESHOLD = 1.0
+PROGRESS_LOG_EVERY = 50
+FAILED_RETRY_ROUNDS = 2
+# Per in-flight card: HTTP retries + delays; pool wait uses this ceiling.
+PER_CARD_POOL_TIMEOUT_SECONDS = 240
+SLOW_REQUEST_WARN_SECONDS = 45
+
 # Short codes for known rarities; unknown → empty (import uses full rarity label).
 RARITY_CODES: dict[str, str] = {
     "Common": "C",

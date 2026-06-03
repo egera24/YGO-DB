@@ -13,8 +13,10 @@ from ygo_app.yugipedia.constants import (
     MIN_REQUEST_INTERVAL,
     REQUEST_TIMEOUT,
     RETRY_DELAYS,
+    SLOW_REQUEST_WARN_SECONDS,
     USER_AGENT,
 )
+from ygo_app.yugipedia.scrape_progress import log_line
 
 
 class RateLimiter:
@@ -47,11 +49,22 @@ def fetch_page(scraper, url: str, *, retries: int = MAX_RETRIES) -> tuple[str | 
     for attempt in range(retries):
         try:
             _rate_limiter.acquire()
+            started = time.monotonic()
             response = scraper.get(url, timeout=REQUEST_TIMEOUT)
+            elapsed = time.monotonic() - started
+            if elapsed >= SLOW_REQUEST_WARN_SECONDS:
+                log_line(
+                    f"[WARN] Slow HTTP {elapsed:.1f}s (attempt {attempt + 1}/{retries}) "
+                    f"{url[:80]}"
+                )
             response.raise_for_status()
             return response.text, None
         except cloudscraper.exceptions.CloudflareChallengeError as e:
             error_msg = f"CloudflareError: {str(e)[:100]}"
+            log_line(
+                f"[WARN] Cloudflare challenge (attempt {attempt + 1}/{retries}) "
+                f"{url[:60]}"
+            )
             if attempt < retries - 1:
                 time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
                 continue
@@ -73,6 +86,10 @@ def fetch_page(scraper, url: str, *, retries: int = MAX_RETRIES) -> tuple[str | 
                 ]
             )
             if is_retryable and attempt < retries - 1:
+                log_line(
+                    f"[WARN] Retryable {error_type} (attempt {attempt + 1}/{retries}) "
+                    f"{url[:60]}"
+                )
                 time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
                 continue
             return None, f"{error_type}: {error_str[:100]}"

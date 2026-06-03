@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 from ygo_app.yugipedia.details import scrape_card_details
+from ygo_app.yugipedia.scrape_progress import (
+    BatchIncompleteError,
+    ScrapeStalledError,
+    log_line,
+)
 from ygo_app.yugipedia.passcodes import run_passcode_scrape
 from ygo_app.yugipedia.paths import (
     ALL_CARDS_PATH,
@@ -79,6 +84,18 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as e:
         print(e, file=sys.stderr)
         return 1
+    except ScrapeStalledError as e:
+        log_line(f"[ERROR] Scrape stalled: {e}")
+        print(
+            "No progress for too long. Partial results are checkpointed; "
+            "re-run with --resume.",
+            file=sys.stderr,
+        )
+        return 2
+    except BatchIncompleteError as e:
+        log_line(f"[ERROR] Batch incomplete: {e}")
+        print(str(e), file=sys.stderr)
+        return 3
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1

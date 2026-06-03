@@ -45,8 +45,10 @@ alembic upgrade head
    - `DATABASE_URL` — Neon **production** branch pooled URL
    - `DATABASE_URL_DEV` — Neon **dev** branch pooled URL (for staging / local parity)
 3. Go to **Actions** → **Import Yugipedia catalog** → **Run workflow** → choose **production** or **dev**.
-4. Wait until **all jobs** finish (`prepare` → `passcodes` → `scrape_batch_0` … `scrape_batch_5` → `import`). Total wall clock is often **~2–4 hours** (each batch job stays under its own timeout). The **import** job log should end with:  
+4. Wait until **all jobs** finish (`prepare` → `passcodes` → `scrape_batch_0` … `scrape_batch_5` → `import`). Total wall clock is often **~2–4 hours** (each batch job stays under its own timeout). Each batch log should end with **`[BATCH_RESULT] … missing=0`**. The **import** job log should end with:  
    `Catalog import complete: … cards, … printings.`
+
+   Scrape exit codes: **0** success, **2** stalled (re-run workflow with `--resume`), **3** batch incomplete (fix errors, re-run). Look for **`[HEARTBEAT]`**, **`[FAIL]`**, **`[BATCH_RETRY]`** in batch job logs.
 
 The workflow runs automatically on the **1st and 15th** of each month (production DB). Details scraping is split into **6 batches** (`BATCH_COUNT` in the workflow YAML); cumulative JSON is passed via the `catalog-state` artifact. Use **skip scrape** for import-only (requires `data/catalog/yugipedia_all_cards.json` in the workspace — normally you re-run the full workflow instead).
 

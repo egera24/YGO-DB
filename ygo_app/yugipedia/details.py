@@ -52,6 +52,24 @@ def _save_rejected(path: Path, rejected: list[dict]) -> None:
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
 
+def slice_input_cards_for_batch(
+    input_cards: list[dict],
+    batch_index: int,
+    batch_count: int,
+) -> list[dict]:
+    """Return a contiguous slice of the passcode list for GHA batch jobs."""
+    if batch_count < 1:
+        raise ValueError(f"batch_count must be >= 1, got {batch_count}")
+    if batch_index < 0 or batch_index >= batch_count:
+        raise ValueError(
+            f"batch_index must be in [0, {batch_count - 1}], got {batch_index}"
+        )
+    n = len(input_cards)
+    start = n * batch_index // batch_count
+    end = n * (batch_index + 1) // batch_count
+    return input_cards[start:end]
+
+
 def _process_card(scraper, input_card: dict) -> dict:
     html, error = fetch_page(scraper, input_card["url"])
     if html is None:
@@ -68,10 +86,15 @@ def scrape_card_details(
     output_path: Path | None = None,
     rejected_path: Path | None = None,
     resume: bool = False,
+    batch_index: int | None = None,
+    batch_count: int | None = None,
     checkpoint_every: int = CHECKPOINT_EVERY,
 ) -> tuple[Path, Path, int, int]:
     """
-    Scrape all card pages from passcode list.
+    Scrape card pages from passcode list.
+
+    When batch_index and batch_count are set, only the corresponding slice of
+    the passcode list is scraped (for chained GHA jobs).
 
     Returns (output_path, rejected_path, success_count, rejected_count).
     """
@@ -80,10 +103,23 @@ def scrape_card_details(
     output_path = output_path or ALL_CARDS_PATH
     rejected_path = rejected_path or REJECTED_PATH
 
+    if (batch_index is None) != (batch_count is None):
+        raise ValueError("batch_index and batch_count must both be set or both omitted")
+
     if not input_path.exists():
         raise FileNotFoundError(f"Passcode list not found: {input_path}")
 
     input_cards = _load_json_list(input_path)
+    total_in_list = len(input_cards)
+
+    if batch_index is not None:
+        assert batch_count is not None
+        input_cards = slice_input_cards_for_batch(input_cards, batch_index, batch_count)
+        print(
+            f"Batch {batch_index + 1}/{batch_count}: "
+            f"slice {len(input_cards)} of {total_in_list} passcodes"
+        )
+
     done_passwords: set[str] = set()
     successful_cards: list[dict] = []
 

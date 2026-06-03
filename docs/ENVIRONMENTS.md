@@ -108,7 +108,7 @@ python -m ygo_app.jobs.import_catalog
 
 | Workflow | Purpose |
 |----------|---------|
-| **Import Yugipedia catalog** | Manual: **production** or **dev**. Schedule: **1st & 15th**, production only. Fallback: Import YGO catalog (YGOProDeck API). |
+| **Import Yugipedia catalog** | Chained jobs: passcodes + 6 detail batches + import (~2–4 h). Manual: **production** or **dev**. Schedule: **1st & 15th**, production only. Fallback: Import YGO catalog (YGOProDeck API). |
 | **Neon DB keep-alive** | Pings both DBs (needs both secrets). |
 
 ---

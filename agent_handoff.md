@@ -83,7 +83,7 @@ flowchart TB
 | 2 | [`ygo_app/yugipedia/details.py`](ygo_app/yugipedia/details.py) | `yugipedia_all_cards.json`, `yugipedia_rejected_cards.json` |
 | 3 | [`ygo_app/jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) | Neon `cards` + `printings` |
 
-Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--details-only --resume` supported).
+Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--details-only --resume` supported). GHA uses **6 batched details jobs** (`--batch-index` / `--batch-count`); see workflow below.
 
 **Multi-rarity printings:** [`ygo_app/yugipedia/card_sets.py`](ygo_app/yugipedia/card_sets.py) — all `<a>` tags in rarity cell (not `<br>` split).
 
@@ -103,13 +103,13 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 - **`printings`:** one row per set code + rarity; FK `card_id` → `cards.id`.
 - GHA **environment `dev`** → secret `DATABASE_URL_DEV` → Neon **dev** branch. **production** → `DATABASE_URL` → Neon **main**.
 
-Scrape step on GHA often takes **1.5–2.5 hours** (passcode API + ~14k detail pages at 3 req/s). Job timeout **180 min**. Logs may lag until Python flushes stdout.
+GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 hours**. Artifact `catalog-state` passes JSON between batches. `PYTHONUNBUFFERED=1` on the workflow. Cancel message `The operation was canceled` usually means **job timeout**, not a Python error.
 
 ### GitHub Actions workflows
 
 | Workflow file | Name in UI | On `main`? | Notes |
 |---------------|------------|------------|--------|
-| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | Yes (user pushed) | Manual: branch + **environment** `dev` \| `production`; schedule 1st & 15th → prod |
+| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | Yes (user pushed) | Jobs: `prepare` → `passcodes` → `scrape_batch_0..5` → `import`; `BATCH_COUNT=6`; manual **environment** `dev` \| `production`; schedule 1st & 15th → prod |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck API fallback) | Yes | Manual emergency only |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Yes | Both secrets |
 
@@ -185,7 +185,7 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 
 1. Scrape package under `ygo_app/yugipedia/`; CDN URLs via `images.py` (no downloads).
 2. Multi-rarity `card_sets` extraction + tests (e.g. RA03-EN172).
-3. GHA: scrape + import, 180 min timeout; bi-monthly prod schedule.
+3. GHA: batched scrape (6 detail jobs) + import; bi-monthly prod schedule.
 4. Workflows on `main` for Actions UI; **run from branch `develop`** until app merged to prod.
 5. **`config.py`:** `_normalize_database_url()` — strips whitespace, wrapping quotes, `DATABASE_URL=` prefix; validates URL before engine creation (fixes malformed GitHub secrets).
 6. **Cursor rule** + `.gitignore` exception: `.cursor/rules/` tracked in git; rest of `.cursor/` ignored.
@@ -304,6 +304,6 @@ python -m ygo_app.jobs.import_catalog
 | `GET /api/health` | `{"ok": true}` |
 | `GET /api/status` | `ready: true`, `cards` ~14k+ |
 | GHA log | `Catalog import complete: N cards, M printings` |
-| GHA scrape | Passcode ranges then `[50/N]` progress lines; may take 1.5–2.5 h |
+| GHA scrape | All jobs green (`passcodes`, `scrape_batch_0`…`5`, `import`); ~2–4 h total wall clock |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
 | `python -m unittest discover -s tests` | All pass |

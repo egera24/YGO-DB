@@ -28,10 +28,37 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--input", type=Path, default=None, help="Passcode list path")
     parser.add_argument("--output", type=Path, default=None, help="All cards output path")
+    parser.add_argument(
+        "--batch-index",
+        type=int,
+        default=None,
+        help="0-based batch index for details scrape (requires --batch-count, --details-only)",
+    )
+    parser.add_argument(
+        "--batch-count",
+        type=int,
+        default=None,
+        help="Total number of details batches (e.g. 6 for GHA)",
+    )
     args = parser.parse_args(argv)
 
     input_path = args.input or PASSCODE_LIST_PATH
     output_path = args.output or ALL_CARDS_PATH
+
+    if (args.batch_index is None) != (args.batch_count is None):
+        print("Provide both --batch-index and --batch-count, or neither.", file=sys.stderr)
+        return 1
+    if args.batch_index is not None and not args.details_only:
+        print("--batch-index/--batch-count require --details-only.", file=sys.stderr)
+        return 1
+    if args.batch_index is not None and (
+        args.batch_index < 0 or args.batch_count < 1 or args.batch_index >= args.batch_count
+    ):
+        print(
+            f"Invalid batch: index={args.batch_index}, count={args.batch_count}",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         if args.full or args.passcodes_only:
@@ -46,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_path=output_path,
                 rejected_path=REJECTED_PATH,
                 resume=args.resume,
+                batch_index=args.batch_index,
+                batch_count=args.batch_count,
             )
     except FileNotFoundError as e:
         print(e, file=sys.stderr)

@@ -1,3 +1,5 @@
+# Yugipedia catalog: batched scrape (chained jobs) + Neon import.
+# BATCH_COUNT must match the number of scrape_batch_* jobs below (currently 6).
 name: Import Yugipedia catalog
 
 on:
@@ -12,7 +14,7 @@ on:
           - production
           - dev
       skip_scrape:
-        description: Import only (use existing scrape JSON in workspace)
+        description: Import only (requires catalog JSON in workspace or prior artifact)
         required: false
         default: false
         type: boolean
@@ -20,10 +22,14 @@ on:
     # 1st and 15th of each month, 03:00 UTC — production only
     - cron: "0 3 1,15 * *"
 
+env:
+  BATCH_COUNT: "6"
+  PYTHONUNBUFFERED: "1"
+
 jobs:
-  import:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -39,9 +45,282 @@ jobs:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
         run: alembic upgrade head
 
-      - name: Scrape Yugipedia catalog
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
-        run: python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+  passcodes:
+    needs: prepare
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape Yugipedia passcode list
+        run: python -m ygo_app.jobs.scrape_yugipedia_catalog --passcodes-only
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  scrape_batch_0:
+    needs: passcodes
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape details batch 0
+        run: |
+          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
+            --batch-index 0 --batch-count ${{ env.BATCH_COUNT }}
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  scrape_batch_1:
+    needs: scrape_batch_0
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape details batch 1
+        run: |
+          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
+            --batch-index 1 --batch-count ${{ env.BATCH_COUNT }}
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  scrape_batch_2:
+    needs: scrape_batch_1
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape details batch 2
+        run: |
+          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
+            --batch-index 2 --batch-count ${{ env.BATCH_COUNT }}
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  scrape_batch_3:
+    needs: scrape_batch_2
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape details batch 3
+        run: |
+          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
+            --batch-index 3 --batch-count ${{ env.BATCH_COUNT }}
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  scrape_batch_4:
+    needs: scrape_batch_3
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape details batch 4
+        run: |
+          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
+            --batch-index 4 --batch-count ${{ env.BATCH_COUNT }}
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  scrape_batch_5:
+    needs: scrape_batch_4
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape details batch 5
+        run: |
+          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
+            --batch-index 5 --batch-count ${{ env.BATCH_COUNT }}
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  import:
+    needs:
+      - prepare
+      - scrape_batch_5
+    if: |
+      needs.prepare.result == 'success' &&
+      needs.scrape_batch_5.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
 
       - name: Import catalog into database
         env:
@@ -50,7 +329,40 @@ jobs:
         run: python -m ygo_app.jobs.import_catalog_yugipedia
 
       - name: Upload scrape artifacts
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yugipedia-catalog-${{ github.run_id }}
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  import_only:
+    needs: prepare
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_scrape == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import catalog into database
+        env:
+          DATABASE_URL: ${{ inputs.environment == 'dev' && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+          ENV: production
+        run: python -m ygo_app.jobs.import_catalog_yugipedia
+
+      - name: Upload scrape artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: yugipedia-catalog-${{ github.run_id }}

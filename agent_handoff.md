@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-03 (GHA Yugipedia import verified on dev; workflow sync rule; catalog storage clarified)
+**Last updated:** 2026-06-03 (GHA batched Yugipedia scrape + retries/heartbeat/`[BATCH_RESULT]` audit on `develop` @ `e9f06a7`)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 Also referenced in user rules as `agend_handoff.md` (same content; use this path).
@@ -50,14 +50,17 @@ flowchart TB
     JSON["data/catalog/*.json"]
     Wiki --> JSON
   end
-  subgraph gha [GitHub Actions]
+  subgraph gha [GitHub Actions chained jobs]
     WF["import-catalog-yugipedia.yml"]
-    Runner["runner disk data/catalog/"]
-    Artifacts["GHA artifacts 14d"]
-    WF --> scrape
-    WF --> ImportJob[import_catalog_yugipedia]
-    scrape --> Runner
-    Runner --> Artifacts
+    P[prepare]
+    PC[passcodes]
+    B0[scrape_batch_0..5]
+    IM[import]
+    Art["artifact catalog-state"]
+    WF --> P --> PC --> B0 --> IM
+    PC --> Art
+    B0 --> Art
+    Art --> IM
   end
   subgraph neon [Neon Postgres]
     Cards[cards + printings]
@@ -66,8 +69,8 @@ flowchart TB
     DevWeb["ygo-app-dev ← develop"]
     ProdWeb["ygo-app ← main"]
   end
-  JSON --> ImportJob
-  ImportJob --> Cards
+  JSON --> IM
+  IM --> Cards
   DevWeb --> Cards
   ProdWeb --> Cards
   Browser --> DevWeb
@@ -103,7 +106,22 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 - **`printings`:** one row per set code + rarity; FK `card_id` → `cards.id`.
 - GHA **environment `dev`** → secret `DATABASE_URL_DEV` → Neon **dev** branch. **production** → `DATABASE_URL` → Neon **main**.
 
-GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 hours**. Artifact `catalog-state` passes JSON between batches. `PYTHONUNBUFFERED=1` on the workflow. Details scrape logs **`[HEARTBEAT]`** every 60s, **`[FAIL]`** per error (will-retry vs final), **`[BATCH_RETRY]`** rounds, **`[BATCH_RESULT]`** at end (`expected/saved/rejected/missing`). Retries: HTTP 5× per request, then up to **2** batch rounds for transient failures + pool timeouts. CLI exit codes: **0** ok, **1** config, **2** stall (re-run `--resume`), **3** batch incomplete (GHA job fails). Cancel message `The operation was canceled` usually means **job timeout**, not a Python error.
+GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 hours**. Artifact **`catalog-state`** passes JSON between batches (passcode list + cumulative `yugipedia_all_cards.json` + rejected). `PYTHONUNBUFFERED=1` on the workflow.
+
+**Resilience** ([`scrape_progress.py`](ygo_app/yugipedia/scrape_progress.py), [`details.py`](ygo_app/yugipedia/details.py)):
+
+| Layer | Behavior |
+|-------|----------|
+| HTTP | 5× retry per card; `[WARN]` on slow/Cloudflare/retryable errors ([`http_client.py`](ygo_app/yugipedia/http_client.py)) |
+| Pool | Max 8 in-flight; 240s pool idle → re-queue |
+| Batch | Up to **2** `[BATCH_RETRY]` rounds for transient failures + pool timeouts (`FAILED_RETRY_ROUNDS` in [`constants.py`](ygo_app/yugipedia/constants.py)) |
+| Stall | `[HEARTBEAT]` every 60s; warn at 120s idle; abort at 600s → exit **2** |
+
+**Logs to watch:** `[HEARTBEAT]`, `[FAIL] will-retry|final`, `[BATCH_RETRY]`, `[BATCH_RESULT] expected=… saved=… rejected=… missing=…` (each batch job must end with **`missing=0`**).
+
+**CLI exit codes** ([`scrape_yugipedia_catalog.py`](ygo_app/jobs/scrape_yugipedia_catalog.py)): **0** ok · **1** config/file · **2** stall (re-run `--resume`) · **3** batch incomplete (`BatchIncompleteError`, GHA job fails).
+
+Cancel message `The operation was canceled` usually means **per-job timeout**, not a Python exception.
 
 ### GitHub Actions workflows
 
@@ -157,7 +175,7 @@ Does **not** deploy new app code to prod unless `ygo_app/` changed on `main`. Re
 
 ```
 ygo_app/
-  yugipedia/           # passcodes, details, card_sets, parsing, adapter, images
+  yugipedia/           # passcodes, details, scrape_progress, card_sets, parsing, adapter, images
   jobs/
     scrape_yugipedia_catalog.py
     import_catalog_yugipedia.py
@@ -168,6 +186,9 @@ data/catalog/          # gitignored scrape JSON
 tests/
   test_yugipedia_card_sets.py
   test_yugipedia_adapter.py
+  test_yugipedia_batch_slice.py
+  test_scrape_progress.py
+  test_batch_completion.py
 .github/workflows/
   import-catalog-yugipedia.yml
   import-catalog-ygoprodeck.yml
@@ -185,11 +206,12 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 
 1. Scrape package under `ygo_app/yugipedia/`; CDN URLs via `images.py` (no downloads).
 2. Multi-rarity `card_sets` extraction + tests (e.g. RA03-EN172).
-3. GHA: batched scrape (6 detail jobs) + import; bi-monthly prod schedule.
+3. GHA: batched scrape (6 detail jobs) + import; bi-monthly prod schedule; fixes 180 min single-job timeout.
 4. Workflows on `main` for Actions UI; **run from branch `develop`** until app merged to prod.
 5. **`config.py`:** `_normalize_database_url()` — strips whitespace, wrapping quotes, `DATABASE_URL=` prefix; validates URL before engine creation (fixes malformed GitHub secrets).
 6. **Cursor rule** + `.gitignore` exception: `.cursor/rules/` tracked in git; rest of `.cursor/` ignored.
 7. **GHA Yugipedia import verified** on Neon dev (`DATABASE_URL` + `DATABASE_URL_DEV` secrets; branch `develop`, environment `dev`).
+8. **Batch resilience (2026-06-03):** `scrape_progress.py` (heartbeat/stall); bounded scrape pool; transient failure batch retries; `audit_slice_completion()` + exit **3** on incomplete batch; tests `test_batch_completion.py`, `test_scrape_progress.py`.
 
 ### Earlier (still relevant)
 
@@ -215,6 +237,14 @@ gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev
 ```powershell
 # .env → DATABASE_URL = Neon dev
 python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+python -m ygo_app.jobs.import_catalog_yugipedia
+```
+
+**Local single GHA-equivalent batch:**
+
+```powershell
+python -m ygo_app.jobs.scrape_yugipedia_catalog --passcodes-only
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-index 0 --batch-count 6
 python -m ygo_app.jobs.import_catalog_yugipedia
 ```
 
@@ -264,7 +294,7 @@ python -m ygo_app.jobs.import_catalog
 |------|--------|
 | 1 | Neon **main** + **dev**; GitHub secrets `DATABASE_URL`, `DATABASE_URL_DEV` (raw pooled URLs) |
 | 2 | Workflows on `main`; **same** `import-catalog-yugipedia.yml` on `develop` (sync after edits) |
-| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`**; allow ~2 h for scrape |
+| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`**; allow **~2–4 h**; each `scrape_batch_*` log ends `[BATCH_RESULT] missing=0` |
 | 4 | Verify Neon dev (`SELECT COUNT(*) FROM cards`) and/or staging `ygo-app-dev` + `/api/status` |
 | 5 | Merge **`develop` → `main`** when ready for prod **app** |
 | 6 | **Import Yugipedia catalog** — branch **`main`**, environment **production** |
@@ -282,6 +312,8 @@ python -m ygo_app.jobs.import_catalog
 | `pathspec ...-dev.yml did not match` | Dev workflow file never on remote; use main workflow + `environment=dev` |
 | Search stuck on Render | Paginated search + batch summaries |
 | `varchar(16)` | Migration `002` |
+| GHA scrape canceled at 180 min | Split into chained jobs (`BATCH_COUNT=6`); per-job timeouts 60–90 min |
+| Scrape appeared stuck / no visibility | `[HEARTBEAT]`, `[FAIL]`, `[BATCH_RESULT]`; pool + batch retries |
 
 ---
 
@@ -304,6 +336,6 @@ python -m ygo_app.jobs.import_catalog
 | `GET /api/health` | `{"ok": true}` |
 | `GET /api/status` | `ready: true`, `cards` ~14k+ |
 | GHA log | `Catalog import complete: N cards, M printings` |
-| GHA scrape | All jobs green (`passcodes`, `scrape_batch_0`…`5`, `import`); ~2–4 h total wall clock |
+| GHA scrape | All jobs green (`passcodes`, `scrape_batch_0`…`5`, `import`); ~2–4 h; each batch `[BATCH_RESULT] missing=0` |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
 | `python -m unittest discover -s tests` | All pass |

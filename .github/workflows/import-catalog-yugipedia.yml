@@ -1,0 +1,62 @@
+name: Import Yugipedia catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target database
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - dev
+      skip_scrape:
+        description: Import only (use existing scrape JSON in workspace)
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # 1st and 15th of each month, 03:00 UTC — production only
+    - cron: "0 3 1,15 * *"
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+        run: alembic upgrade head
+
+      - name: Scrape Yugipedia catalog
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+        run: python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+
+      - name: Import catalog into database
+        env:
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+          ENV: production
+        run: python -m ygo_app.jobs.import_catalog_yugipedia
+
+      - name: Upload scrape artifacts
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: yugipedia-catalog-${{ github.run_id }}
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+          retention-days: 14
+          if-no-files-found: warn

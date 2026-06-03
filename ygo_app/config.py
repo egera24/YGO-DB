@@ -1,6 +1,4 @@
-import json
 import os
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,42 +25,7 @@ def _normalize_database_url(raw: str | None) -> str | None:
     return url or None
 
 
-def _debug_log_database_url(raw: str | None, normalized: str | None) -> None:
-    # #region agent log
-    try:
-        stripped = raw.strip() if raw else ""
-        payload = {
-            "sessionId": "387ea1",
-            "hypothesisId": "A-E",
-            "location": "config.py:_debug_log_database_url",
-            "message": "DATABASE_URL env diagnostics",
-            "data": {
-                "raw_len": len(raw) if raw else 0,
-                "stripped_len": len(stripped),
-                "is_whitespace_only": bool(raw and not stripped),
-                "has_wrapping_quotes": bool(
-                    len(stripped) >= 2
-                    and stripped[0] == stripped[-1]
-                    and stripped[0] in "\"'"
-                ),
-                "has_env_prefix": stripped.upper().startswith("DATABASE_URL="),
-                "starts_postgresql": stripped.startswith("postgresql"),
-                "starts_postgres_scheme": stripped.startswith("postgres:"),
-                "normalized_len": len(normalized) if normalized else 0,
-                "uses_sqlite_fallback": normalized is None,
-            },
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(ROOT_DIR / "debug-387ea1.log", "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload) + "\n")
-    except OSError:
-        pass
-    # #endregion
-
-
-_raw_database_url = os.getenv("DATABASE_URL")
-DATABASE_URL = _normalize_database_url(_raw_database_url)
-_debug_log_database_url(_raw_database_url, DATABASE_URL)
+DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL"))
 
 if not DATABASE_URL:
     DB_PATH = DATA_DIR / "ygo.db"

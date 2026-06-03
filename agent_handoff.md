@@ -3,7 +3,7 @@
 **Last updated:** 2026-06-03 (GHA batched Yugipedia scrape + retries/heartbeat/`[BATCH_RESULT]` audit on `develop` @ `e9f06a7`)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
-Also referenced in user rules as `agend_handoff.md` (same content; use this path).
+**New agents:** Read this file at session start for token-efficient context.
 
 ---
 

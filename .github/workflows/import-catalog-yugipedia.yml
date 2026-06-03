@@ -34,6 +34,76 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Validate DATABASE_URL
+        env:
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          from sqlalchemy.engine import make_url
+
+          raw = os.getenv("DATABASE_URL", "")
+          target = os.getenv("TARGET_ENV", "production")
+          stripped = raw.strip()
+          url = stripped
+          if len(url) >= 2 and url[0] == url[-1] and url[0] in "\"'":
+              url = url[1:-1].strip()
+          if url.upper().startswith("DATABASE_URL="):
+              url = url.split("=", 1)[1].strip()
+
+          diagnostics = {
+              "target_env": target,
+              "secret_hint": "DATABASE_URL_DEV" if target == "dev" else "DATABASE_URL",
+              "raw_len": len(raw),
+              "stripped_len": len(stripped),
+              "is_whitespace_only": bool(raw and not stripped),
+              "has_wrapping_quotes": bool(
+                  len(stripped) >= 2
+                  and stripped[0] == stripped[-1]
+                  and stripped[0] in "\"'"
+              ),
+              "has_env_prefix": stripped.upper().startswith("DATABASE_URL="),
+              "starts_postgresql": stripped.startswith("postgresql"),
+              "starts_postgres_scheme": stripped.startswith("postgres:"),
+          }
+          print("DATABASE_URL diagnostics:", json.dumps(diagnostics))
+
+          log_path = "debug-387ea1.log"
+          payload = {
+              "sessionId": "387ea1",
+              "runId": "gha-validate",
+              "hypothesisId": "A-E",
+              "location": "workflow:validate_database_url",
+              "message": "GHA DATABASE_URL diagnostics",
+              "data": diagnostics,
+              "timestamp": int(time.time() * 1000),
+          }
+          with open(log_path, "a", encoding="utf-8") as fh:
+              fh.write(json.dumps(payload) + "\n")
+
+          if not url:
+              print(
+                  f"ERROR: {diagnostics['secret_hint']} is empty or whitespace-only. "
+                  "Set the GitHub repository secret to your Neon pooled connection string."
+              )
+              sys.exit(1)
+
+          try:
+              make_url(url)
+          except Exception as exc:
+              print(f"ERROR: Invalid DATABASE_URL for SQLAlchemy: {exc}")
+              print(
+                  "Expected format: postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require"
+              )
+              sys.exit(1)
+
+          print("DATABASE_URL format OK")
+          PY
+
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}

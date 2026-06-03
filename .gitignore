@@ -4,6 +4,8 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .cursor/
+!.cursor/rules/
+!.cursor/rules/**
 
 # Local databases and generated app data
 data/

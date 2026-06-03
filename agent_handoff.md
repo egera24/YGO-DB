@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-03  
+**Last updated:** 2026-06-03 (GHA Yugipedia import verified on dev; workflow sync rule; catalog storage clarified)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 Also referenced in user rules as `agend_handoff.md` (same content; use this path).
@@ -52,8 +52,12 @@ flowchart TB
   end
   subgraph gha [GitHub Actions]
     WF["import-catalog-yugipedia.yml"]
+    Runner["runner disk data/catalog/"]
+    Artifacts["GHA artifacts 14d"]
     WF --> scrape
     WF --> ImportJob[import_catalog_yugipedia]
+    scrape --> Runner
+    Runner --> Artifacts
   end
   subgraph neon [Neon Postgres]
     Cards[cards + printings]
@@ -87,6 +91,20 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 
 **Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**; `printing_id` on collection may need re-link after refresh.
 
+### Where catalog data lives
+
+| Stage | Location | In git? | Lifetime |
+|-------|----------|---------|----------|
+| Scrape JSON | `data/catalog/*.json` (local or GHA runner) | **No** (`data/` gitignored) | Ephemeral on runner; local until deleted |
+| GHA backup | Artifact `yugipedia-catalog-<run_id>` | **No** | 14 days ([`retention-days: 14`](.github/workflows/import-catalog-yugipedia.yml)) |
+| **Row data** | Neon Postgres **`cards`** + **`printings`** | N/A | Permanent (dev or prod branch per `DATABASE_URL`) |
+
+- **`cards`:** one row per card; `id` = Yugipedia passcode (8 digits).
+- **`printings`:** one row per set code + rarity; FK `card_id` → `cards.id`.
+- GHA **environment `dev`** → secret `DATABASE_URL_DEV` → Neon **dev** branch. **production** → `DATABASE_URL` → Neon **main**.
+
+Scrape step on GHA often takes **1.5–2.5 hours** (passcode API + ~14k detail pages at 3 req/s). Job timeout **180 min**. Logs may lag until Python flushes stdout.
+
 ### GitHub Actions workflows
 
 | Workflow file | Name in UI | On `main`? | Notes |
@@ -99,6 +117,8 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 
 Workflows appear in Actions when present on **default branch (`main`)**. Running with branch **`develop`** uses **code from `develop`** (must include `ygo_app/yugipedia/`).
 
+**Keep workflow YAML in sync:** `.github/workflows/import-catalog-yugipedia.yml` must be **identical** on `main` and `develop`. Cursor rule: [`.cursor/rules/github-actions-yugipedia-workflow-sync.mdc`](.cursor/rules/github-actions-yugipedia-workflow-sync.mdc). After editing on `develop`, sync to `main` with a workflow-only commit (below)—do **not** full-merge `develop` just for the YAML.
+
 ### Push workflow files to `main` without merging app (documented pattern)
 
 ```powershell
@@ -106,10 +126,19 @@ git fetch origin
 git checkout main
 git pull origin main
 git checkout origin/develop -- .github/workflows/import-catalog-yugipedia.yml
-git checkout origin/develop -- .github/workflows/import-catalog-ygoprodeck.yml
-git commit -m "ci: add Yugipedia catalog workflows"
+git commit -m "ci: sync Yugipedia import workflow from develop"
 git push origin main
+git checkout develop
 ```
+
+Same pattern for `import-catalog-ygoprodeck.yml` if that file changes. Verify sync:
+
+```powershell
+git fetch origin
+git diff origin/main origin/develop -- .github/workflows/import-catalog-yugipedia.yml
+```
+
+(No output = in sync.)
 
 Does **not** deploy new app code to prod unless `ygo_app/` changed on `main`. Render **ygo-app** only rebuilds when `main` app files change.
 
@@ -143,6 +172,8 @@ tests/
   import-catalog-yugipedia.yml
   import-catalog-ygoprodeck.yml
   db-keepalive.yml
+.cursor/rules/
+  github-actions-yugipedia-workflow-sync.mdc
 yugipedia/             # legacy CLI wrappers → ygo_app jobs
 ```
 
@@ -156,6 +187,9 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 2. Multi-rarity `card_sets` extraction + tests (e.g. RA03-EN172).
 3. GHA: scrape + import, 180 min timeout; bi-monthly prod schedule.
 4. Workflows on `main` for Actions UI; **run from branch `develop`** until app merged to prod.
+5. **`config.py`:** `_normalize_database_url()` — strips whitespace, wrapping quotes, `DATABASE_URL=` prefix; validates URL before engine creation (fixes malformed GitHub secrets).
+6. **Cursor rule** + `.gitignore` exception: `.cursor/rules/` tracked in git; rest of `.cursor/` ignored.
+7. **GHA Yugipedia import verified** on Neon dev (`DATABASE_URL` + `DATABASE_URL_DEV` secrets; branch `develop`, environment `dev`).
 
 ### Earlier (still relevant)
 
@@ -215,10 +249,12 @@ python -m ygo_app.jobs.import_catalog
 
 | Variable | Local | Render / GHA |
 |----------|-------|----------------|
-| `DATABASE_URL` | Neon **dev** (`.env`) | **ygo-app-dev:** dev · **ygo-app:** prod |
+| `DATABASE_URL` | Neon **dev** (`.env`) | Render **ygo-app** (prod) · GHA when `environment=production` |
 | `DATABASE_URL_DEV` | — | GHA when `environment=dev` |
 | `ENV` | `production` (parity) or unset → SQLite | `production` |
 | `SECRET_KEY` | any local | Render per service |
+
+**GitHub secrets (GHA):** value must be the **raw Neon pooled URL** only — `postgresql://user:pass@ep-xxx-pooler.../neondb?sslmode=require`. No quotes, no `DATABASE_URL=` prefix, no extra whitespace. Copy from Neon Console → **Pooled connection**.
 
 ---
 
@@ -226,12 +262,12 @@ python -m ygo_app.jobs.import_catalog
 
 | Step | Action |
 |------|--------|
-| 1 | Neon **main** + **dev**; GitHub secrets `DATABASE_URL`, `DATABASE_URL_DEV` |
-| 2 | Workflows on `main` (for Actions list) |
-| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`** |
-| 4 | Verify staging `ygo-app-dev` + `/api/status` on dev data |
+| 1 | Neon **main** + **dev**; GitHub secrets `DATABASE_URL`, `DATABASE_URL_DEV` (raw pooled URLs) |
+| 2 | Workflows on `main`; **same** `import-catalog-yugipedia.yml` on `develop` (sync after edits) |
+| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`**; allow ~2 h for scrape |
+| 4 | Verify Neon dev (`SELECT COUNT(*) FROM cards`) and/or staging `ygo-app-dev` + `/api/status` |
 | 5 | Merge **`develop` → `main`** when ready for prod **app** |
-| 6 | **Import Yugipedia catalog** — branch **`main`** or environment **production** |
+| 6 | **Import Yugipedia catalog** — branch **`main`**, environment **production** |
 
 ---
 
@@ -239,8 +275,10 @@ python -m ygo_app.jobs.import_catalog
 
 | Issue | Fix |
 |-------|-----|
+| GHA `Could not parse SQLAlchemy URL` | Malformed GitHub secret; fix secret format or use `config.py` normalization |
 | One printing per set (multi-rarity) | `extract_rarities_from_cell` — all `<a>` in rarity cell |
 | Actions missing Yugipedia workflow | Workflows must exist on `main`; run with branch `develop` for code |
+| Workflow YAML out of sync on `main`/`develop` | Workflow-only sync commit; see Cursor rule + §2 |
 | `pathspec ...-dev.yml did not match` | Dev workflow file never on remote; use main workflow + `environment=dev` |
 | Search stuck on Render | Paginated search + batch summaries |
 | `varchar(16)` | Migration `002` |
@@ -254,6 +292,7 @@ python -m ygo_app.jobs.import_catalog
 - Manually delete Neon `cards`/`printings` before import
 - Run Yugipedia GHA with branch **`main`** before `ygo_app/yugipedia/` is on `main`
 - Commit `.env`, secrets, or `data/catalog/*.json`
+- Edit `import-catalog-yugipedia.yml` on one branch only without syncing the other
 - Use Render free Postgres
 
 ---
@@ -265,5 +304,6 @@ python -m ygo_app.jobs.import_catalog
 | `GET /api/health` | `{"ok": true}` |
 | `GET /api/status` | `ready: true`, `cards` ~14k+ |
 | GHA log | `Catalog import complete: N cards, M printings` |
+| GHA scrape | Passcode ranges then `[50/N]` progress lines; may take 1.5–2.5 h |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
 | `python -m unittest discover -s tests` | All pass |

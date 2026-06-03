@@ -14,11 +14,11 @@ Also referenced in user rules as `agend_handoff.md` (same content; use this path
 | **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user collection (set code + rarity), decks, favorites, tags |
 | **Stack** | Python 3.12, FastAPI, SQLAlchemy 2, Pydantic, static HTML/JS, Alembic, `python-dotenv`, BeautifulSoup, cloudscraper |
 | **Local DB (fallback)** | SQLite `data/ygo.db` when `DATABASE_URL` unset in `.env` |
-| **Recommended local** | Neon **dev** branch via `.env` (`ENV=production`) — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) |
+| **Recommended local** | Neon **dev** branch via `.env` (`ENV=production`) — [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) |
 | **Cloud DB** | PostgreSQL on **Neon** (pooled URL, `sslmode=require`) — not Render Postgres |
-| **Catalog source** | **Yugipedia** scrape (primary) → Neon `cards` / `printings`; fallback: YGOProDeck API job |
-| **Card images** | **CDN only** — YGOPRODeck URLs in DB; browser loads `images.ygoprodeck.com` (no image downloads) |
-| **Auth** | JWT (`SECRET_KEY` signs tokens; bcrypt for passwords) |
+| **Catalog source** | **Yugipedia** scrape (primary); fallback: YGOProDeck API |
+| **Card images** | **CDN only** — YGOPRODeck URLs in DB; browser loads `images.ygoprodeck.com` |
+| **Auth** | JWT (`SECRET_KEY`; bcrypt for passwords) |
 
 ### Environments (three tiers)
 
@@ -30,15 +30,14 @@ Also referenced in user rules as `agend_handoff.md` (same content; use this path
 
 Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md).
 
-### Status snapshot
+### Git / deploy state (typical after Yugipedia setup)
 
-| Component | Notes |
-|-----------|--------|
-| Neon prod | ~**14k+** cards after Yugipedia import (printings count may exceed old YGOPro-only import due to multi-rarity rows) |
-| Neon dev | Separate branch; same schema; own users/data — run Yugipedia import on **dev** before prod |
-| GitHub | `develop` + `main`; secrets `DATABASE_URL`, `DATABASE_URL_DEV` |
-| Render | Dual services in [`render.yaml`](render.yaml); `DATABASE_URL` per service in Dashboard |
-| UI search | Paginated (500/page); batch owned/favorite queries on search API |
+| Branch | Often contains |
+|--------|----------------|
+| **`develop`** | Full Yugipedia app code (`ygo_app/yugipedia/`, jobs, tests) + workflows |
+| **`main`** | May have **workflow YAML only** pushed for Actions UI before full app merge |
+
+Branches can **diverge** (e.g. workflow-only commit on `main`, app commits on `develop`). That is intentional for “test on dev without merging app to prod.”
 
 ---
 
@@ -47,10 +46,8 @@ Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md).
 ```mermaid
 flowchart TB
   subgraph scrape [Scrape ephemeral]
-    API[Yugipedia MediaWiki API]
-    Wiki[Yugipedia card pages]
+    Wiki[Yugipedia API + wiki pages]
     JSON["data/catalog/*.json"]
-    API --> JSON
     Wiki --> JSON
   end
   subgraph gha [GitHub Actions]
@@ -58,250 +55,215 @@ flowchart TB
     WF --> scrape
     WF --> ImportJob[import_catalog_yugipedia]
   end
-  subgraph neon [Neon Postgres permanent]
-    Cards[cards]
-    Printings[printings]
+  subgraph neon [Neon Postgres]
+    Cards[cards + printings]
   end
-  subgraph app [Render / local]
-    FastAPI[FastAPI]
+  subgraph render [Render]
+    DevWeb["ygo-app-dev ← develop"]
+    ProdWeb["ygo-app ← main"]
   end
   JSON --> ImportJob
   ImportJob --> Cards
-  ImportJob --> Printings
-  FastAPI --> Cards
-  FastAPI --> Printings
-  Browser --> FastAPI
+  DevWeb --> Cards
+  ProdWeb --> Cards
+  Browser --> DevWeb
+  Browser --> ProdWeb
   Browser --> CDN["images.ygoprodeck.com"]
 ```
 
-### Catalog pipeline (Yugipedia)
+### Catalog pipeline
 
-| Phase | Module / job | Output |
-|-------|----------------|--------|
-| 1. Passcode index | [`ygo_app/yugipedia/passcodes.py`](ygo_app/yugipedia/passcodes.py) | `data/catalog/yugipedia_passcode_list.json` |
-| 2. Card details | [`ygo_app/yugipedia/details.py`](ygo_app/yugipedia/details.py) | `data/catalog/yugipedia_all_cards.json`, `yugipedia_rejected_cards.json` |
-| 3. Import | [`ygo_app/jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) + [`adapter.py`](ygo_app/yugipedia/adapter.py) | Neon `cards` + `printings` + search index |
+| Step | Module / job | Output / target |
+|------|----------------|-----------------|
+| 1 | [`ygo_app/yugipedia/passcodes.py`](ygo_app/yugipedia/passcodes.py) | `data/catalog/yugipedia_passcode_list.json` |
+| 2 | [`ygo_app/yugipedia/details.py`](ygo_app/yugipedia/details.py) | `yugipedia_all_cards.json`, `yugipedia_rejected_cards.json` |
+| 3 | [`ygo_app/jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) | Neon `cards` + `printings` |
 
-Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (or `--passcodes-only` / `--details-only --resume`).
+Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--details-only --resume` supported).
 
-**Where data lives:**
+**Multi-rarity printings:** [`ygo_app/yugipedia/card_sets.py`](ygo_app/yugipedia/card_sets.py) — all `<a>` tags in rarity cell (not `<br>` split).
 
-| Location | Contents | Lifetime |
-|----------|----------|----------|
-| `data/catalog/` | Scrape JSON (gitignored via `data/`) | Local disk or GHA runner only |
-| GHA artifacts | Same JSON files | 14 days (debug) |
-| Neon | Catalog + user data | Permanent |
-| Render | No scrape storage | Reads Neon only |
+**Import replaces catalog:** `import_cards_entries` deletes all `cards` and `printings` then reloads. Do **not** manually truncate Neon catalog tables.
 
-**Do not** manually delete old `cards`/`printings` in Neon before import — `import_cards_entries` deletes and replaces the full catalog automatically.
+**Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**; `printing_id` on collection may need re-link after refresh.
 
-**Catalog import side effects** (same as legacy YGOPro import):
+### GitHub Actions workflows
 
-- `users` and `collection_items` are **not** cleared.
-- `cards` delete cascades to **favorites**, **tags**, and **deck_cards** (those rows can be lost on refresh).
-- `collection_items` keep `set_code` + `rarity_code`; `printing_id` may point at removed printings until re-linked / CSV re-import.
+| Workflow file | Name in UI | On `main`? | Notes |
+|---------------|------------|------------|--------|
+| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | Yes (user pushed) | Manual: branch + **environment** `dev` \| `production`; schedule 1st & 15th → prod |
+| [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck API fallback) | Yes | Manual emergency only |
+| [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Yes | Both secrets |
+
+**`import-catalog-yugipedia-dev.yml`:** optional convenience (dev DB only). **Not required** — use main workflow with branch **`develop`** + environment **`dev`**.
+
+Workflows appear in Actions when present on **default branch (`main`)**. Running with branch **`develop`** uses **code from `develop`** (must include `ygo_app/yugipedia/`).
+
+### Push workflow files to `main` without merging app (documented pattern)
+
+```powershell
+git fetch origin
+git checkout main
+git pull origin main
+git checkout origin/develop -- .github/workflows/import-catalog-yugipedia.yml
+git checkout origin/develop -- .github/workflows/import-catalog-ygoprodeck.yml
+git commit -m "ci: add Yugipedia catalog workflows"
+git push origin main
+```
+
+Does **not** deploy new app code to prod unless `ygo_app/` changed on `main`. Render **ygo-app** only rebuilds when `main` app files change.
 
 ### Free permanent cloud
 
 | Piece | File / service |
 |-------|----------------|
-| Staging web | `ygo-app-dev` — branch **`develop`** |
-| Production web | `ygo-app` — branch **`main`** |
-| Blueprint | [`render.yaml`](render.yaml), alias [`render-free.yaml`](render-free.yaml) |
-| DB | Neon pooled URLs (never Render free Postgres — 30-day expiry) |
-| Catalog (primary) | [`.github/workflows/import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) — scrape + import, **180 min** timeout, cron **1st & 15th** 03:00 UTC (prod only); manual **production** / **dev**; optional **skip scrape** |
-| Catalog (fallback) | [`.github/workflows/import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) — YGOProDeck API only, manual |
-| DB ping | [`.github/workflows/db-keepalive.yml`](.github/workflows/db-keepalive.yml) — prod + dev |
-| Docs | [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md), [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md), [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md) |
-
-### Paid alternative
-
-[`render-paid.yaml`](render-paid.yaml) — Starter web + Render Postgres + cron. **Do not** use for the free Neon stack.
+| Staging | `ygo-app-dev` — branch **`develop`** |
+| Production | `ygo-app` — branch **`main`** |
+| Blueprint | [`render.yaml`](render.yaml) |
+| Docs | [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md), [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md), [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) |
 
 ---
 
-## 3. Git workflow (layman)
-
-| Action | Effect |
-|--------|--------|
-| **commit** | Save snapshot locally |
-| **push `develop`** | Updates GitHub → deploys **staging** only |
-| **merge `develop` → `main`** | Promotes code → deploys **production** |
-| **pull** | Download latest from GitHub |
-
-Day-to-day: work on `develop` → push → test staging URL → PR/merge to `main` → smoke-test prod.
-
-`.env` is **gitignored**; never commit secrets. Scrape JSON (`data/catalog/`, `*.json`) is **not** in git.
-
----
-
-## 4. Repository layout (important paths)
+## 3. Repository layout
 
 ```
 ygo_app/
-  yugipedia/
-    passcodes.py       # MediaWiki API → passcode list
-    details.py         # Wiki HTML scrape, checkpoint, --resume
-    card_sets.py       # Multi-rarity printing extraction
-    parsing.py         # Monster / Spell / Trap page parsers
-    adapter.py         # Yugipedia JSON → YGOPro-shaped entries
-    images.py          # CDN URL builder (no downloads)
-    paths.py           # data/catalog/*.json paths
+  yugipedia/           # passcodes, details, card_sets, parsing, adapter, images
   jobs/
-    scrape_yugipedia_catalog.py   # --full | --passcodes-only | --details-only
-    import_catalog_yugipedia.py   # JSON → DB
-    import_catalog.py             # YGOProDeck API fallback
+    scrape_yugipedia_catalog.py
+    import_catalog_yugipedia.py
+    import_catalog.py          # YGOProDeck API fallback
   import_data.py       # import_cards_entries (full catalog replace)
   api/, services/, static/js/app.js
-data/catalog/          # gitignored scrape outputs
-yugipedia/             # thin legacy CLI wrappers → jobs above
+data/catalog/          # gitignored scrape JSON
 tests/
   test_yugipedia_card_sets.py
   test_yugipedia_adapter.py
 .github/workflows/
   import-catalog-yugipedia.yml
   import-catalog-ygoprodeck.yml
+  db-keepalive.yml
+yugipedia/             # legacy CLI wrappers → ygo_app jobs
 ```
 
 ---
 
-## 5. What was implemented (recent sessions)
+## 4. What was implemented
 
-### Yugipedia catalog (2026-06-03) — current catalog source
+### Yugipedia catalog (2026-06-03)
 
-1. **Scrape package** under `ygo_app/yugipedia/` (passcodes, details, adapter, CDN images).
-2. **Multi-rarity printings:** `extract_rarities_from_cell` uses all `<a>` tags in rarity column (fixes `<br/>` vs `<br>` bug; e.g. RA03-EN172 with Platinum Secret Rare + Quarter Century Secret Rare).
-3. **GHA:** bi-monthly scrape + import (~1–2 h); artifacts 14 days; `skip_scrape` for import-only.
-4. **Rarity codes:** extended map (e.g. Platinum Secret Rare → `PScR`); unknown → empty code → import uses `(Full Rarity Name)`.
-5. **Legacy** `yugipedia/*.py` scripts delegate to `ygo_app.jobs.*`.
+1. Scrape package under `ygo_app/yugipedia/`; CDN URLs via `images.py` (no downloads).
+2. Multi-rarity `card_sets` extraction + tests (e.g. RA03-EN172).
+3. GHA: scrape + import, 180 min timeout; bi-monthly prod schedule.
+4. Workflows on `main` for Actions UI; **run from branch `develop`** until app merged to prod.
 
-### Infrastructure and app (still relevant)
+### Earlier (still relevant)
 
-6. Prod-parity local Neon dev, three-tier Render, dual GitHub secrets.  
-7. Search pagination + `card_summaries_batch`, Postgres `pool_pre_ping`, CSV `Path` fix.  
-8. Alembic `001`/`002`, CDN images, rarity `String(64)`.
+5. Three-tier Render + Neon dev/prod; search pagination + `card_summaries_batch`.  
+6. Alembic `001`/`002`, `pool_pre_ping`, CSV `Path` fix, JWT multi-user.
 
 ---
 
-## 6. Resolved issues (reference)
+## 5. Commands cheat sheet
 
-| Issue | Fix |
-|-------|-----|
-| One printing per set when multiple rarities | `card_sets.py` — all rarity links per cell |
-| Stuck on "Searching…" on Render | Paginated search + batch summaries |
-| CSV import 500 | `Path(path)` in `import_collection_csv` |
-| `varchar(16)` on import | Migration `002` |
-| Idle Neon connections | `pool_pre_ping` |
+### Test catalog on dev (no merge to `main`)
 
-### If catalog empty
+**GitHub Actions:** **Import Yugipedia catalog** → Run workflow → branch **`develop`** → environment **`dev`**.
 
-1. Render `DATABASE_URL` must match the Neon branch used for import.  
-2. GitHub Actions → **Import Yugipedia catalog** → **dev** or **production**.  
-3. `GET /api/status` → `ready: true`, `cards` ~14k+.  
-4. Do **not** need to manually truncate Neon catalog tables.
-
----
-
-## 7. Commands cheat sheet
-
-### Yugipedia catalog (local)
+**CLI alternative:**
 
 ```powershell
-cd "c:\Python Projects\YGO App Cursor"
-pip install -r requirements.txt
-# .env: DATABASE_URL = Neon dev (or omit for SQLite)
+gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev
+```
 
-# Full scrape (~1–2 h) then import
+**Local:**
+
+```powershell
+# .env → DATABASE_URL = Neon dev
 python -m ygo_app.jobs.scrape_yugipedia_catalog --full
 python -m ygo_app.jobs.import_catalog_yugipedia
+```
 
-# Resume interrupted details scrape
-python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume
+### Full local / release
+
+```powershell
+pip install -r requirements.txt
+alembic upgrade head
+python -m ygo_app.jobs.scrape_yugipedia_catalog --full
 python -m ygo_app.jobs.import_catalog_yugipedia
+python run.py
+```
 
-# Fast fallback (no Yugipedia scrape)
+### Git (typical)
+
+```powershell
+git checkout develop
+# ... work, push → staging deploy
+# when ready:
+git checkout main && git merge develop && git push   # prod app + full code on main
+```
+
+### Fallback catalog
+
+```powershell
 python -m ygo_app.jobs.import_catalog
 ```
 
-### App
-
-```powershell
-alembic upgrade head
-python run.py
-python -m unittest discover -s tests -v
-```
-
-### GitHub Actions
-
-| Workflow | When |
-|----------|------|
-| **Import Yugipedia catalog** | Primary; prod/dev; optional skip scrape; schedule 1st & 15th → prod |
-| **Import YGO catalog (YGOProDeck API fallback)** | Emergency ~minutes |
-| **Neon DB keep-alive** | Both secrets |
-
-### Render build (automatic)
-
-`pip install -r requirements.txt && alembic upgrade head`  
-`uvicorn ygo_app.api.main:app --host 0.0.0.0 --port $PORT`
-
 ---
 
-## 8. Environment variables
+## 6. Environment variables
 
-| Variable | Local (`.env`) | Render / GHA |
-|----------|----------------|--------------|
-| `DATABASE_URL` | Neon **dev** pooled URL | **ygo-app-dev:** dev · **ygo-app:** prod |
-| `DATABASE_URL_DEV` | — | GHA dev imports only |
+| Variable | Local | Render / GHA |
+|----------|-------|----------------|
+| `DATABASE_URL` | Neon **dev** (`.env`) | **ygo-app-dev:** dev · **ygo-app:** prod |
+| `DATABASE_URL_DEV` | — | GHA when `environment=dev` |
 | `ENV` | `production` (parity) or unset → SQLite | `production` |
-| `SECRET_KEY` | any local string | Render per service |
-| `PORT` | `8000` | `$PORT` |
-
-**Search limits** when `ENV=production`: default 200, max 500 (UI `SEARCH_PAGE_SIZE`).
+| `SECRET_KEY` | any local | Render per service |
 
 ---
 
-## 9. Deploy / setup checklist
+## 7. Deploy / catalog checklist
 
 | Step | Action |
 |------|--------|
-| 1 | Neon: **main** + **dev** branches; pooled URLs |
-| 2 | GitHub secrets: `DATABASE_URL`, `DATABASE_URL_DEV` |
-| 3 | Push code to GitHub (`develop` / `main`) |
-| 4 | **Import Yugipedia catalog** on **dev** first (~1–2 h), then **production** |
-| 5 | Render: set `DATABASE_URL` on **ygo-app** and **ygo-app-dev** |
-| 6 | Verify `GET /api/status`, search, multi-rarity set (e.g. `RA03-EN172`) |
-| 7 | No manual Neon delete of old catalog rows required |
+| 1 | Neon **main** + **dev**; GitHub secrets `DATABASE_URL`, `DATABASE_URL_DEV` |
+| 2 | Workflows on `main` (for Actions list) |
+| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`** |
+| 4 | Verify staging `ygo-app-dev` + `/api/status` on dev data |
+| 5 | Merge **`develop` → `main`** when ready for prod **app** |
+| 6 | **Import Yugipedia catalog** — branch **`main`** or environment **production** |
 
 ---
 
-## 10. Suggested next tasks
+## 8. Resolved issues (reference)
 
-1. Run first **Import Yugipedia catalog** on dev after merge; confirm card/printing counts and multi-rarity rows.  
-2. Run production import when dev looks good.  
-3. Optional: branch protection on `main`; disable prod auto-deploy for manual promote.  
-4. After catalog refresh, users may need to re-import collection CSV if `printing_id` links matter.
-
----
-
-## 11. Do not do without user ask
-
-- Edit `.cursor/plans/*.plan.md` files  
-- Run deprecated `yugipedia/get_images.py` or `ygopro/get_images.py` — use [`ygo_app/yugipedia/images.py`](ygo_app/yugipedia/images.py)  
-- Manually delete Neon `cards`/`printings` before import (import replaces them)  
-- Use Render free Postgres  
-- Commit `.env`, secrets, or scrape JSON to git  
-- Use `render-paid.yaml` for the free Neon stack  
-- Push experimental work directly to `main`
+| Issue | Fix |
+|-------|-----|
+| One printing per set (multi-rarity) | `extract_rarities_from_cell` — all `<a>` in rarity cell |
+| Actions missing Yugipedia workflow | Workflows must exist on `main`; run with branch `develop` for code |
+| `pathspec ...-dev.yml did not match` | Dev workflow file never on remote; use main workflow + `environment=dev` |
+| Search stuck on Render | Paginated search + batch summaries |
+| `varchar(16)` | Migration `002` |
 
 ---
 
-## 12. Quick verification
+## 9. Do not do without user ask
+
+- Edit `.cursor/plans/*.plan.md`
+- Run deprecated `get_images.py` — use `ygo_app.yugipedia.images`
+- Manually delete Neon `cards`/`printings` before import
+- Run Yugipedia GHA with branch **`main`** before `ygo_app/yugipedia/` is on `main`
+- Commit `.env`, secrets, or `data/catalog/*.json`
+- Use Render free Postgres
+
+---
+
+## 10. Quick verification
 
 | Check | Expected |
 |-------|----------|
 | `GET /api/health` | `{"ok": true}` |
 | `GET /api/status` | `ready: true`, `cards` ~14k+ |
-| Multi-rarity printing | Same `set_code`, different `set_rarity` (e.g. Card Trooper `RA03-EN172`) |
-| Search UI | Paginated ~500/page |
-| Card images | Load from `images.ygoprodeck.com` |
-| `python -m unittest discover -s tests` | All tests pass |
+| GHA log | `Catalog import complete: N cards, M printings` |
+| Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
+| `python -m unittest discover -s tests` | All pass |

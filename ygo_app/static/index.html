@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=10" />
+  <link rel="stylesheet" href="/static/css/style.css?v=11" />
 </head>
 <body>
   <header class="app-header">
@@ -40,17 +40,98 @@
   <main>
     <section id="view-search" class="view active">
       <form id="search-form" class="search-panel">
-        <div class="search-q-wrap">
-          <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
-          <button type="button" id="search-help-btn" class="icon-btn search-help-btn" aria-label="Search syntax help" aria-haspopup="dialog" aria-controls="search-help-modal" aria-expanded="false">?</button>
+        <div class="search-primary">
+          <div class="search-q-wrap">
+            <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+            <button type="button" id="search-help-btn" class="icon-btn search-help-btn" aria-label="Search syntax help" aria-haspopup="dialog" aria-controls="search-help-modal" aria-expanded="false">?</button>
+          </div>
+          <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
+          <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
+          <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
+          <button type="submit">Search</button>
         </div>
-        <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
-        <select id="frame-type"><option value="">Frame</option></select>
-        <select id="attribute"><option value="">Attribute</option></select>
-        <select id="race"><option value="">Race / type</option></select>
-        <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
-        <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
-        <button type="submit">Search</button>
+        <details id="advanced-filters" class="advanced-filters">
+          <summary>Advanced filters</summary>
+          <div class="advanced-filters-body">
+            <div class="filter-group">
+              <label for="filter-category">Category</label>
+              <select id="filter-category" multiple size="4" aria-label="Category">
+                <option value="Monster">Monster</option>
+                <option value="Spell">Spell</option>
+                <option value="Trap">Trap</option>
+                <option value="Skill">Skill</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="filter-types">Type</label>
+              <select id="filter-types" multiple size="6" aria-label="Type"></select>
+            </div>
+            <div class="filter-group">
+              <label for="filter-mechanic">Mechanic</label>
+              <select id="filter-mechanic" multiple size="5" aria-label="Mechanic"></select>
+            </div>
+            <div class="filter-group">
+              <label for="filter-attribute">Attribute</label>
+              <select id="filter-attribute" multiple size="5" aria-label="Attribute"></select>
+            </div>
+            <div class="filter-group filter-group--wide">
+              <label for="filter-archetype">Archetype</label>
+              <input type="text" id="filter-archetype" list="archetype-datalist" placeholder="Substring match…" autocomplete="off" />
+              <datalist id="archetype-datalist"></datalist>
+            </div>
+            <div class="filter-group filter-group--wide">
+              <label for="filter-summoning">Summoning condition</label>
+              <input type="text" id="filter-summoning" list="summoning-datalist" placeholder="Keywords anywhere in text…" autocomplete="off" />
+              <datalist id="summoning-datalist"></datalist>
+            </div>
+            <div class="filter-ranges">
+              <fieldset><legend>Level</legend>
+                <input type="number" id="level-min" min="0" max="12" placeholder="min" />
+                <span>–</span>
+                <input type="number" id="level-max" min="0" max="12" placeholder="max" />
+              </fieldset>
+              <fieldset><legend>Rank</legend>
+                <input type="number" id="rank-min" min="0" max="13" placeholder="min" />
+                <span>–</span>
+                <input type="number" id="rank-max" min="0" max="13" placeholder="max" />
+              </fieldset>
+              <fieldset><legend>Link rating</legend>
+                <input type="number" id="link-rating-min" min="0" max="6" placeholder="min" />
+                <span>–</span>
+                <input type="number" id="link-rating-max" min="0" max="6" placeholder="max" />
+              </fieldset>
+              <fieldset><legend>Pendulum scale</legend>
+                <input type="number" id="pendulum-scale-min" min="0" max="13" placeholder="min" />
+                <span>–</span>
+                <input type="number" id="pendulum-scale-max" min="0" max="13" placeholder="max" />
+              </fieldset>
+              <fieldset><legend>ATK</legend>
+                <input type="number" id="atk-min" min="0" placeholder="min" />
+                <span>–</span>
+                <input type="number" id="atk-max" min="0" placeholder="max" />
+              </fieldset>
+              <fieldset><legend>DEF</legend>
+                <input type="number" id="def-min" min="0" placeholder="min" />
+                <span>–</span>
+                <input type="number" id="def-max" min="0" placeholder="max" />
+              </fieldset>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">Link markers</span>
+              <div id="link-marker-grid" class="link-marker-grid" role="group" aria-label="Link markers">
+                <button type="button" class="link-marker-btn" data-marker="Top-Left" title="Top-Left">◤</button>
+                <button type="button" class="link-marker-btn" data-marker="Top" title="Top">▲</button>
+                <button type="button" class="link-marker-btn" data-marker="Top-Right" title="Top-Right">◥</button>
+                <button type="button" class="link-marker-btn" data-marker="Left" title="Left">◀</button>
+                <span class="link-marker-center" aria-hidden="true">CARD</span>
+                <button type="button" class="link-marker-btn" data-marker="Right" title="Right">▶</button>
+                <button type="button" class="link-marker-btn" data-marker="Bottom-Left" title="Bottom-Left">◣</button>
+                <button type="button" class="link-marker-btn" data-marker="Bottom" title="Bottom">▼</button>
+                <button type="button" class="link-marker-btn" data-marker="Bottom-Right" title="Bottom-Right">◢</button>
+              </div>
+            </div>
+          </div>
+        </details>
       </form>
       <div id="search-pagination" class="search-pagination hidden"></div>
       <div id="search-results" class="card-grid"></div>
@@ -185,6 +266,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=12" type="module"></script>
+  <script src="/static/js/app.js?v=13" type="module"></script>
 </body>
 </html>

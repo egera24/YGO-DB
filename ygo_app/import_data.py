@@ -85,6 +85,8 @@ def init_db():
 def _card_from_api(entry: dict) -> Card:
     images = entry.get("card_images") or [{}]
     img = images[0] if images else {}
+    link_rating = _int_or_none(entry.get("link_rating"))
+    pendulum_scale = _int_or_none(entry.get("pendulum_scale"))
     return Card(
         id=int(entry["id"]),
         name=entry.get("name", ""),
@@ -98,8 +100,16 @@ def _card_from_api(entry: dict) -> Card:
         race=entry.get("race"),
         attribute=entry.get("attribute"),
         archetype=entry.get("archetype"),
-        linkval=_int_or_none(entry.get("linkval")),
-        scale=_int_or_none(entry.get("scale")),
+        linkval=_int_or_none(entry.get("linkval")) or link_rating,
+        scale=_int_or_none(entry.get("scale")) or pendulum_scale,
+        category=entry.get("category"),
+        types=entry.get("types"),
+        mechanic=entry.get("mechanic"),
+        rank=_int_or_none(entry.get("rank")),
+        link_rating=link_rating,
+        pendulum_scale=pendulum_scale,
+        link_markers=entry.get("link_markers"),
+        summoning_condition=entry.get("summoning_condition"),
         ygoprodeck_url=entry.get("ygoprodeck_url"),
         image_url=img.get("image_url"),
         image_url_small=img.get("image_url_small"),
@@ -160,6 +170,10 @@ def import_cards_entries(
         batch_printings: list[Printing] = []
 
         for entry in tqdm(entries, desc="Importing cards"):
+            if "category" not in entry and entry.get("frameType") is not None:
+                from ygo_app.yugipedia.card_import import enrich_ygopro_entry
+
+                entry = enrich_ygopro_entry(entry)
             card = _card_from_api(entry)
             batch_cards.append(card)
             seen_printings: set[tuple[str, str]] = set()

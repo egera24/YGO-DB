@@ -11,6 +11,11 @@ from ygo_app.models import (
     UserCardTag,
     UserFavorite,
 )
+from ygo_app.card_filters import (
+    link_markers_contain_all,
+    parse_multi_param,
+    types_overlap_filter,
+)
 from ygo_app.search_query import (
     SearchQueryError,
     Term,
@@ -18,6 +23,36 @@ from ygo_app.search_query import (
     text_search_filter,
 )
 from ygo_app.utils import normalize_rarity_code, rarity_display
+
+
+def _apply_int_range(column, min_val: int | None, max_val: int | None):
+    clauses = []
+    if min_val is not None:
+        clauses.append(column >= min_val)
+    if max_val is not None:
+        clauses.append(column <= max_val)
+    return clauses
+
+
+def summoning_condition_suggestions(
+    session: Session, *, q: str, limit: int = 20
+) -> list[str]:
+    term = q.strip()
+    if not term:
+        return []
+    pattern = f"%{term}%"
+    rows = session.execute(
+        select(Card.summoning_condition)
+        .where(
+            Card.summoning_condition.isnot(None),
+            Card.summoning_condition != "",
+            Card.summoning_condition.ilike(pattern),
+        )
+        .distinct()
+        .order_by(Card.summoning_condition)
+        .limit(limit)
+    ).scalars().all()
+    return [r for r in rows if r]
 
 
 def _owned_by_card(
@@ -86,6 +121,23 @@ def search_cards(
     attribute: str | None = None,
     race: str | None = None,
     archetype: str | None = None,
+    category: str | None = None,
+    types: str | None = None,
+    mechanic: str | None = None,
+    summoning_condition: str | None = None,
+    link_markers: str | None = None,
+    atk_min: int | None = None,
+    atk_max: int | None = None,
+    def_min: int | None = None,
+    def_max: int | None = None,
+    level_min: int | None = None,
+    level_max: int | None = None,
+    rank_min: int | None = None,
+    rank_max: int | None = None,
+    link_rating_min: int | None = None,
+    link_rating_max: int | None = None,
+    pendulum_scale_min: int | None = None,
+    pendulum_scale_max: int | None = None,
     set_code: str | None = None,
     owned_only: bool = False,
     favorites_only: bool = False,
@@ -136,6 +188,53 @@ def search_cards(
     if archetype:
         stmt = stmt.where(Card.archetype.ilike(f"%{archetype}%"))
         count_stmt = count_stmt.where(Card.archetype.ilike(f"%{archetype}%"))
+
+    categories = parse_multi_param(category)
+    if categories:
+        stmt = stmt.where(Card.category.in_(categories))
+        count_stmt = count_stmt.where(Card.category.in_(categories))
+
+    type_labels = parse_multi_param(types)
+    types_filt = types_overlap_filter(type_labels)
+    if types_filt is not None:
+        stmt = stmt.where(types_filt)
+        count_stmt = count_stmt.where(types_filt)
+
+    mechanics = parse_multi_param(mechanic)
+    if mechanics:
+        mech_filt = or_(*[Card.mechanic == m for m in mechanics])
+        stmt = stmt.where(mech_filt)
+        count_stmt = count_stmt.where(mech_filt)
+
+    attrs = parse_multi_param(attribute)
+    if attrs:
+        attr_filt = or_(*[Card.attribute == a for a in attrs])
+        stmt = stmt.where(attr_filt)
+        count_stmt = count_stmt.where(attr_filt)
+
+    if summoning_condition and summoning_condition.strip():
+        pattern = f"%{summoning_condition.strip()}%"
+        stmt = stmt.where(Card.summoning_condition.ilike(pattern))
+        count_stmt = count_stmt.where(Card.summoning_condition.ilike(pattern))
+
+    marker_labels = parse_multi_param(link_markers)
+    marker_clauses = link_markers_contain_all(marker_labels)
+    if marker_clauses:
+        for clause in marker_clauses:
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
+
+    for column, lo, hi in (
+        (Card.atk, atk_min, atk_max),
+        (Card.def_, def_min, def_max),
+        (Card.level, level_min, level_max),
+        (Card.rank, rank_min, rank_max),
+        (Card.link_rating, link_rating_min, link_rating_max),
+        (Card.pendulum_scale, pendulum_scale_min, pendulum_scale_max),
+    ):
+        for clause in _apply_int_range(column, lo, hi):
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
 
     if favorites_only and user_id is not None:
         stmt = stmt.join(UserFavorite).where(UserFavorite.user_id == user_id)

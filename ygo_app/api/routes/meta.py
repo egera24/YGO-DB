@@ -3,11 +3,14 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from ygo_app.auth import get_current_user, get_optional_user
+from ygo_app.card_filters import parse_json_string_list
 from ygo_app.config import IS_PRODUCTION
 from ygo_app.database import get_db
 from ygo_app.models import Card, CollectionItem, Deck, Printing, User
 
 router = APIRouter(tags=["meta"])
+
+FILTER_ARCHETYPE_LIMIT = 500
 
 
 @router.get("/health")
@@ -60,38 +63,63 @@ def status(
     return payload
 
 
+def _distinct_type_labels(db: Session) -> list[str]:
+    rows = db.execute(
+        select(Card.types).where(Card.types.isnot(None), Card.types != "").distinct()
+    ).scalars().all()
+    labels: set[str] = set()
+    for raw in rows:
+        labels.update(parse_json_string_list(raw))
+    return sorted(labels)
+
+
 @router.get("/filters")
 def filters(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
 ):
-    folders = (
-        db.execute(
-            select(CollectionItem.folder_name)
-            .where(
-                CollectionItem.user_id == user.id,
-                CollectionItem.folder_name.isnot(None),
+    folders: list[str] = []
+    if user:
+        folders = list(
+            db.execute(
+                select(CollectionItem.folder_name)
+                .where(
+                    CollectionItem.user_id == user.id,
+                    CollectionItem.folder_name.isnot(None),
+                )
+                .distinct()
+                .order_by(CollectionItem.folder_name)
             )
-            .distinct()
-            .order_by(CollectionItem.folder_name)
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+
+    categories = db.execute(
+        text(
+            "SELECT DISTINCT category FROM cards "
+            "WHERE category IS NOT NULL ORDER BY category"
+        )
+    ).scalars().all()
     attributes = db.execute(
         text("SELECT DISTINCT attribute FROM cards WHERE attribute IS NOT NULL ORDER BY attribute")
     ).scalars().all()
-    races = db.execute(
-        text("SELECT DISTINCT race FROM cards WHERE race IS NOT NULL ORDER BY race")
+    mechanics = db.execute(
+        text("SELECT DISTINCT mechanic FROM cards WHERE mechanic IS NOT NULL ORDER BY mechanic")
     ).scalars().all()
-    frames = db.execute(
+    archetypes = db.execute(
         text(
-            "SELECT DISTINCT frame_type FROM cards WHERE frame_type IS NOT NULL ORDER BY frame_type"
-        )
+            "SELECT DISTINCT archetype FROM cards "
+            "WHERE archetype IS NOT NULL AND archetype != '' "
+            "ORDER BY archetype LIMIT :lim"
+        ),
+        {"lim": FILTER_ARCHETYPE_LIMIT},
     ).scalars().all()
+
     return {
         "folders": folders,
-        "attributes": attributes,
-        "races": races,
-        "frame_types": frames,
+        "categories": list(categories),
+        "types": _distinct_type_labels(db),
+        "mechanics": list(mechanics),
+        "attributes": list(attributes),
+        "archetypes": list(archetypes),
     }

@@ -120,29 +120,93 @@ async function loadStatus() {
   line.textContent = parts.join(" · ");
 }
 
+function populateMultiSelect(sel, values) {
+  if (!sel) return;
+  const existing = new Set(Array.from(sel.options).map((o) => o.value));
+  values.forEach((v) => {
+    if (!v || existing.has(v)) return;
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = v;
+    sel.appendChild(o);
+  });
+}
+
+function selectedMultiValues(sel) {
+  if (!sel) return [];
+  return Array.from(sel.selectedOptions)
+    .map((o) => o.value)
+    .filter(Boolean);
+}
+
+function setDatalist(id, values) {
+  const dl = $(id);
+  if (!dl) return;
+  dl.innerHTML = values
+    .map((v) => `<option value="${escapeHtml(v)}"></option>`)
+    .join("");
+}
+
 async function loadFilters() {
-  if (!state.token) return;
   const data = await api("/filters");
   state.filters = data;
-  for (const [id, key] of [
-    ["#frame-type", "frame_types"],
-    ["#attribute", "attributes"],
-    ["#race", "races"],
-  ]) {
-    const sel = $(id);
-    data[key].forEach((v) => {
+  populateMultiSelect($("#filter-types"), data.types || []);
+  populateMultiSelect($("#filter-mechanic"), data.mechanics || []);
+  populateMultiSelect($("#filter-attribute"), data.attributes || []);
+  setDatalist("#archetype-datalist", data.archetypes || []);
+
+  const folderSel = $("#collection-folder");
+  if (folderSel && state.token) {
+    folderSel.querySelectorAll("option:not([value=''])").forEach((o) => o.remove());
+    (data.folders || []).forEach((f) => {
       const o = document.createElement("option");
-      o.value = v;
-      o.textContent = v;
-      sel.appendChild(o);
+      o.value = f;
+      o.textContent = f;
+      folderSel.appendChild(o);
     });
   }
-  const folderSel = $("#collection-folder");
-  data.folders.forEach((f) => {
-    const o = document.createElement("option");
-    o.value = f;
-    o.textContent = f;
-    folderSel.appendChild(o);
+}
+
+function selectedLinkMarkers() {
+  return Array.from(document.querySelectorAll(".link-marker-btn.selected"))
+    .map((btn) => btn.dataset.marker)
+    .filter(Boolean);
+}
+
+function appendRangeParam(params, keyMin, keyMax, minEl, maxEl) {
+  const minVal = $(minEl)?.value;
+  const maxVal = $(maxEl)?.value;
+  if (minVal !== "" && minVal != null) params.set(keyMin, minVal);
+  if (maxVal !== "" && maxVal != null) params.set(keyMax, maxVal);
+}
+
+let summoningSuggestTimer = null;
+function setupSummoningSuggestions() {
+  const input = $("#filter-summoning");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    clearTimeout(summoningSuggestTimer);
+    const q = input.value.trim();
+    if (q.length < 2) return;
+    summoningSuggestTimer = setTimeout(async () => {
+      try {
+        const data = await api(
+          `/cards/summoning-suggestions?q=${encodeURIComponent(q)}&limit=20`
+        );
+        setDatalist("#summoning-datalist", data.suggestions || []);
+      } catch {
+        /* ignore */
+      }
+    }, 300);
+  });
+}
+
+function setupLinkMarkerGrid() {
+  document.querySelectorAll(".link-marker-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      btn.classList.toggle("selected");
+      btn.setAttribute("aria-pressed", btn.classList.contains("selected"));
+    });
   });
 }
 
@@ -171,12 +235,47 @@ function buildSearchParams() {
   const setCode = $("#set-code").value.trim();
   if (q) params.set("q", q);
   if (setCode) params.set("set_code", setCode);
-  const frame = $("#frame-type").value;
-  const attr = $("#attribute").value;
-  const race = $("#race").value;
-  if (frame) params.set("frame_type", frame);
-  if (attr) params.set("attribute", attr);
-  if (race) params.set("race", race);
+
+  const categories = selectedMultiValues($("#filter-category"));
+  if (categories.length) params.set("category", categories.join(","));
+
+  const types = selectedMultiValues($("#filter-types"));
+  if (types.length) params.set("types", types.join(","));
+
+  const mechanics = selectedMultiValues($("#filter-mechanic"));
+  if (mechanics.length) params.set("mechanic", mechanics.join(","));
+
+  const attrs = selectedMultiValues($("#filter-attribute"));
+  if (attrs.length) params.set("attribute", attrs.join(","));
+
+  const archetype = $("#filter-archetype")?.value.trim();
+  if (archetype) params.set("archetype", archetype);
+
+  const summoning = $("#filter-summoning")?.value.trim();
+  if (summoning) params.set("summoning_condition", summoning);
+
+  const markers = selectedLinkMarkers();
+  if (markers.length) params.set("link_markers", markers.join(","));
+
+  appendRangeParam(params, "level_min", "level_max", "#level-min", "#level-max");
+  appendRangeParam(params, "rank_min", "rank_max", "#rank-min", "#rank-max");
+  appendRangeParam(
+    params,
+    "link_rating_min",
+    "link_rating_max",
+    "#link-rating-min",
+    "#link-rating-max"
+  );
+  appendRangeParam(
+    params,
+    "pendulum_scale_min",
+    "pendulum_scale_max",
+    "#pendulum-scale-min",
+    "#pendulum-scale-max"
+  );
+  appendRangeParam(params, "atk_min", "atk_max", "#atk-min", "#atk-max");
+  appendRangeParam(params, "def_min", "def_max", "#def-min", "#def-max");
+
   if ($("#owned-only").checked) params.set("owned_only", "true");
   if ($("#favorites-only").checked) params.set("favorites_only", "true");
   return params;
@@ -396,10 +495,17 @@ async function openCardModal(cardId) {
   $("#modal-name").textContent = card.name;
   setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
   const stats = [
-    card.type,
+    card.category,
+    (card.types || []).join(" / "),
+    card.mechanic,
     card.attribute,
-    card.race,
+    card.archetype,
     card.level != null ? `Level ${card.level}` : null,
+    card.rank != null ? `Rank ${card.rank}` : null,
+    card.link_rating != null ? `Link-${card.link_rating}` : null,
+    card.pendulum_scale != null ? `Scale ${card.pendulum_scale}` : null,
+    (card.link_markers || []).length ? `Markers: ${card.link_markers.join(", ")}` : null,
+    card.summoning_condition,
     card.atk != null ? `ATK ${card.atk}` : null,
     card.def != null ? `DEF ${card.def}` : null,
   ]
@@ -749,7 +855,9 @@ async function init() {
     }
     updateAuthUI();
     await loadStatus();
-    if (state.token) await loadFilters();
+    await loadFilters();
+    setupLinkMarkerGrid();
+    setupSummoningSuggestions();
     await runSearch();
   } catch (err) {
     $("#status-line").textContent = err.message;

@@ -104,16 +104,17 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
         }
     ]
 
-    # Spell / Trap
-    if entry.get("type") in ("Spell", "Trap"):
+    # Spell / Trap / Skill
+    if entry.get("type") in ("Spell", "Trap", "Skill"):
         prop = entry.get("property") or ""
         kind = entry.get("type")
+        frame = "spell" if kind == "Spell" else "trap" if kind == "Trap" else "skill"
         return {
             "id": pid,
             "name": entry.get("name", ""),
             "type": f"{kind} Card",
             "humanReadableCardType": f"{prop} {kind} Card".strip() if prop else f"{kind} Card",
-            "frameType": kind.lower(),
+            "frameType": frame,
             "desc": entry.get("description"),
             "race": prop or kind,
             "attribute": None,
@@ -137,7 +138,7 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
     if race not in MONSTER_TYPES:
         race = next((t for t in typeline if t in MONSTER_TYPES), race)
 
-    level = _int_field(entry.get("level")) or _int_field(entry.get("rank"))
+    level = _int_field(entry.get("level"))
 
     return {
         "id": pid,

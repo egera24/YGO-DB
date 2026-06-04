@@ -428,6 +428,37 @@ def parse_trap_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None,
         return None, f"Error parsing trap card: {e}"
 
 
+def parse_skill_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
+    card_data: dict = {
+        "id": input_card["password"],
+        "name": input_card["name"],
+        "type": "Skill",
+    }
+    try:
+        page_password = extract_password_from_page(soup)
+        if page_password != input_card["password"]:
+            return None, (
+                f"Password mismatch: expected {input_card['password']}, "
+                f"found {page_password}"
+            )
+        property_val = extract_property(soup)
+        if property_val:
+            card_data["property"] = property_val
+        lore = extract_lore_description(soup, is_pendulum=False)
+        if lore and "description" in lore:
+            card_data["description"] = lore["description"]
+        archetype = extract_archetype(soup)
+        if archetype:
+            card_data["archetype"] = ", ".join(archetype) if len(archetype) > 1 else archetype[0]
+        card_sets = extract_card_sets(soup)
+        if card_sets:
+            card_data["card_sets"] = card_sets
+        _merge_card_image(card_data, soup)
+        return card_data, None
+    except Exception as e:
+        return None, f"Error parsing skill card: {e}"
+
+
 def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | None]:
     soup = BeautifulSoup(html, "html.parser")
     card_type = input_card.get("card_type", "")
@@ -437,4 +468,6 @@ def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | Non
         return parse_spell_card(soup, input_card)
     if card_type == "Trap Card":
         return parse_trap_card(soup, input_card)
+    if card_type == "Skill Card":
+        return parse_skill_card(soup, input_card)
     return None, f"Unknown card type: {card_type}"

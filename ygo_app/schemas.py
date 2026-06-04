@@ -33,6 +33,14 @@ class CardSummary(BaseModel):
     race: str | None
     attribute: str | None
     archetype: str | None
+    category: str | None = None
+    types: list[str] = Field(default_factory=list)
+    mechanic: str | None = None
+    rank: int | None = None
+    link_rating: int | None = None
+    pendulum_scale: int | None = None
+    link_markers: list[str] = Field(default_factory=list)
+    summoning_condition: str | None = None
     image_url_small: str | None
     is_favorite: bool
     owned: bool = False

@@ -93,6 +93,20 @@ class TestYugipediaAdapter(unittest.TestCase):
         self.assertIn("Continuous", api["humanReadableCardType"])
         self.assertIn("ms.yugipedia.com", api["card_images"][0]["image_url"])
 
+    def test_xyz_rank_not_in_level(self):
+        entry = {
+            "id": "3738521",
+            "name": "Bahamut Shark",
+            "typeline": ["Sea Serpent", "Xyz", "Effect"],
+            "type": "Sea Serpent",
+            "rank": 4,
+            "atk": 2600,
+            "def": 2100,
+        }
+        api = yugipedia_card_to_api(entry)
+        assert api is not None
+        self.assertIsNone(api["level"])
+
 
 if __name__ == "__main__":
     unittest.main()

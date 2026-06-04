@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from ygo_app.import_data import import_cards_entries
-from ygo_app.yugipedia.adapter import yugipedia_entries_to_api
+from ygo_app.yugipedia.card_import import yugipedia_entries_to_import
 from ygo_app.yugipedia.paths import ALL_CARDS_PATH
 
 
@@ -38,7 +38,7 @@ def import_from_yugipedia_json(
     min_cards: int | None = None,
 ) -> tuple[int, int]:
     entries = load_yugipedia_cards(path)
-    api_entries = yugipedia_entries_to_api(entries)
+    api_entries = yugipedia_entries_to_import(entries)
     min_required = resolve_min_cards(limit=limit, min_cards=min_cards)
     if len(api_entries) < min_required:
         raise RuntimeError(

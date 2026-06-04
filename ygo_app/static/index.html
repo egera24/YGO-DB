@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=9" />
+  <link rel="stylesheet" href="/static/css/style.css?v=10" />
 </head>
 <body>
   <header class="app-header">
@@ -138,40 +138,50 @@
         <h2 id="search-help-title">Search syntax</h2>
         <p class="muted">Search name, description, and archetype. Not case-sensitive.</p>
       </header>
-      <dl class="search-help-list">
-        <div class="search-help-row">
-          <dt><code>reveal</code></dt>
-          <dd>Anywhere in name, description, or archetype</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>"You can reveal"</code></dt>
-          <dd>Exact phrase (words adjacent)</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>reveal hand</code></dt>
-          <dd>Both terms (AND)</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>reveal OR hand</code></dt>
-          <dd>Either term</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>reveal -hand</code> or <code>reveal NOT hand</code></dt>
-          <dd>Include first term, exclude second</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>millenn?um</code></dt>
-          <dd><code>?</code> matches one character</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>reveal*</code></dt>
-          <dd><code>*</code> matches any characters</dd>
-        </div>
-        <div class="search-help-row">
-          <dt><code>12345678</code></dt>
-          <dd>Passcode (digits only)</dd>
-        </div>
-      </dl>
+      <div class="search-help-table-wrap">
+        <table class="search-help-table">
+          <thead>
+            <tr>
+              <th scope="col">Example</th>
+              <th scope="col">Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>reveal</code></td>
+              <td>Anywhere in name, description, or archetype</td>
+            </tr>
+            <tr>
+              <td><code>"You can reveal"</code></td>
+              <td>Exact phrase (words adjacent)</td>
+            </tr>
+            <tr>
+              <td><code>reveal hand</code></td>
+              <td>Both terms (AND)</td>
+            </tr>
+            <tr>
+              <td><code>reveal OR hand</code></td>
+              <td>Either term</td>
+            </tr>
+            <tr>
+              <td><code>reveal -hand</code> or <code>reveal NOT hand</code></td>
+              <td>Include first term, exclude second</td>
+            </tr>
+            <tr>
+              <td><code>millenn?um</code></td>
+              <td><code>?</code> matches one character</td>
+            </tr>
+            <tr>
+              <td><code>reveal*</code></td>
+              <td><code>*</code> matches any characters</td>
+            </tr>
+            <tr>
+              <td><code>12345678</code></td>
+              <td>Passcode (digits only)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </article>
   </div>
 

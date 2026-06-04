@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 
 from ygo_app.yugipedia.images import (
     normalize_yugipedia_image_url,
+    resolve_display_image_url_small,
     yugipedia_image_urls_from_src,
     yugipedia_thumb_url,
 )
@@ -67,7 +68,25 @@ class TestYugipediaImageUrls(unittest.TestCase):
         )
         urls = yugipedia_image_urls_from_src(thumb)
         self.assertIn("ms.yugipedia.com//a/a6/ParallelTeleport-DUAD-EN-SR-1E.png", urls["image_url"])
-        self.assertIn("150px-ParallelTeleport-DUAD-EN-SR-1E.png", urls["image_url_small"])
+        self.assertIn("300px-ParallelTeleport-DUAD-EN-SR-1E.png", urls["image_url_small"])
+
+    def test_urls_from_src_preserves_scraped_thumb(self):
+        thumb = (
+            "https://ms.yugipedia.com//thumb/8/80/AbyssActorHyperDirector-DUOV-EN-UR-1E.png/"
+            "300px-AbyssActorHyperDirector-DUOV-EN-UR-1E.png"
+        )
+        urls = yugipedia_image_urls_from_src(thumb)
+        self.assertEqual(urls["image_url_small"], thumb)
+        self.assertNotIn("150px-", urls["image_url_small"] or "")
+
+    def test_resolve_display_upgrades_legacy_150px(self):
+        full = "https://ms.yugipedia.com//8/80/AbyssActorHyperDirector-DUOV-EN-UR-1E.png"
+        legacy_small = (
+            "https://ms.yugipedia.com//thumb/8/80/AbyssActorHyperDirector-DUOV-EN-UR-1E.png/"
+            "150px-AbyssActorHyperDirector-DUOV-EN-UR-1E.png"
+        )
+        resolved = resolve_display_image_url_small(legacy_small, full)
+        self.assertIn("300px-AbyssActorHyperDirector-DUOV-EN-UR-1E.png", resolved or "")
 
 
 class TestExtractCardImage(unittest.TestCase):
@@ -78,7 +97,7 @@ class TestExtractCardImage(unittest.TestCase):
         assert result is not None
         self.assertIn("CardTrooper-25YC-EN-SR-LE.png", result["image_url"])
         self.assertNotIn("MADU-EN-VG-artwork", result["image_url"])
-        self.assertIn("150px-CardTrooper-25YC-EN-SR-LE.png", result["image_url_small"])
+        self.assertIn("300px-CardTrooper-25YC-EN-SR-LE.png", result["image_url_small"])
 
     def test_spell_page(self):
         soup = BeautifulSoup(SPELL_PAGE_SNIPPET, "html.parser")

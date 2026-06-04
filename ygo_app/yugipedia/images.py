@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 
+# Default thumb width when synthesizing from a direct URL (wiki cardtables use 300px).
+YUGIPEDIA_DEFAULT_THUMB_WIDTH = 300
+
 YGOPRODECK_CARD_URL = "https://ygoprodeck.com/card/{}"
 YGOPRODECK_IMAGE_URL = "https://images.ygoprodeck.com/images/cards/{}.jpg"
 YGOPRODECK_IMAGE_SMALL_URL = "https://images.ygoprodeck.com/images/cards_small/{}.jpg"
@@ -96,16 +99,31 @@ def is_yugipedia_card_art_filename(filename: str) -> bool:
     return True
 
 
+def resolve_display_image_url_small(
+    image_url_small: str | None,
+    image_url: str | None,
+) -> str | None:
+    """Return a Yugipedia thumb URL that exists on the CDN (fixes legacy 150px synth rows)."""
+    if image_url_small and "150px-" not in image_url_small:
+        return image_url_small
+    if image_url:
+        return yugipedia_thumb_url(image_url, width=YUGIPEDIA_DEFAULT_THUMB_WIDTH) or image_url
+    return image_url_small
+
+
 def yugipedia_image_urls_from_src(
     src: str | None,
     *,
-    small_width: int = 150,
+    small_width: int = YUGIPEDIA_DEFAULT_THUMB_WIDTH,
 ) -> dict[str, str | None]:
     """Build full + thumb URLs from a scraped img src."""
     full = normalize_yugipedia_image_url(src)
     if not full:
         return {"image_url": None, "image_url_small": None}
-    return {
-        "image_url": full,
-        "image_url_small": yugipedia_thumb_url(full, width=small_width),
-    }
+
+    src_stripped = (src or "").strip()
+    if _YUGIPEDIA_THUMB_RE.match(src_stripped):
+        image_url_small = src_stripped
+    else:
+        image_url_small = yugipedia_thumb_url(full, width=small_width)
+    return {"image_url": full, "image_url_small": image_url_small}

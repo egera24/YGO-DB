@@ -18,6 +18,7 @@ from ygo_app.services import (
     toggle_favorite,
 )
 from ygo_app.utils import rarity_display
+from ygo_app.yugipedia.images import resolve_display_image_url_small
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
@@ -74,7 +75,9 @@ def search(
                 race=card.race,
                 attribute=card.attribute,
                 archetype=card.archetype,
-                image_url_small=card.image_url_small,
+                image_url_small=resolve_display_image_url_small(
+                    card.image_url_small, card.image_url
+                ),
                 is_favorite=extra["is_favorite"],
                 owned=extra["owned"],
                 owned_quantity=extra["owned_quantity"],
@@ -134,7 +137,9 @@ def _build_card_detail(db: Session, card_id: int, user: User | None) -> CardDeta
         scale=card.scale,
         ygoprodeck_url=card.ygoprodeck_url,
         image_url=card.image_url,
-        image_url_small=card.image_url_small,
+        image_url_small=resolve_display_image_url_small(
+            card.image_url_small, card.image_url
+        ),
         is_favorite=getattr(card, "_is_favorite", extra["is_favorite"]),
         owned=extra["owned"],
         owned_quantity=extra["owned_quantity"],

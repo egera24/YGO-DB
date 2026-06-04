@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-03 (GHA batched Yugipedia scrape + retries/heartbeat/`[BATCH_RESULT]` audit on `develop` @ `e9f06a7`)
+**Last updated:** 2026-06-04 (GHA **test_mode** 500-card import verified on Neon dev; FK-safe catalog replace on `develop` @ `3ef9be1`)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 **New agents:** Read this file at session start for token-efficient context.
@@ -35,7 +35,7 @@ Full workflow: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md).
 | Branch | Often contains |
 |--------|----------------|
 | **`develop`** | Full Yugipedia app code (`ygo_app/yugipedia/`, jobs, tests) + workflows |
-| **`main`** | May have **workflow YAML only** pushed for Actions UI before full app merge |
+| **`main`** | Workflow YAML (+ `import_data.py` FK fix); full `ygo_app/yugipedia/` still on **`develop`** until merge |
 
 Branches can **diverge** (e.g. workflow-only commit on `main`, app commits on `develop`). That is intentional for “test on dev without merging app to prod.”
 
@@ -92,7 +92,7 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 
 **Import replaces catalog:** `import_cards_entries` deletes all `cards` and `printings` then reloads. Do **not** manually truncate Neon catalog tables.
 
-**Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**; `printing_id` on collection may need re-link after refresh.
+**Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**. Before catalog delete, [`import_data.py`](ygo_app/import_data.py) clears `collection_items.printing_id`, then re-links by `(set_code, rarity_code)` after import (avoids FK violation on `printings`).
 
 ### Where catalog data lives
 
@@ -106,7 +106,9 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 - **`printings`:** one row per set code + rarity; FK `card_id` → `cards.id`.
 - GHA **environment `dev`** → secret `DATABASE_URL_DEV` → Neon **dev** branch. **production** → `DATABASE_URL` → Neon **main**.
 
-GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 hours**. Artifact **`catalog-state`** passes JSON between batches (passcode list + cumulative `yugipedia_all_cards.json` + rejected). `PYTHONUNBUFFERED=1` on the workflow.
+GHA scrape is **chained jobs** (passcodes + 6 detail batches + import). Each job has its own timeout (60–90 min); total workflow wall clock **~2–4 h** full · **~30–60 min** with **`test_mode`** (500 cards, batches 1–5 skipped, single details batch). Artifact **`catalog-state`** passes JSON between batches. `PYTHONUNBUFFERED=1` on the workflow.
+
+**GHA `test_mode` (workflow_dispatch):** inputs `test_mode` + `card_limit` (default 500); **dev only** (blocked on `production`). Scrape `--max-cards`; import `--limit`; `import` job uses `always()` so it still runs when `scrape_batch_5` is skipped. Use **Run workflow** (new run) — **Re-run failed jobs** reuses the old commit and breaks fixes.
 
 **Resilience** ([`scrape_progress.py`](ygo_app/yugipedia/scrape_progress.py), [`details.py`](ygo_app/yugipedia/details.py)):
 
@@ -127,7 +129,7 @@ Cancel message `The operation was canceled` usually means **per-job timeout**, n
 
 | Workflow file | Name in UI | On `main`? | Notes |
 |---------------|------------|------------|--------|
-| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | Yes (user pushed) | Jobs: `prepare` → `passcodes` → `scrape_batch_0..5` → `import`; `BATCH_COUNT=6`; manual **environment** `dev` \| `production`; schedule 1st & 15th → prod |
+| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | Yes | `prepare` → `passcodes` → `scrape_batch_0..5` → `import`; `test_mode` + `card_limit`; `BATCH_COUNT=6`; **environment** `dev` \| `production`; schedule 1st & 15th → prod |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck API fallback) | Yes | Manual emergency only |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Yes | Both secrets |
 
@@ -189,6 +191,9 @@ tests/
   test_yugipedia_batch_slice.py
   test_scrape_progress.py
   test_batch_completion.py
+  test_import_catalog_replace.py
+  test_import_catalog_yugipedia.py
+  test_yugipedia_passcode_limit.py
 .github/workflows/
   import-catalog-yugipedia.yml
   import-catalog-ygoprodeck.yml
@@ -212,6 +217,8 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 6. **Cursor rule** + `.gitignore` exception: `.cursor/rules/` tracked in git; rest of `.cursor/` ignored.
 7. **GHA Yugipedia import verified** on Neon dev (`DATABASE_URL` + `DATABASE_URL_DEV` secrets; branch `develop`, environment `dev`).
 8. **Batch resilience (2026-06-03):** `scrape_progress.py` (heartbeat/stall); bounded scrape pool; transient failure batch retries; `audit_slice_completion()` + exit **3** on incomplete batch; tests `test_batch_completion.py`, `test_scrape_progress.py`.
+9. **Catalog import FK fix (2026-06-04):** detach `collection_items.printing_id` before delete; delete `cards` only (printings cascade); bulk re-link after import (`e4c939d`).
+10. **500-card test mode (2026-06-04):** `--max-cards` / `--limit`; GHA `test_mode` + `card_limit`; `resolve_min_cards()` (80% of limit); **verified** end-to-end on Neon dev (`65758d3`, import fix `3ef9be1`).
 
 ### Earlier (still relevant)
 
@@ -224,12 +231,15 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 
 ### Test catalog on dev (no merge to `main`)
 
-**GitHub Actions:** **Import Yugipedia catalog** → Run workflow → branch **`develop`** → environment **`dev`**.
+**GitHub Actions (full):** **Import Yugipedia catalog** → **Run workflow** → branch **`develop`** → environment **`dev`**.
+
+**GitHub Actions (500-card test, ~30–60 min):** same workflow → `test_mode=true`, `card_limit=500`. Confirm `import` job runs (not skipped) after `scrape_batch_0`.
 
 **CLI alternative:**
 
 ```powershell
 gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev
+gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev -f test_mode=true -f card_limit=500
 ```
 
 **Local:**
@@ -281,7 +291,7 @@ python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-
 python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
 ```
 
-GHA test: **Run workflow** (new run, not Re-run) → branch **`develop`** → `environment=dev` → `test_mode=true` → `card_limit=500`. Skips scrape batches 1–5.
+GHA test: **Run workflow** (new run, **not** Re-run failed jobs) → branch **`develop`** → `environment=dev` → `test_mode=true` → `card_limit=500`. Skips scrape batches 1–5; import uses `always()` in workflow `if`. After test, run a **full** import to restore ~14k cards on dev.
 
 ### Fallback catalog
 
@@ -310,8 +320,8 @@ python -m ygo_app.jobs.import_catalog
 |------|--------|
 | 1 | Neon **main** + **dev**; GitHub secrets `DATABASE_URL`, `DATABASE_URL_DEV` (raw pooled URLs) |
 | 2 | Workflows on `main`; **same** `import-catalog-yugipedia.yml` on `develop` (sync after edits) |
-| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`**; allow **~2–4 h**; each `scrape_batch_*` log ends `[BATCH_RESULT] missing=0` |
-| 4 | Verify Neon dev (`SELECT COUNT(*) FROM cards`) and/or staging `ygo-app-dev` + `/api/status` |
+| 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`**; full **~2–4 h** or **test_mode** ~30–60 min; each active batch `[BATCH_RESULT] missing=0` |
+| 4 | Verify Neon dev (`SELECT COUNT(*) FROM cards` — ~500 test or ~14k full) and/or `ygo-app-dev` + `/api/status` |
 | 5 | Merge **`develop` → `main`** when ready for prod **app** |
 | 6 | **Import Yugipedia catalog** — branch **`main`**, environment **production** |
 
@@ -330,6 +340,9 @@ python -m ygo_app.jobs.import_catalog
 | `varchar(16)` | Migration `002` |
 | GHA scrape canceled at 180 min | Split into chained jobs (`BATCH_COUNT=6`); per-job timeouts 60–90 min |
 | Scrape appeared stuck / no visibility | `[HEARTBEAT]`, `[FAIL]`, `[BATCH_RESULT]`; pool + batch retries |
+| GHA import `ForeignKeyViolation` on `printings` | Detach/re-link `collection_items.printing_id` in `import_cards_entries`; run workflow from **`develop`** (not Re-run old job) |
+| GHA import skipped after test `scrape_batch_0` | `import` job needs `always()` when `scrape_batch_5` skipped (`3ef9be1`) |
+| Re-run still runs old `Printing.delete()` code | **Run workflow** picks new commit; Re-run reuses original SHA |
 
 ---
 
@@ -350,8 +363,9 @@ python -m ygo_app.jobs.import_catalog
 | Check | Expected |
 |-------|----------|
 | `GET /api/health` | `{"ok": true}` |
-| `GET /api/status` | `ready: true`, `cards` ~14k+ |
+| `GET /api/status` | `ready: true`, `cards` ~14k+ (full) or ~500 (`test_mode`) |
 | GHA log | `Catalog import complete: N cards, M printings` |
-| GHA scrape | All jobs green (`passcodes`, `scrape_batch_0`…`5`, `import`); ~2–4 h; each batch `[BATCH_RESULT] missing=0` |
+| GHA scrape (full) | Green: `passcodes`, `scrape_batch_0`…`5`, `import`; ~2–4 h; each batch `[BATCH_RESULT] missing=0` |
+| GHA scrape (test) | Green: `passcodes`, `scrape_batch_0`, `import`; batches 1–5 skipped; ~500 cards in Neon dev |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
 | `python -m unittest discover -s tests` | All pass |

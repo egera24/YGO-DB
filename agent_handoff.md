@@ -82,13 +82,14 @@ flowchart TB
 |------|----------------|--------|
 | 1 | [`yugipedia/passcodes.py`](ygo_app/yugipedia/passcodes.py) | `data/catalog/yugipedia_passcode_list.json` (all `Concept:CG cards`) |
 | 2 | [`yugipedia/details.py`](ygo_app/yugipedia/details.py) + [`parsing.py`](ygo_app/yugipedia/parsing.py) | `yugipedia_all_cards.json` (metadata + `image_url`/`image_url_small`); `yugipedia_rejected_cards.json` |
-| 3 | [`jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) + [`adapter.py`](ygo_app/yugipedia/adapter.py) | Neon `cards` + `printings` |
+| 3 | [`jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) + [`card_import.py`](ygo_app/yugipedia/card_import.py) (+ [`adapter.py`](ygo_app/yugipedia/adapter.py) for images/legacy fields) | Neon `cards` + `printings` |
 
 **Key behaviors:**
 
 - **Import = full replace.** `import_cards_entries` deletes all `cards` + `printings`, then reloads from JSON. Never truncate manually.
 - **Import side effects.** `users` / `collection_items` are kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**. [`import_data.py`](ygo_app/import_data.py) detaches `collection_items.printing_id` before the delete, then re-links by `(set_code, rarity_code)` after import (avoids FK violation on `printings`).
-- **TCG-only filter.** Cards with no English printings (empty/missing `cts--EN` → no `card_sets`) are rejected in [`details._process_card`](ygo_app/yugipedia/details.py) and skipped in [`adapter.yugipedia_entries_to_api`](ygo_app/yugipedia/adapter.py). OCG-only entries land in `yugipedia_rejected_cards.json`. Final card count is **below** the ~14k passcode total.
+- **TCG-only filter.** Cards with no English printings (empty/missing `cts--EN` → no `card_sets`) are rejected in [`details._process_card`](ygo_app/yugipedia/details.py) and skipped in [`card_import.yugipedia_entries_to_import`](ygo_app/yugipedia/card_import.py). OCG-only entries land in `yugipedia_rejected_cards.json`. Final card count is **below** the ~14k passcode total.
+- **Schema vs data.** **Alembic** (`alembic upgrade head`) adds/updates table columns only. **Import** fills card rows. After new `cards` columns (e.g. migration `003`), run a **full re-import** on that DB — GHA `prepare` already runs Alembic; workflow YAML need not change.
 - **Multi-rarity printings.** [`card_sets.py`](ygo_app/yugipedia/card_sets.py) reads all `<a>` tags in the rarity cell (not `<br>` split), English timeline table only (`id` contains `cts--EN`). E.g. `RA03-EN172` yields multiple rarities.
 - **No search index rebuild** on import (FTS removed — see [§7](#7-card-search)).
 
@@ -146,22 +147,36 @@ JSON shape per card in `yugipedia_all_cards.json`:
 
 ---
 
-## 6. Card search (`q` on `/api/cards/search`)
+## 6. Card search
 
-Google-style text query compiled to case-insensitive `ILIKE` on `name` / `desc` / `archetype` (with `coalesce` so `NOT` works when archetype is null).
+### Text (`q` on `/api/cards/search`)
+
+Google-style query → case-insensitive `ILIKE` on `name` / `desc` / `archetype` via [`search_query.py`](ygo_app/search_query.py) (`Phrase`, `Term`, `And`, `Or`, `Not`, `?`, `*`). All-digit `q` → passcode only. Help: `#search-help-modal` + `?` button. Invalid syntax → plain term. FTS/`cards_fts` removed.
+
+### Yugipedia filters (advanced panel in UI)
+
+Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card_import.py) (migration [`003_yugipedia_card_fields.py`](alembic/versions/003_yugipedia_card_fields.py)):
+
+| UI / API | DB / scrape | Notes |
+|----------|-------------|--------|
+| Category | `category` | `Spell`/`Trap`/`Skill` from JSON `type`, else `Monster` |
+| Type | `types` (JSON array) | Monsters: `typeline[]`; ST/Skill: `[property]` — filter **OR** |
+| Mechanic, Attribute | `mechanic`, `attribute` | Monsters only; multi-value **OR** |
+| Archetype | `archetype` | Substring `ILIKE` |
+| ATK/DEF/Level/Rank/Link/Pendulum | matching columns | Inclusive min/max params |
+| Link markers (3×3 grid) | `link_markers` (JSON) | Selected markers **AND** (subset match) |
+| Summoning condition | `summoning_condition` | `ILIKE`; autocomplete `GET /api/cards/summoning-suggestions` |
 
 | Piece | Role |
 |-------|------|
-| [`search_query.py`](ygo_app/search_query.py) | Tokenizer + AST (`Phrase`, `Term`, `And`, `Or`, `Not`); `compile_filter` / `text_search_filter` → SQLAlchemy `WHERE` |
-| [`services.search_cards`](ygo_app/services.py) | Same compiled filter for rows **and** `COUNT`; invalid syntax falls back to plain term |
-| UI field | [`static/index.html`](ygo_app/static/index.html) — `#q` + `?` button (`#search-help-btn`) |
-| UI help | `#search-help-modal` — overlay dialog; [`app.js`](ygo_app/static/js/app.js) `openSearchHelpModal`/`closeSearchHelpModal`; `<table>` cols **Example** \| **Description** |
+| [`card_filters.py`](ygo_app/card_filters.py) | JSON list parse; `types` / `link_markers` SQL helpers |
+| [`services.search_cards`](ygo_app/services.py) | `q` + all filter params; one `COUNT` query |
+| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders` auth-only |
+| UI | `#advanced-filters` in [`index.html`](ygo_app/static/index.html); [`app.js`](ygo_app/static/js/app.js) `buildSearchParams` |
 
-**Syntax (case-insensitive):** `reveal` (substring) · `"You can reveal"` (contiguous phrase) · `reveal hand` (implicit AND) · `reveal OR hand` · `reveal -hand` / `NOT` · `millenn?um` · `reveal*`. All-digit `q` → passcode lookup only. Full list lives in the help modal, not inline on the form.
+Legacy `frame_type` / `race` columns remain for YGOProDeck fallback import; **not** exposed in search UI.
 
-**Removed:** `search_index.py`, the `cards_fts` SQLite FTS5 table, and Postgres `plainto_tsquery`. Offline SQLite app mode (`data/ygo.db`) uses the same `ILIKE` compiler.
-
-Tests: [`test_search_query.py`](tests/test_search_query.py), [`test_search_cards.py`](tests/test_search_cards.py).
+Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_filters.py`, `test_summoning_suggestions.py`, `test_yugipedia_card_import.py`.
 
 ---
 
@@ -199,7 +214,7 @@ This does **not** redeploy prod app code — Render `ygo-app` only rebuilds when
 ### Run / test
 ```powershell
 pip install -r requirements.txt
-alembic upgrade head
+alembic upgrade head                            # schema only (see §4: re-import fills new columns)
 python run.py                                   # local app (SQLite if DATABASE_URL unset)
 python -m unittest discover -s tests            # full test suite
 ```
@@ -256,8 +271,9 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-04**
-- **Advanced search** — `search_query.py` tokenizer + AST → `ILIKE` filter; `search_cards` uses one compiled filter for rows + count; removed `search_index.py` / `cards_fts` / `plainto_tsquery`.
-- **Search help UI** — `?` button + `#search-help-modal` (Example/Description table); `syncModalOpenClass()` for `body.modal-open`; assets bumped to `style.css?v=10`, `app.js?v=12`.
+- **Yugipedia-native filters** — Alembic `003`; `card_import.py` maps scrape → `category`, `types`, `mechanic`, `rank`, `link_rating`, `pendulum_scale`, `link_markers`, `summoning_condition`; advanced search UI + `/api/filters` (no auth for catalog lists); `parse_skill_card`; assets `style.css?v=11`, `app.js?v=13`. **Re-import** after deploy to populate new columns (GHA workflow unchanged).
+- **Text search (`q`)** — `search_query.py` → `ILIKE`; removed `search_index.py` / `cards_fts` / `plainto_tsquery`.
+- **Search help UI** — `?` button + `#search-help-modal`.
 - **TCG-only filter** — reject cards with empty `card_sets` in `details._process_card` + `adapter.yugipedia_entries_to_api`.
 - **Yugipedia images** — `extract_card_image` scrapes `ms.yugipedia.com` art from the metadata page; adapter uses scraped URLs with no YGOProDeck fallback.
 - **Import FK fix** (`e4c939d`) — detach/re-link `collection_items.printing_id` so the catalog delete doesn't violate the `printings` FK.
@@ -294,6 +310,8 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 | Re-run still runs old code | **Run workflow** picks the new commit; Re-run reuses the original SHA |
 | UI shows YGOProDeck art / JSON missing `image_url` | Pre-2026-06-04 scrape; re-run details scrape + import |
 | Confusion over `yugipedia/get_images.py` | That legacy script downloaded YGOProDeck files; real URLs come from `parsing.extract_card_image` |
+| Advanced filters empty / no Type options | DB rows pre-`003` or pre-re-import; run `alembic upgrade head` + full `import_catalog_yugipedia` on that Neon branch |
+| “Do I need to cherry-pick the GHA workflow?” | Usually no — same YAML; need **app code** on the workflow branch + re-import |
 
 ---
 
@@ -302,8 +320,9 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 ```
 ygo_app/
   api/                 # FastAPI: main.py + routes/{auth,cards,collection,decks,meta}.py
-  yugipedia/           # passcodes, details, parsing, card_sets, adapter, images,
-                       #   http_client, scrape_progress, constants, paths
+  yugipedia/           # passcodes, details, parsing, card_sets, adapter, card_import,
+                       #   images, http_client, scrape_progress, constants, paths
+  card_filters.py      # advanced search SQL helpers
   jobs/
     scrape_yugipedia_catalog.py
     import_catalog_yugipedia.py
@@ -312,8 +331,8 @@ ygo_app/
   search_query.py              # q parser + ILIKE compiler
   services.py  models.py  schemas.py  auth.py  config.py  database.py  catalog.py  utils.py
   static/                      # index.html, css/style.css, js/app.js
-alembic/versions/  001_initial_multiuser.py  002_widen_rarity_code.py
-tests/                         # 12 unittest modules (see §6 / §9 for key ones)
+alembic/versions/  001 … 003_yugipedia_card_fields.py
+tests/                         # 15 unittest modules (see §6)
 .github/workflows/             # import-catalog-yugipedia.yml, import-catalog-ygoprodeck.yml, db-keepalive.yml
 .cursor/rules/                 # github-actions-yugipedia-workflow-sync.mdc
 docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md
@@ -337,3 +356,6 @@ data/catalog/                  # gitignored scrape JSON
 | `GET /api/cards/search?q="You can reveal"` | Only the contiguous phrase (case-insensitive) |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. `RA03-EN172`) |
 | Search UI `?` button | Opens help modal (Example/Description); Close / Escape / backdrop dismiss |
+| `GET /api/filters` (no auth) | Non-empty `types` / `attributes` after re-import on that DB |
+| `GET /api/cards/search?category=Monster&types=Fusion` | OR on `types` JSON |
+| `GET /api/cards/summoning-suggestions?q=WATER` | Distinct `summoning_condition` substring matches |

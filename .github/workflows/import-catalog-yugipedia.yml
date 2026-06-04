@@ -342,7 +342,9 @@ jobs:
       - prepare
       - scrape_batch_0
       - scrape_batch_5
+    # always(): required so import runs when test_mode skips scrape_batch_5 (skipped needs skip dependents)
     if: |
+      always() &&
       needs.prepare.result == 'success' &&
       needs.scrape_batch_0.result == 'success' &&
       (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&

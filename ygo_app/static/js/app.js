@@ -120,23 +120,136 @@ async function loadStatus() {
   line.textContent = parts.join(" · ");
 }
 
-function populateMultiSelect(sel, values) {
-  if (!sel) return;
-  const existing = new Set(Array.from(sel.options).map((o) => o.value));
+const FILTER_MULTI_SUMMARY_MAX = 28;
+
+function getFilterMultiRoot(id) {
+  const el = typeof id === "string" ? $(`#${id}`) : id;
+  if (!el) return null;
+  return el.classList.contains("filter-multi") ? el : el.closest(".filter-multi");
+}
+
+function getFilterMultiValues(id) {
+  const root = getFilterMultiRoot(id);
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll('.filter-multi-panel input[type="checkbox"]:checked')
+  )
+    .map((cb) => cb.value)
+    .filter(Boolean);
+}
+
+function updateFilterMultiSummary(root) {
+  root = getFilterMultiRoot(root);
+  if (!root) return;
+  const summary = root.querySelector(".filter-multi-summary");
+  if (!summary) return;
+  const selected = getFilterMultiValues(root);
+  if (selected.length === 0) {
+    summary.textContent = "Any";
+    return;
+  }
+  if (selected.length === 1) {
+    summary.textContent = selected[0];
+    return;
+  }
+  const joined = selected.join(", ");
+  if (selected.length <= 3 && joined.length <= FILTER_MULTI_SUMMARY_MAX) {
+    summary.textContent = joined;
+    return;
+  }
+  summary.textContent = `${selected.length} selected`;
+}
+
+function setFilterMultiOptions(id, values) {
+  const root = getFilterMultiRoot(id);
+  if (!root) return;
+  const panel = root.querySelector(".filter-multi-panel");
+  if (!panel) return;
+  const selected = new Set(getFilterMultiValues(root));
+  panel.innerHTML = "";
   values.forEach((v) => {
-    if (!v || existing.has(v)) return;
-    const o = document.createElement("option");
-    o.value = v;
-    o.textContent = v;
-    sel.appendChild(o);
+    if (!v) return;
+    const label = document.createElement("label");
+    label.className = "check filter-multi-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = v;
+    if (selected.has(v)) input.checked = true;
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(` ${v}`));
+    panel.appendChild(label);
+  });
+  updateFilterMultiSummary(root);
+}
+
+function closeFilterMultiPanel(root) {
+  root = getFilterMultiRoot(root);
+  if (!root) return;
+  const panel = root.querySelector(".filter-multi-panel");
+  const trigger = root.querySelector(".filter-multi-trigger");
+  if (!panel || panel.hidden) return;
+  panel.hidden = true;
+  root.classList.remove("is-open");
+  trigger?.setAttribute("aria-expanded", "false");
+  document
+    .querySelector(".advanced-filters-body")
+    ?.classList.remove("has-open-filter-multi");
+}
+
+function closeAllFilterMultiPanels(exceptRoot = null) {
+  document.querySelectorAll(".filter-multi").forEach((r) => {
+    if (exceptRoot && r === exceptRoot) return;
+    closeFilterMultiPanel(r);
   });
 }
 
-function selectedMultiValues(sel) {
-  if (!sel) return [];
-  return Array.from(sel.selectedOptions)
-    .map((o) => o.value)
-    .filter(Boolean);
+function openFilterMultiPanel(root) {
+  root = getFilterMultiRoot(root);
+  if (!root) return;
+  closeAllFilterMultiPanels(root);
+  const panel = root.querySelector(".filter-multi-panel");
+  const trigger = root.querySelector(".filter-multi-trigger");
+  if (!panel) return;
+  panel.hidden = false;
+  root.classList.add("is-open");
+  trigger?.setAttribute("aria-expanded", "true");
+  document
+    .querySelector(".advanced-filters-body")
+    ?.classList.add("has-open-filter-multi");
+}
+
+function toggleFilterMultiPanel(root) {
+  root = getFilterMultiRoot(root);
+  if (!root) return;
+  const panel = root.querySelector(".filter-multi-panel");
+  if (panel?.hidden) openFilterMultiPanel(root);
+  else closeFilterMultiPanel(root);
+}
+
+function initFilterMultiWidgets() {
+  document.querySelectorAll(".filter-multi").forEach((root) => {
+    const trigger = root.querySelector(".filter-multi-trigger");
+    const panel = root.querySelector(".filter-multi-panel");
+    if (!trigger || !panel) return;
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleFilterMultiPanel(root);
+    });
+
+    panel.addEventListener("change", (e) => {
+      if (e.target.matches('input[type="checkbox"]')) {
+        updateFilterMultiSummary(root);
+      }
+    });
+
+    panel.addEventListener("click", (e) => e.stopPropagation());
+  });
+
+  document.addEventListener("click", () => closeAllFilterMultiPanels());
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAllFilterMultiPanels();
+  });
 }
 
 function setDatalist(id, values) {
@@ -150,9 +263,9 @@ function setDatalist(id, values) {
 async function loadFilters() {
   const data = await api("/filters");
   state.filters = data;
-  populateMultiSelect($("#filter-types"), data.types || []);
-  populateMultiSelect($("#filter-mechanic"), data.mechanics || []);
-  populateMultiSelect($("#filter-attribute"), data.attributes || []);
+  setFilterMultiOptions("filter-types", data.types || []);
+  setFilterMultiOptions("filter-mechanic", data.mechanics || []);
+  setFilterMultiOptions("filter-attribute", data.attributes || []);
   setDatalist("#archetype-datalist", data.archetypes || []);
 
   const folderSel = $("#collection-folder");
@@ -236,16 +349,16 @@ function buildSearchParams() {
   if (q) params.set("q", q);
   if (setCode) params.set("set_code", setCode);
 
-  const categories = selectedMultiValues($("#filter-category"));
+  const categories = getFilterMultiValues("filter-category");
   if (categories.length) params.set("category", categories.join(","));
 
-  const types = selectedMultiValues($("#filter-types"));
+  const types = getFilterMultiValues("filter-types");
   if (types.length) params.set("types", types.join(","));
 
-  const mechanics = selectedMultiValues($("#filter-mechanic"));
+  const mechanics = getFilterMultiValues("filter-mechanic");
   if (mechanics.length) params.set("mechanic", mechanics.join(","));
 
-  const attrs = selectedMultiValues($("#filter-attribute"));
+  const attrs = getFilterMultiValues("filter-attribute");
   if (attrs.length) params.set("attribute", attrs.join(","));
 
   const archetype = $("#filter-archetype")?.value.trim();
@@ -855,6 +968,7 @@ async function init() {
     }
     updateAuthUI();
     await loadStatus();
+    initFilterMultiWidgets();
     await loadFilters();
     setupLinkMarkerGrid();
     setupSummoningSuggestions();

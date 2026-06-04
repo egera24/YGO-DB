@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=11" />
+  <link rel="stylesheet" href="/static/css/style.css?v=12" />
 </head>
 <body>
   <header class="app-header">
@@ -54,25 +54,49 @@
           <summary>Advanced filters</summary>
           <div class="advanced-filters-body">
             <div class="filter-group">
-              <label for="filter-category">Category</label>
-              <select id="filter-category" multiple size="4" aria-label="Category">
-                <option value="Monster">Monster</option>
-                <option value="Spell">Spell</option>
-                <option value="Trap">Trap</option>
-                <option value="Skill">Skill</option>
-              </select>
+              <span class="filter-group-heading" id="filter-category-label">Category</span>
+              <div class="filter-multi" id="filter-category">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-category-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Monster" /> Monster</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Spell" /> Spell</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Trap" /> Trap</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Skill" /> Skill</label>
+                </div>
+              </div>
             </div>
             <div class="filter-group">
-              <label for="filter-types">Type</label>
-              <select id="filter-types" multiple size="6" aria-label="Type"></select>
+              <span class="filter-group-heading" id="filter-types-label">Type</span>
+              <div class="filter-multi" id="filter-types">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-types-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden></div>
+              </div>
             </div>
             <div class="filter-group">
-              <label for="filter-mechanic">Mechanic</label>
-              <select id="filter-mechanic" multiple size="5" aria-label="Mechanic"></select>
+              <span class="filter-group-heading" id="filter-mechanic-label">Mechanic</span>
+              <div class="filter-multi" id="filter-mechanic">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-mechanic-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden></div>
+              </div>
             </div>
             <div class="filter-group">
-              <label for="filter-attribute">Attribute</label>
-              <select id="filter-attribute" multiple size="5" aria-label="Attribute"></select>
+              <span class="filter-group-heading" id="filter-attribute-label">Attribute</span>
+              <div class="filter-multi" id="filter-attribute">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-attribute-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden></div>
+              </div>
             </div>
             <div class="filter-group filter-group--wide">
               <label for="filter-archetype">Archetype</label>
@@ -266,6 +290,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=13" type="module"></script>
+  <script src="/static/js/app.js?v=14" type="module"></script>
 </body>
 </html>

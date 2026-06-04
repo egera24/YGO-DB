@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-04 (TCG-only catalog: cards without `cts--EN` printings rejected at scrape + skipped at import)
+**Last updated:** 2026-06-04 (advanced card search: Google-style query parser; removed SQLite FTS5 / Postgres `plainto_tsquery` path)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 **New agents:** Read this file at session start for token-efficient context.
@@ -19,6 +19,7 @@
 | **Catalog source** | **Yugipedia** scrape (primary); fallback: YGOProDeck API |
 | **Card images** | **CDN only** — Yugipedia URLs (`ms.yugipedia.com`) scraped into JSON/DB; browser loads at view time. YGOProDeck CDN only for API fallback import. |
 | **Auth** | JWT (`SECRET_KEY`; bcrypt for passwords) |
+| **Text search** | [`ygo_app/search_query.py`](ygo_app/search_query.py) — phrases `"..."`, `AND`/`OR`/`NOT`/`-`, wildcards `*`/`?`; compiled to case-insensitive `ILIKE` on name, desc, archetype (Neon/Postgres primary) |
 
 ### Environments (three tiers)
 
@@ -94,7 +95,21 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 
 **Import replaces catalog:** `import_cards_entries` deletes all `cards` and `printings` then reloads. Do **not** manually truncate Neon catalog tables.
 
-**Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**. Before catalog delete, [`import_data.py`](ygo_app/import_data.py) clears `collection_items.printing_id`, then re-links by `(set_code, rarity_code)` after import (avoids FK violation on `printings`).
+**Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**. Before catalog delete, [`import_data.py`](ygo_app/import_data.py) clears `collection_items.printing_id`, then re-links by `(set_code, rarity_code)` after import (avoids FK violation on `printings`). Catalog import no longer rebuilds a search index (FTS removed).
+
+### Card search (text `q` on `/api/cards/search`)
+
+| Piece | Role |
+|-------|------|
+| [`search_query.py`](ygo_app/search_query.py) | Parse `q` → AST; `compile_filter` / `text_search_filter` → SQLAlchemy `WHERE` |
+| [`services.search_cards`](ygo_app/services.py) | Applies same filter to results **and** `COUNT` (no capped FTS ID list) |
+| UI | [`static/index.html`](ygo_app/static/index.html) — placeholder + `<details>` syntax help |
+
+**Syntax (case-insensitive):** `reveal` (substring) · `"You can reveal"` (contiguous phrase) · `reveal hand` (implicit AND) · `reveal OR hand` · `reveal -hand` / `NOT` · `millenn?um` · `reveal*`. All-digit `q` → passcode lookup only.
+
+**Removed:** `ygo_app/search_index.py` (SQLite FTS5 `cards_fts`, Postgres `plainto_tsquery`). Optional offline SQLite **app** mode (`data/ygo.db`) unchanged; search uses the same `ILIKE` compiler there.
+
+**Tests:** [`test_search_query.py`](tests/test_search_query.py), [`test_search_cards.py`](tests/test_search_cards.py).
 
 ### Card images (Yugipedia URLs, no downloads)
 
@@ -211,9 +226,12 @@ ygo_app/
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
   import_data.py       # import_cards_entries (full catalog replace)
+  search_query.py      # Google-style q parser + ILIKE filter compiler
   api/, services/, static/js/app.js
 data/catalog/          # gitignored scrape JSON
 tests/
+  test_search_query.py
+  test_search_cards.py
   test_yugipedia_card_sets.py
   test_yugipedia_adapter.py
   test_yugipedia_details.py
@@ -236,6 +254,15 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 ---
 
 ## 4. What was implemented
+
+### Advanced card search (2026-06-04)
+
+1. **`search_query.py`** — tokenizer + AST (`Phrase`, `Term`, `And`, `Or`, `Not`); `ILIKE` on `name` / `desc` / `archetype` with `coalesce` (fixes `NOT` when archetype is null).
+2. **`search_cards`** — single compiled filter for rows and total count; invalid syntax falls back to plain term.
+3. **Removed** `search_index.py`, `cards_fts` rebuild on import, Postgres `plainto_tsquery` / broken per-token FTS quoting.
+4. UI syntax help on search panel; tests above.
+
+**Phrase semantics:** quoted text must appear **contiguously** in card text (e.g. `"You can reveal"` does not match “You can either … or reveal”).
 
 ### TCG-only catalog filter (2026-06-04)
 
@@ -268,7 +295,7 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 
 ### Earlier (still relevant)
 
-5. Three-tier Render + Neon dev/prod; search pagination + `card_summaries_batch`.  
+5. Three-tier Render + Neon dev/prod; search pagination + `card_summaries_batch` (UI `limit=500` per page).  
 6. Alembic `001`/`002`, `pool_pre_ping`, CSV `Path` fix, JWT multi-user.
 
 ---
@@ -383,6 +410,8 @@ python -m ygo_app.jobs.import_catalog
 | Workflow YAML out of sync on `main`/`develop` | Workflow-only sync commit; see Cursor rule + §2 |
 | `pathspec ...-dev.yml did not match` | Dev workflow file never on remote; use main workflow + `environment=dev` |
 | Search stuck on Render | Paginated search + batch summaries |
+| Quoted phrase still matched scattered words | Replaced FTS/`plainto_tsquery` with `search_query` ILIKE phrase compiler |
+| Search `total` wrong on large result sets | `COUNT` uses same `compile_filter` as results (no FTS `LIMIT` on ID list) |
 | `varchar(16)` | Migration `002` |
 | GHA scrape canceled at 180 min | Split into chained jobs (`BATCH_COUNT=6`); per-job timeouts 60–90 min |
 | Scrape appeared stuck / no visibility | `[HEARTBEAT]`, `[FAIL]`, `[BATCH_RESULT]`; pool + batch retries |
@@ -418,4 +447,6 @@ python -m ygo_app.jobs.import_catalog
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
 | `yugipedia_all_cards.json` | Entries include `image_url` + `image_url_small` on `ms.yugipedia.com` after re-scrape |
 | `GET /api/cards/{passcode}` | `image_url` host is `ms.yugipedia.com` (not `images.ygoprodeck.com`) post re-import |
-| `python -m unittest discover -s tests` | All pass (includes `test_yugipedia_images.py`) |
+| `GET /api/cards/search?q=reveal` | Cards whose name/desc/archetype contain `reveal` |
+| `GET /api/cards/search?q="You can reveal"` | Only cards with that contiguous phrase (case-insensitive) |
+| `python -m unittest discover -s tests` | All pass (includes `test_search_query.py`, `test_search_cards.py`, `test_yugipedia_images.py`) |

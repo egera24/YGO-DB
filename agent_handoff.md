@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-04
+> **Last updated:** 2026-06-05
 
 ---
 
@@ -11,7 +11,7 @@
 
 | | |
 |------|--------|
-| **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user collection (set code + rarity), decks, favorites, tags. |
+| **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user owned collection (set code + rarity), decks, favorites, tags. Owned cards: **Owned only** on Search + CSV import (no separate collection page). |
 | **Stack** | Python 3.12 · FastAPI · SQLAlchemy 2 · Pydantic 2 · Alembic · static HTML/JS · BeautifulSoup + cloudscraper (scrape) · JWT auth (bcrypt). |
 | **Run locally** | `pip install -r requirements.txt` → `alembic upgrade head` → `python run.py` (opens browser; API docs at `/docs`). |
 | **Test** | `python -m unittest discover -s tests` |
@@ -171,14 +171,29 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 |-------|------|
 | [`card_filters.py`](ygo_app/card_filters.py) | JSON list parse; `types` / `link_markers` SQL helpers |
 | [`services.search_cards`](ygo_app/services.py) | `q` + all filter params; one `COUNT` query |
-| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders` auth-only |
-| UI | `#advanced-filters` in [`index.html`](ygo_app/static/index.html); [`app.js`](ygo_app/static/js/app.js) `buildSearchParams`, `initStatRangeSelects()` |
+| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders` in JSON but unused in UI |
+| UI | Tabs: **Search**, **Decks** only. [`app.js`](ygo_app/static/js/app.js) `?v=22` — `buildSearchParams`, `initStatRangeSelects()`, header **Import my collection** |
 
 **Advanced panel layout (static/CSS):** Category–Attribute = compact multi-selects (`.filter-group--compact`). Level/Rank/Link/Pendulum = min/max `<select>` (options from `initStatRangeSelects()`; Level 1–12, Rank 1–13, Link 1–6, Pendulum 0–13). ATK/DEF = number inputs. Stat fieldsets in `.filter-ranges` (flex wrap, `gap: 1.5rem`, `width: fit-content`). Bump `style.css` / `app.js` `?v=` in `index.html` after static edits.
 
 Legacy `frame_type` / `race` columns remain for YGOProDeck fallback import; **not** exposed in search UI.
 
 Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_filters.py`, `test_summoning_suggestions.py`, `test_yugipedia_card_import.py`.
+
+### User collection (owned)
+
+| Piece | Role |
+|-------|------|
+| `collection_items` | Per-user rows keyed by `(set_code, rarity_code)`; `printing_id` → `printings` when matched |
+| **Owned filter** | `owned_only` on `GET /api/cards/search` — join `collection_items` ↔ `printings` on set code **and** rarity |
+| **CSV import** | Header **Import my collection** → `POST /api/collection/import-csv` (NDJSON stream + `#import-progress`). DragonShield CSV via [`import_collection_csv`](ygo_app/import_data.py) |
+| **Matching** | `_match_printing`: row must match a `printings` row or it is **rejected** (not stored). `done` event: `imported`, `rejected_count`, `rejected_csv` → browser downloads `rejected_cards.csv` with **Import Error** column |
+| **Manual add** | Card modal **Add to collection** → `POST /api/collection` (single row; still allowed) |
+| **API list** | `GET /api/collection` + `list_collection` exist but **no UI** (old My Collection tab removed — was slow N+1 per row) |
+
+`replace=true` on import wipes the user's `collection_items` first. Progress: [`import_progress.py`](ygo_app/import_progress.py) throttle unchanged.
+
+Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py).
 
 ---
 
@@ -219,6 +234,7 @@ pip install -r requirements.txt
 alembic upgrade head                            # schema only (see §4: re-import fills new columns)
 python run.py                                   # local app (SQLite if DATABASE_URL unset)
 python -m unittest discover -s tests            # full test suite
+python -m ygo_app.import_data --skip-cards --collection my_collection.csv --user-id 1   # CLI collection import
 ```
 
 ### Catalog — full vs 500-card test
@@ -272,6 +288,9 @@ git checkout main && git merge develop && git push   # promote app to prod
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
+**2026-06-05**
+- **Collection CSV-only UI** — removed My Collection tab/view; header **Import my collection**; browse owned via Search **Owned only**. CSV import rejects unmatched catalog rows (`CollectionImportResult`, `_match_printing`); stream `done` includes `rejected_csv`. Modal add-to-collection kept. `app.js?v=22`. Tests: `test_import_collection_csv.py`.
+
 **2026-06-04**
 - **Advanced filter UI layout** — compact Category–Attribute dropdowns; Level/Rank/Link/Pendulum min/max `<select>` + `initStatRangeSelects()`; ATK/DEF numeric; `.filter-ranges` flex wrap (`gap: 1.5rem`). API/query params unchanged. Static-only (`style.css`, `app.js`, `index.html`).
 - **Yugipedia-native filters** — Alembic `003`; `card_import.py` maps scrape → `category`, `types`, `mechanic`, `rank`, `link_rating`, `pendulum_scale`, `link_markers`, `summoning_condition`; advanced search UI + `/api/filters` (no auth for catalog lists); `parse_skill_card`; assets `style.css?v=11`, `app.js?v=13`. **Re-import** after deploy to populate new columns (GHA workflow unchanged).
@@ -316,6 +335,8 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 | Advanced filters empty / no Type options | DB rows pre-`003` or pre-re-import; run `alembic upgrade head` + full `import_catalog_yugipedia` on that Neon branch |
 | GHA import: missing Yugipedia columns, `alembic_version='002'` after upgrade | Neon pooled URL + Alembic may not persist `003`; import job uses direct migration URL + idempotent DDL fallback in `db_migrate.py`. Optional: `DATABASE_URL_MIGRATIONS` = direct Neon URL |
 | “Do I need to cherry-pick the GHA workflow?” | Usually no — same YAML; need **app code** on the workflow branch + re-import |
+| CSV import: rows missing from **Owned only** | Row rejected at import — fix set code/rarity vs catalog or use `rejected_cards.csv`; only matched `(set_code, rarity_code)` rows are stored |
+| Old **My Collection** tab very slow | Tab removed; do not re-add list UI without batching joins on `list_collection` |
 
 ---
 
@@ -331,12 +352,13 @@ ygo_app/
     scrape_yugipedia_catalog.py
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
-  import_data.py               # import_cards_entries (full catalog replace)
+  import_data.py               # catalog replace + import_collection_csv (CollectionImportResult)
+  import_progress.py           # CSV import progress throttle / ETA
   search_query.py              # q parser + ILIKE compiler
   services.py  models.py  schemas.py  auth.py  config.py  database.py  catalog.py  utils.py
   static/                      # index.html, css/style.css, js/app.js
 alembic/versions/  001 … 003_yugipedia_card_fields.py
-tests/                         # 15 unittest modules (see §6)
+tests/                         # 16+ unittest modules (search, scrape, test_import_collection_csv, …)
 .github/workflows/             # import-catalog-yugipedia.yml, import-catalog-ygoprodeck.yml, db-keepalive.yml
 .cursor/rules/                 # github-actions-yugipedia-workflow-sync.mdc
 docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md
@@ -363,3 +385,5 @@ data/catalog/                  # gitignored scrape JSON
 | `GET /api/filters` (no auth) | Non-empty `types` / `attributes` after re-import on that DB |
 | `GET /api/cards/search?category=Monster&types=Fusion` | OR on `types` JSON |
 | `GET /api/cards/summoning-suggestions?q=WATER` | Distinct `summoning_condition` substring matches |
+| Logged in: **Import my collection** | Header button visible; NDJSON progress on `#import-progress` |
+| CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |

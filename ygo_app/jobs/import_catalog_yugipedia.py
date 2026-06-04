@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from ygo_app.db_migrate import ensure_db_at_head
 from ygo_app.import_data import import_cards_entries
 from ygo_app.yugipedia.card_import import yugipedia_entries_to_import
 from ygo_app.yugipedia.paths import ALL_CARDS_PATH
@@ -75,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.json.exists():
         print(f"Catalog file not found: {args.json}", file=sys.stderr)
         return 1
+
+    ensure_db_at_head()
 
     cards, printings = import_from_yugipedia_json(
         args.json, limit=args.limit, min_cards=args.min_cards

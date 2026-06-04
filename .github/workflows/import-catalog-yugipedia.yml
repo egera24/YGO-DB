@@ -379,6 +379,11 @@ jobs:
           fi
           grep -q '_detach_collection_printing_links' ygo_app/import_data.py
 
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+        run: alembic upgrade head
+
       - name: Import catalog into database
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
@@ -425,6 +430,11 @@ jobs:
             exit 1
           fi
           grep -q '_detach_collection_printing_links' ygo_app/import_data.py
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ inputs.environment == 'dev' && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+        run: alembic upgrade head
 
       - name: Import catalog into database
         env:

@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-04 (advanced card search: Google-style query parser; removed SQLite FTS5 / Postgres `plainto_tsquery` path)
+**Last updated:** 2026-06-04 (search syntax help modal with Example/Description table; advanced `search_query` parser; FTS removed)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 **New agents:** Read this file at session start for token-efficient context.
@@ -103,9 +103,10 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 |-------|------|
 | [`search_query.py`](ygo_app/search_query.py) | Parse `q` → AST; `compile_filter` / `text_search_filter` → SQLAlchemy `WHERE` |
 | [`services.search_cards`](ygo_app/services.py) | Applies same filter to results **and** `COUNT` (no capped FTS ID list) |
-| UI | [`static/index.html`](ygo_app/static/index.html) — placeholder + `<details>` syntax help |
+| UI search field | [`static/index.html`](ygo_app/static/index.html) — `#q` in `.search-q-wrap` + **`?`** button (`#search-help-btn`) |
+| UI syntax help | [`#search-help-modal`](ygo_app/static/index.html) — overlay dialog; [`app.js`](ygo_app/static/js/app.js) `openSearchHelpModal` / `closeSearchHelpModal`; table columns **Example** \| **Description** |
 
-**Syntax (case-insensitive):** `reveal` (substring) · `"You can reveal"` (contiguous phrase) · `reveal hand` (implicit AND) · `reveal OR hand` · `reveal -hand` / `NOT` · `millenn?um` · `reveal*`. All-digit `q` → passcode lookup only.
+**Syntax (case-insensitive):** `reveal` (substring) · `"You can reveal"` (contiguous phrase) · `reveal hand` (implicit AND) · `reveal OR hand` · `reveal -hand` / `NOT` · `millenn?um` · `reveal*`. All-digit `q` → passcode lookup only. Full list in help modal (not inline on the form).
 
 **Removed:** `ygo_app/search_index.py` (SQLite FTS5 `cards_fts`, Postgres `plainto_tsquery`). Optional offline SQLite **app** mode (`data/ygo.db`) unchanged; search uses the same `ILIKE` compiler there.
 
@@ -260,9 +261,17 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 1. **`search_query.py`** — tokenizer + AST (`Phrase`, `Term`, `And`, `Or`, `Not`); `ILIKE` on `name` / `desc` / `archetype` with `coalesce` (fixes `NOT` when archetype is null).
 2. **`search_cards`** — single compiled filter for rows and total count; invalid syntax falls back to plain term.
 3. **Removed** `search_index.py`, `cards_fts` rebuild on import, Postgres `plainto_tsquery` / broken per-token FTS quoting.
-4. UI syntax help on search panel; tests above.
+4. Tests: [`test_search_query.py`](tests/test_search_query.py), [`test_search_cards.py`](tests/test_search_cards.py).
 
 **Phrase semantics:** quoted text must appear **contiguously** in card text (e.g. `"You can reveal"` does not match “You can either … or reveal”).
+
+### Search syntax help UI (2026-06-04)
+
+1. **`?` button** beside `#q` (`#search-help-btn`) — opens modal; does not submit search form.
+2. **`#search-help-modal`** — reuses `.modal-overlay` / `.modal-card--narrow` (same pattern as `#card-modal`); Escape, backdrop click, close button; `aria-expanded` on trigger; focus return to `?`.
+3. **Help content** — semantic `<table class="search-help-table">` with `<thead>`: **Example** | **Description**; eight syntax rows in `<tbody>`.
+4. **`syncModalOpenClass()`** in [`app.js`](ygo_app/static/js/app.js) — `body.modal-open` when card or search-help modal is visible.
+5. Static assets: [`style.css`](ygo_app/static/css/style.css) (cache `v=10` in HTML), [`app.js`](ygo_app/static/js/app.js) `v=12`.
 
 ### TCG-only catalog filter (2026-06-04)
 
@@ -449,4 +458,5 @@ python -m ygo_app.jobs.import_catalog
 | `GET /api/cards/{passcode}` | `image_url` host is `ms.yugipedia.com` (not `images.ygoprodeck.com`) post re-import |
 | `GET /api/cards/search?q=reveal` | Cards whose name/desc/archetype contain `reveal` |
 | `GET /api/cards/search?q="You can reveal"` | Only cards with that contiguous phrase (case-insensitive) |
+| Search UI `?` button | Opens help modal; table headers **Example** / **Description**; Close / Escape / backdrop dismiss |
 | `python -m unittest discover -s tests` | All pass (includes `test_search_query.py`, `test_search_cards.py`, `test_yugipedia_images.py`) |

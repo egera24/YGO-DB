@@ -311,6 +311,7 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 | UI shows YGOProDeck art / JSON missing `image_url` | Pre-2026-06-04 scrape; re-run details scrape + import |
 | Confusion over `yugipedia/get_images.py` | That legacy script downloaded YGOProDeck files; real URLs come from `parsing.extract_card_image` |
 | Advanced filters empty / no Type options | DB rows pre-`003` or pre-re-import; run `alembic upgrade head` + full `import_catalog_yugipedia` on that Neon branch |
+| GHA import: missing Yugipedia columns, `alembic_version='002'` after upgrade | Neon pooled URL + Alembic may not persist `003`; import job uses direct migration URL + idempotent DDL fallback in `db_migrate.py`. Optional: `DATABASE_URL_MIGRATIONS` = direct Neon URL |
 | “Do I need to cherry-pick the GHA workflow?” | Usually no — same YAML; need **app code** on the workflow branch + re-import |
 
 ---

@@ -17,7 +17,7 @@
 | **Recommended local** | Neon **dev** branch via `.env` (`ENV=production`) — [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) |
 | **Cloud DB** | PostgreSQL on **Neon** (pooled URL, `sslmode=require`) — not Render Postgres |
 | **Catalog source** | **Yugipedia** scrape (primary); fallback: YGOProDeck API |
-| **Card images** | **CDN only** — YGOPRODeck URLs in DB; browser loads `images.ygoprodeck.com` |
+| **Card images** | **CDN only** — Yugipedia URLs (`ms.yugipedia.com`) scraped into JSON/DB; browser loads at view time. YGOProDeck CDN only for API fallback import. |
 | **Auth** | JWT (`SECRET_KEY`; bcrypt for passwords) |
 
 ### Environments (three tiers)
@@ -75,7 +75,7 @@ flowchart TB
   ProdWeb --> Cards
   Browser --> DevWeb
   Browser --> ProdWeb
-  Browser --> CDN["images.ygoprodeck.com"]
+  Browser --> CDN["ms.yugipedia.com"]
 ```
 
 ### Catalog pipeline
@@ -209,7 +209,7 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 
 ### Yugipedia catalog (2026-06-03)
 
-1. Scrape package under `ygo_app/yugipedia/`; CDN URLs via `images.py` (no downloads).
+1. Scrape package under `ygo_app/yugipedia/`; card-art URLs extracted from wiki HTML into JSON (`image_url`, `image_url_small` on each entry); no local downloads.
 2. Multi-rarity `card_sets` extraction + tests (e.g. RA03-EN172).
 3. GHA: batched scrape (6 detail jobs) + import; bi-monthly prod schedule; fixes 180 min single-job timeout.
 4. Workflows on `main` for Actions UI; **run from branch `develop`** until app merged to prod.
@@ -349,7 +349,7 @@ python -m ygo_app.jobs.import_catalog
 ## 9. Do not do without user ask
 
 - Edit `.cursor/plans/*.plan.md`
-- Run deprecated `get_images.py` — use `ygo_app.yugipedia.images`
+- Run deprecated `yugipedia/get_images.py` — it downloaded from YGOPRODeck, not Yugipedia; use `ygo_app/yugipedia/parsing.py` + import job instead
 - Manually delete Neon `cards`/`printings` before import
 - Run Yugipedia GHA with branch **`main`** before `ygo_app/yugipedia/` is on `main`
 - Commit `.env`, secrets, or `data/catalog/*.json`

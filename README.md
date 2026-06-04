@@ -4,9 +4,9 @@ Web app for searching Yu-Gi-Oh! cards, tracking physical copies by **set code** 
 
 ## Card images (CDN, no local storage)
 
-Card art is **not** downloaded or stored on your server. Catalog import stores YGOPRODeck CDN URLs (`images.ygoprodeck.com`); the browser loads them at view time.
+Card art is **not** downloaded or stored on your server. The Yugipedia catalog scrape stores **Yugipedia** image URLs (`ms.yugipedia.com`) in `yugipedia_all_cards.json` and the database; the browser loads them at view time.
 
-**Catalog source (production):** Yugipedia scrape → [`ygo_app/yugipedia/`](ygo_app/yugipedia/) → Neon/Postgres. Fallback: YGOProDeck API (`python -m ygo_app.jobs.import_catalog`).
+**Catalog source (production):** Yugipedia scrape → [`ygo_app/yugipedia/`](ygo_app/yugipedia/) → Neon/Postgres. Fallback: YGOProDeck API (`python -m ygo_app.jobs.import_catalog`) — that path still uses YGOPRODeck CDN images.
 
 - `data/catalog/yugipedia_all_cards.json` — scraped catalog (gitignored)
 - `my_collection.csv` — DragonShield export (`ygopro/get_my_cards.py`)

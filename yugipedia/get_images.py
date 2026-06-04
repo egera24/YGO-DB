@@ -1,8 +1,14 @@
 """
 DEPRECATED — Legacy offline image downloader (not used by ygo_app).
 
-The web app stores YGOPRODeck CDN URLs in the database (see ygo_app.yugipedia.images).
-Use: python -m ygo_app.jobs.import_catalog_yugipedia
+This script downloaded card art from YGOPRODeck CDN (images.ygoprodeck.com) into
+local image_small/ and image_big/ folders. It did NOT scrape Yugipedia URLs.
+
+The web app now extracts Yugipedia image URLs during the catalog scrape
+(see ygo_app/yugipedia/parsing.py extract_card_image) and stores URL strings
+in JSON/DB — no downloads. Import with:
+
+  python -m ygo_app.jobs.import_catalog_yugipedia
 """
 import os
 import json

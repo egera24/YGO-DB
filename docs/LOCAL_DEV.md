@@ -115,6 +115,8 @@ python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
 
 `--limit 500` uses a minimum of 400 mapped cards (`80%`); override with `--min-cards` if needed.
 
+After scrape, each entry in `data/catalog/yugipedia_all_cards.json` should include `image_url` and `image_url_small` pointing at `ms.yugipedia.com` (extracted from the wiki page HTML, not downloaded).
+
 **GitHub Actions:** **Import Yugipedia catalog** → **Run workflow** (not Re-run failed jobs) → branch `develop` → environment `dev` → `test_mode` **true** → `card_limit` **500**. `test_mode` on production is blocked in the workflow.
 
 ## Lightweight SQLite mode (not production-like)

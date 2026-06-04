@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ygo_app.yugipedia.constants import MONSTER_MECHANICS, MONSTER_TYPES
-from ygo_app.yugipedia.images import image_urls_for_passcode, passcode_to_int
+from ygo_app.yugipedia.images import passcode_to_int, ygoprodeck_card_url
 
 
 def _int_field(value) -> int | None:
@@ -76,14 +76,33 @@ def _adapt_card_sets(card_sets: list[dict] | None) -> list[dict]:
     return out
 
 
+def _resolve_images(entry: dict, pid: int) -> dict[str, str | None]:
+    """Use Yugipedia URLs from scrape JSON; no YGOPRODeck CDN fallback."""
+    image_url = entry.get("image_url")
+    image_url_small = entry.get("image_url_small")
+    if image_url and not image_url_small:
+        image_url_small = image_url
+    return {
+        "ygoprodeck_url": ygoprodeck_card_url(pid),
+        "image_url": image_url,
+        "image_url_small": image_url_small,
+    }
+
+
 def yugipedia_card_to_api(entry: dict) -> dict | None:
     """Map one Yugipedia card dict to YGOProDeck API card shape."""
     pid = passcode_to_int(entry.get("id"))
     if pid is None:
         return None
 
-    images = image_urls_for_passcode(pid)
+    images = _resolve_images(entry, pid)
     card_sets = _adapt_card_sets(entry.get("card_sets"))
+    card_images = [
+        {
+            "image_url": images["image_url"],
+            "image_url_small": images["image_url_small"],
+        }
+    ]
 
     # Spell / Trap
     if entry.get("type") in ("Spell", "Trap"):
@@ -105,12 +124,7 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
             "linkval": None,
             "scale": None,
             "ygoprodeck_url": images["ygoprodeck_url"],
-            "card_images": [
-                {
-                    "image_url": images["image_url"],
-                    "image_url_small": images["image_url_small"],
-                }
-            ],
+            "card_images": card_images,
             "card_sets": card_sets,
         }
 
@@ -141,12 +155,7 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
         "linkval": _int_field(entry.get("link_rating")),
         "scale": _int_field(entry.get("pendulum_scale")),
         "ygoprodeck_url": images["ygoprodeck_url"],
-        "card_images": [
-            {
-                "image_url": images["image_url"],
-                "image_url_small": images["image_url_small"],
-            }
-        ],
+        "card_images": card_images,
         "card_sets": card_sets,
     }
 

@@ -12,6 +12,11 @@ from ygo_app.yugipedia.constants import (
     MONSTER_MECHANICS,
     MONSTER_TYPES,
 )
+from ygo_app.yugipedia.images import (
+    YUGIPEDIA_MEDIA_HOST,
+    is_yugipedia_card_art_filename,
+    yugipedia_image_urls_from_src,
+)
 
 
 def extract_text_only(element) -> str:
@@ -226,6 +231,71 @@ def extract_summoning_condition(soup: BeautifulSoup, typeline: list[str]) -> str
     return None
 
 
+def _filename_from_img(img) -> str | None:
+    parent = img.find_parent("a")
+    if parent and parent.get("href", "").startswith("/wiki/File:"):
+        return parent["href"].split("/wiki/File:", 1)[-1]
+    src = img.get("src") or ""
+    if "/thumb/" in src:
+        parts = src.rsplit("/", 2)
+        if len(parts) >= 2:
+            last = parts[-1]
+            if "px-" in last:
+                return last.split("px-", 1)[-1]
+            return last
+    if src:
+        return src.rsplit("/", 1)[-1]
+    return None
+
+
+def _img_render_width(img) -> int:
+    width = img.get("width")
+    if width is not None and str(width).isdigit():
+        return int(width)
+    src = img.get("src") or ""
+    match = re.search(r"/(\d+)px-", src)
+    if match:
+        return int(match.group(1))
+    return 0
+
+
+def extract_card_image(soup: BeautifulSoup) -> dict[str, str | None] | None:
+    """Extract main card artwork URLs from a Yugipedia card wiki page."""
+    candidates: list[tuple[int, str, str | None]] = []
+
+    for img in soup.find_all("img"):
+        src = img.get("src") or ""
+        if YUGIPEDIA_MEDIA_HOST not in src:
+            continue
+        if "noviewer" in (img.get("class") or []):
+            continue
+        if src.lower().endswith(".svg"):
+            continue
+
+        filename = _filename_from_img(img)
+        if filename and not is_yugipedia_card_art_filename(filename):
+            continue
+
+        width = _img_render_width(img)
+        candidates.append((width, src, filename))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    best_src = candidates[0][1]
+    urls = yugipedia_image_urls_from_src(best_src)
+    if not urls.get("image_url"):
+        return None
+    return urls
+
+
+def _merge_card_image(card_data: dict, soup: BeautifulSoup) -> None:
+    images = extract_card_image(soup)
+    if images:
+        card_data.update(images)
+
+
 def extract_archetype(soup: BeautifulSoup) -> list[str] | None:
     for dt in soup.find_all("dt"):
         if "Archetype" in dt.get_text():
@@ -290,6 +360,7 @@ def parse_monster_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | No
         card_sets = extract_card_sets(soup)
         if card_sets:
             card_data["card_sets"] = card_sets
+        _merge_card_image(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing monster card: {e}"
@@ -320,6 +391,7 @@ def parse_spell_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
         card_sets = extract_card_sets(soup)
         if card_sets:
             card_data["card_sets"] = card_sets
+        _merge_card_image(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing spell card: {e}"
@@ -350,6 +422,7 @@ def parse_trap_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None,
         card_sets = extract_card_sets(soup)
         if card_sets:
             card_data["card_sets"] = card_sets
+        _merge_card_image(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing trap card: {e}"

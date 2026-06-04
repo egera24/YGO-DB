@@ -18,6 +18,11 @@ class TestYugipediaAdapter(unittest.TestCase):
             "atk": 0,
             "def": 0,
             "description": "Test",
+            "image_url": "https://ms.yugipedia.com//6/65/CardTrooper-25YC-EN-SR-LE.png",
+            "image_url_small": (
+                "https://ms.yugipedia.com//thumb/6/65/CardTrooper-25YC-EN-SR-LE.png/"
+                "150px-CardTrooper-25YC-EN-SR-LE.png"
+            ),
             "card_sets": [
                 {
                     "set_code": "RA03-EN172",
@@ -38,9 +43,21 @@ class TestYugipediaAdapter(unittest.TestCase):
         assert api is not None
         self.assertEqual(api["id"], 85087012)
         self.assertEqual(len(api["card_sets"]), 2)
-        self.assertTrue(
-            api["card_images"][0]["image_url"].endswith("/85087012.jpg")
-        )
+        self.assertIn("ms.yugipedia.com", api["card_images"][0]["image_url"])
+        self.assertIn("CardTrooper-25YC-EN-SR-LE.png", api["card_images"][0]["image_url"])
+
+    def test_monster_without_image_url(self):
+        entry = {
+            "id": "85087012",
+            "name": "Card Trooper",
+            "typeline": ["Machine", "Effect"],
+            "type": "Machine",
+        }
+        api = yugipedia_card_to_api(entry)
+        assert api is not None
+        self.assertIsNone(api["card_images"][0]["image_url"])
+        self.assertIsNone(api["card_images"][0]["image_url_small"])
+        self.assertEqual(api["ygoprodeck_url"], "https://ygoprodeck.com/card/85087012")
 
     def test_spell_card(self):
         entry = {
@@ -49,10 +66,12 @@ class TestYugipediaAdapter(unittest.TestCase):
             "type": "Spell",
             "property": "Continuous",
             "description": "Do something.",
+            "image_url": "https://ms.yugipedia.com//a/a6/ParallelTeleport-DUAD-EN-SR-1E.png",
         }
         api = yugipedia_card_to_api(entry)
         self.assertEqual(api["frameType"], "spell")
         self.assertIn("Continuous", api["humanReadableCardType"])
+        self.assertIn("ms.yugipedia.com", api["card_images"][0]["image_url"])
 
 
 if __name__ == "__main__":

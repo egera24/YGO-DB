@@ -9,7 +9,7 @@ Render’s free PostgreSQL **expires after 30 days**. This guide uses **Neon** f
 | Database | [Neon](https://neon.com) Free Postgres | $0, permanent |
 | Web app | [Render](https://render.com) Free Web Service | $0 (cold starts after idle) |
 | Catalog import | GitHub Actions (Yugipedia scrape + import) | $0 on public repos |
-| Card images | YGOPRODeck CDN | $0 (browser loads URLs) |
+| Card images | Yugipedia CDN (`ms.yugipedia.com`) | $0 (browser loads URLs) |
 
 ## Prerequisites
 

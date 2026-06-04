@@ -18,6 +18,18 @@ on:
         required: false
         default: false
         type: boolean
+      test_mode:
+        description: >-
+          Dev test run — scrape/import only card_limit cards (full DB replace).
+          Allowed only with environment=dev. Do not use Re-run on old workflow runs.
+        required: false
+        default: false
+        type: boolean
+      card_limit:
+        description: Max cards when test_mode is true (passcode scrape + import cap)
+        required: false
+        default: 500
+        type: number
   schedule:
     # 1st and 15th of each month, 03:00 UTC — production only
     - cron: "0 3 1,15 * *"
@@ -45,6 +57,15 @@ jobs:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
         run: alembic upgrade head
 
+      - name: Reject test mode on production
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.test_mode == true &&
+          inputs.environment == 'production'
+        run: |
+          echo "::error::test_mode is only allowed with environment=dev (replaces entire catalog with card_limit rows)."
+          exit 1
+
   passcodes:
     needs: prepare
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
@@ -61,7 +82,12 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Scrape Yugipedia passcode list
-        run: python -m ygo_app.jobs.scrape_yugipedia_catalog --passcodes-only
+        run: |
+          ARGS=(--passcodes-only)
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
+            ARGS+=(--max-cards "${{ inputs.card_limit }}")
+          fi
+          python -m ygo_app.jobs.scrape_yugipedia_catalog "${ARGS[@]}"
 
       - name: Upload catalog state
         uses: actions/upload-artifact@v4
@@ -97,8 +123,13 @@ jobs:
 
       - name: Scrape details batch 0
         run: |
-          python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume \
-            --batch-index 0 --batch-count ${{ env.BATCH_COUNT }}
+          BATCH_COUNT="${{ env.BATCH_COUNT }}"
+          ARGS=(--details-only --resume --batch-index 0 --batch-count "$BATCH_COUNT")
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
+            BATCH_COUNT=1
+            ARGS=(--details-only --resume --batch-index 0 --batch-count 1 --max-cards "${{ inputs.card_limit }}")
+          fi
+          python -m ygo_app.jobs.scrape_yugipedia_catalog "${ARGS[@]}"
 
       - name: Upload catalog state
         uses: actions/upload-artifact@v4
@@ -113,7 +144,9 @@ jobs:
 
   scrape_batch_1:
     needs: scrape_batch_0
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -150,7 +183,9 @@ jobs:
 
   scrape_batch_2:
     needs: scrape_batch_1
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -187,7 +222,9 @@ jobs:
 
   scrape_batch_3:
     needs: scrape_batch_2
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -224,7 +261,9 @@ jobs:
 
   scrape_batch_4:
     needs: scrape_batch_3
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -261,7 +300,9 @@ jobs:
 
   scrape_batch_5:
     needs: scrape_batch_4
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -299,11 +340,16 @@ jobs:
   import:
     needs:
       - prepare
+      - scrape_batch_0
       - scrape_batch_5
     if: |
       needs.prepare.result == 'success' &&
-      needs.scrape_batch_5.result == 'success' &&
-      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true)
+      needs.scrape_batch_0.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.test_mode == true) ||
+        needs.scrape_batch_5.result == 'success'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -322,11 +368,25 @@ jobs:
           name: catalog-state
           path: data/catalog
 
+      - name: Verify catalog import code (FK fix present)
+        run: |
+          echo "ref=${{ github.ref }} sha=${{ github.sha }}"
+          if grep -q 'session.query(Printing).delete()' ygo_app/import_data.py; then
+            echo "::error::Stale import_data.py (Printing.delete). Start a new workflow run from develop/main; do not Re-run old jobs."
+            exit 1
+          fi
+          grep -q '_detach_collection_printing_links' ygo_app/import_data.py
+
       - name: Import catalog into database
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
           ENV: production
-        run: python -m ygo_app.jobs.import_catalog_yugipedia
+        run: |
+          ARGS=()
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
+            ARGS+=(--limit "${{ inputs.card_limit }}")
+          fi
+          python -m ygo_app.jobs.import_catalog_yugipedia "${ARGS[@]}"
 
       - name: Upload scrape artifacts
         if: always()
@@ -355,11 +415,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Verify catalog import code (FK fix present)
+        run: |
+          echo "ref=${{ github.ref }} sha=${{ github.sha }}"
+          if grep -q 'session.query(Printing).delete()' ygo_app/import_data.py; then
+            echo "::error::Stale import_data.py (Printing.delete). Start a new workflow run from develop/main; do not Re-run old jobs."
+            exit 1
+          fi
+          grep -q '_detach_collection_printing_links' ygo_app/import_data.py
+
       - name: Import catalog into database
         env:
           DATABASE_URL: ${{ inputs.environment == 'dev' && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
           ENV: production
-        run: python -m ygo_app.jobs.import_catalog_yugipedia
+        run: |
+          ARGS=()
+          if [[ "${{ inputs.test_mode }}" == "true" ]]; then
+            ARGS+=(--limit "${{ inputs.card_limit }}")
+          fi
+          python -m ygo_app.jobs.import_catalog_yugipedia "${ARGS[@]}"
 
       - name: Upload scrape artifacts
         if: always()

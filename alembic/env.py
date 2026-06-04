@@ -3,13 +3,13 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from ygo_app.config import DATABASE_URL
+from ygo_app.config import database_url_for_migrations
 from ygo_app.database import Base
 from ygo_app.migration_bootstrap import stamp_legacy_schema_if_needed
 from ygo_app import models  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option("sqlalchemy.url", database_url_for_migrations())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

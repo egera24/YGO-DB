@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-04 (GHA **test_mode** 500-card import verified on Neon dev; FK-safe catalog replace on `develop` @ `3ef9be1`)
+**Last updated:** 2026-06-04 (Yugipedia **card-art URLs** scraped into JSON/DB via `parsing.extract_card_image`; no YGOPRODeck CDN on Yugipedia import path)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 **New agents:** Read this file at session start for token-efficient context.
@@ -83,8 +83,8 @@ flowchart TB
 | Step | Module / job | Output / target |
 |------|----------------|-----------------|
 | 1 | [`ygo_app/yugipedia/passcodes.py`](ygo_app/yugipedia/passcodes.py) | `data/catalog/yugipedia_passcode_list.json` |
-| 2 | [`ygo_app/yugipedia/details.py`](ygo_app/yugipedia/details.py) | `yugipedia_all_cards.json`, `yugipedia_rejected_cards.json` |
-| 3 | [`ygo_app/jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) | Neon `cards` + `printings` |
+| 2 | [`ygo_app/yugipedia/details.py`](ygo_app/yugipedia/details.py) + [`parsing.py`](ygo_app/yugipedia/parsing.py) | `yugipedia_all_cards.json` (metadata + `image_url` / `image_url_small`), `yugipedia_rejected_cards.json` |
+| 3 | [`ygo_app/jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) + [`adapter.py`](ygo_app/yugipedia/adapter.py) | Neon `cards` + `printings` (`cards.image_url*` from scrape) |
 
 Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--details-only --resume` supported). GHA uses **6 batched details jobs** (`--batch-index` / `--batch-count`); see workflow below.
 
@@ -93,6 +93,32 @@ Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--detai
 **Import replaces catalog:** `import_cards_entries` deletes all `cards` and `printings` then reloads. Do **not** manually truncate Neon catalog tables.
 
 **Import side effects:** `users` / `collection_items` kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**. Before catalog delete, [`import_data.py`](ygo_app/import_data.py) clears `collection_items.printing_id`, then re-links by `(set_code, rarity_code)` after import (avoids FK violation on `printings`).
+
+### Card images (Yugipedia URLs, no downloads)
+
+| Piece | Role |
+|-------|------|
+| [`parsing.extract_card_image`](ygo_app/yugipedia/parsing.py) | On each wiki page fetch, picks largest card-art `<img>` on `ms.yugipedia.com`; skips `noviewer`, `.svg`, UI icons (link markers, attribute icons) |
+| [`images.py`](ygo_app/yugipedia/images.py) | Thumb → full URL normalization; 150px small thumb; `image_urls_for_passcode()` **only** for YGOProDeck API fallback import |
+| [`adapter._resolve_images`](ygo_app/yugipedia/adapter.py) | Maps scrape JSON → `card_images`; **no YGOPRODeck CDN fallback** — null if scrape found no art |
+| Browser / [`app.js`](ygo_app/static/js/app.js) | Loads `image_url` / `image_url_small` from DB; `IMG_PLACEHOLDER` when null |
+
+**JSON shape** (per card in `yugipedia_all_cards.json`):
+
+```json
+{
+  "id": "85087012",
+  "name": "Card Trooper",
+  "image_url": "https://ms.yugipedia.com//6/65/CardTrooper-25YC-EN-SR-LE.png",
+  "image_url_small": "https://ms.yugipedia.com//thumb/6/65/CardTrooper-25YC-EN-SR-LE.png/150px-CardTrooper-25YC-EN-SR-LE.png"
+}
+```
+
+**Not used:** [`yugipedia/get_images.py`](yugipedia/get_images.py) — legacy script that **downloaded** from YGOPRODeck by passcode; never scraped Yugipedia.
+
+**Re-scrape required:** DB/JSON created before this change still have YGOPRODeck URLs or null images until scrape + `import_catalog_yugipedia` run again.
+
+**Fallback import** (`python -m ygo_app.jobs.import_catalog`): still uses YGOPRODeck API + `images.ygoprodeck.com`.
 
 ### Where catalog data lives
 
@@ -188,6 +214,7 @@ data/catalog/          # gitignored scrape JSON
 tests/
   test_yugipedia_card_sets.py
   test_yugipedia_adapter.py
+  test_yugipedia_images.py
   test_yugipedia_batch_slice.py
   test_scrape_progress.py
   test_batch_completion.py
@@ -207,9 +234,17 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 
 ## 4. What was implemented
 
+### Yugipedia card images (2026-06-04)
+
+1. **`extract_card_image`** in [`parsing.py`](ygo_app/yugipedia/parsing.py) — card art from same wiki HTML as metadata (no extra HTTP, no downloads).
+2. **`images.py`** — `normalize_yugipedia_image_url`, `yugipedia_thumb_url`; YGOPRODeck helpers retained for API fallback only.
+3. **`adapter.py`** — uses scraped `image_url` / `image_url_small`; no YGOPRODeck CDN fallback on Yugipedia import.
+4. Tests: [`test_yugipedia_images.py`](tests/test_yugipedia_images.py); adapter tests updated.
+5. Docs: README, LOCAL_DEV, DEPLOY_FREE; `yugipedia/get_images.py` docstring clarifies it was YGOPRODeck-only.
+
 ### Yugipedia catalog (2026-06-03)
 
-1. Scrape package under `ygo_app/yugipedia/`; card-art URLs extracted from wiki HTML into JSON (`image_url`, `image_url_small` on each entry); no local downloads.
+1. Scrape package under `ygo_app/yugipedia/`.
 2. Multi-rarity `card_sets` extraction + tests (e.g. RA03-EN172).
 3. GHA: batched scrape (6 detail jobs) + import; bi-monthly prod schedule; fixes 180 min single-job timeout.
 4. Workflows on `main` for Actions UI; **run from branch `develop`** until app merged to prod.
@@ -219,6 +254,7 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 8. **Batch resilience (2026-06-03):** `scrape_progress.py` (heartbeat/stall); bounded scrape pool; transient failure batch retries; `audit_slice_completion()` + exit **3** on incomplete batch; tests `test_batch_completion.py`, `test_scrape_progress.py`.
 9. **Catalog import FK fix (2026-06-04):** detach `collection_items.printing_id` before delete; delete `cards` only (printings cascade); bulk re-link after import (`e4c939d`).
 10. **500-card test mode (2026-06-04):** `--max-cards` / `--limit`; GHA `test_mode` + `card_limit`; `resolve_min_cards()` (80% of limit); **verified** end-to-end on Neon dev (`65758d3`, import fix `3ef9be1`).
+11. **Prior image behavior (pre-2026-06-04):** adapter synthesized `images.ygoprodeck.com` URLs from passcode; JSON had no image fields — replaced by Yugipedia scrape URLs above.
 
 ### Earlier (still relevant)
 
@@ -321,7 +357,7 @@ python -m ygo_app.jobs.import_catalog
 | 1 | Neon **main** + **dev**; GitHub secrets `DATABASE_URL`, `DATABASE_URL_DEV` (raw pooled URLs) |
 | 2 | Workflows on `main`; **same** `import-catalog-yugipedia.yml` on `develop` (sync after edits) |
 | 3 | **Import Yugipedia catalog** — branch **`develop`**, environment **`dev`**; full **~2–4 h** or **test_mode** ~30–60 min; each active batch `[BATCH_RESULT] missing=0` |
-| 4 | Verify Neon dev (`SELECT COUNT(*) FROM cards` — ~500 test or ~14k full) and/or `ygo-app-dev` + `/api/status` |
+| 4 | Verify Neon dev (`SELECT COUNT(*) FROM cards` — ~500 test or ~14k full); spot-check `image_url LIKE '%ms.yugipedia.com%'`; UI loads art from Yugipedia CDN |
 | 5 | Merge **`develop` → `main`** when ready for prod **app** |
 | 6 | **Import Yugipedia catalog** — branch **`main`**, environment **production** |
 
@@ -343,6 +379,8 @@ python -m ygo_app.jobs.import_catalog
 | GHA import `ForeignKeyViolation` on `printings` | Detach/re-link `collection_items.printing_id` in `import_cards_entries`; run workflow from **`develop`** (not Re-run old job) |
 | GHA import skipped after test `scrape_batch_0` | `import` job needs `always()` when `scrape_batch_5` skipped (`3ef9be1`) |
 | Re-run still runs old `Printing.delete()` code | **Run workflow** picks new commit; Re-run reuses original SHA |
+| JSON has no `image_url` / UI shows YGOPRODeck art | Pre-2026-06-04 scrape; re-run details scrape + import; confirm `yugipedia_all_cards.json` entries include `image_url` |
+| Confusion with `yugipedia/get_images.py` | That script downloaded YGOPRODeck files locally; real URLs come from `parsing.extract_card_image` |
 
 ---
 
@@ -368,4 +406,6 @@ python -m ygo_app.jobs.import_catalog
 | GHA scrape (full) | Green: `passcodes`, `scrape_batch_0`…`5`, `import`; ~2–4 h; each batch `[BATCH_RESULT] missing=0` |
 | GHA scrape (test) | Green: `passcodes`, `scrape_batch_0`, `import`; batches 1–5 skipped; ~500 cards in Neon dev |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. RA03-EN172) |
-| `python -m unittest discover -s tests` | All pass |
+| `yugipedia_all_cards.json` | Entries include `image_url` + `image_url_small` on `ms.yugipedia.com` after re-scrape |
+| `GET /api/cards/{passcode}` | `image_url` host is `ms.yugipedia.com` (not `images.ygoprodeck.com`) post re-import |
+| `python -m unittest discover -s tests` | All pass (includes `test_yugipedia_images.py`) |

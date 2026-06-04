@@ -93,7 +93,13 @@
     <article class="modal-card">
       <button type="button" id="modal-close" class="modal-close" aria-label="Close">&times;</button>
       <div class="modal-body">
-        <img id="modal-image" alt="" />
+        <div class="modal-image-slot" id="modal-image-slot">
+          <div id="modal-image-loading" class="modal-image-loading" hidden>
+            <span class="hourglass" aria-hidden="true"></span>
+            <p>Image is being loaded</p>
+          </div>
+          <img id="modal-image" alt="" />
+        </div>
         <div class="modal-info">
           <h2 id="modal-name"></h2>
           <p id="modal-meta" class="muted"></p>
@@ -122,6 +128,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=10" type="module"></script>
+  <script src="/static/js/app.js?v=11" type="module"></script>
 </body>
 </html>

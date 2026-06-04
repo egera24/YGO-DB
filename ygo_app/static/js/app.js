@@ -297,18 +297,68 @@ function closeCardModalOverlay() {
   document.body.classList.remove("modal-open");
 }
 
+let modalImageToken = 0;
+
+function beginModalImagePending() {
+  modalImageToken += 1;
+  const token = modalImageToken;
+  const slot = $("#modal-image-slot");
+  const loading = $("#modal-image-loading");
+  const img = $("#modal-image");
+  if (!slot || !loading || !img) return token;
+
+  img.removeAttribute("src");
+  img.alt = "";
+  img.onload = null;
+  img.onerror = null;
+  slot.classList.add("is-loading");
+  loading.hidden = false;
+  slot.setAttribute("aria-busy", "true");
+  return token;
+}
+
+function finishModalImage(token) {
+  if (token !== modalImageToken) return;
+  const slot = $("#modal-image-slot");
+  const loading = $("#modal-image-loading");
+  if (!slot || !loading) return;
+  slot.classList.remove("is-loading");
+  loading.hidden = true;
+  slot.setAttribute("aria-busy", "false");
+}
+
+function setModalImage(url, alt, token) {
+  const img = $("#modal-image");
+  if (!img || token !== modalImageToken) return;
+
+  const src = url || IMG_PLACEHOLDER;
+
+  img.alt = alt || "";
+  img.onload = () => {
+    img.onload = null;
+    finishModalImage(token);
+  };
+  img.onerror = () => {
+    img.onerror = null;
+    img.src = IMG_PLACEHOLDER;
+    finishModalImage(token);
+  };
+  img.src = src;
+
+  if (img.complete && img.naturalWidth > 0) {
+    img.onload = null;
+    finishModalImage(token);
+  }
+}
+
 async function openCardModal(cardId) {
   state.currentCardId = cardId;
+  const imageToken = beginModalImagePending();
   const card = await api(`/cards/${cardId}`);
-  const dlg = $("#card-modal");
+  if (state.currentCardId !== cardId) return;
+
   $("#modal-name").textContent = card.name;
-  const modalImg = $("#modal-image");
-  modalImg.onerror = () => {
-    modalImg.onerror = null;
-    modalImg.src = IMG_PLACEHOLDER;
-  };
-  modalImg.src = card.image_url || card.image_url_small || IMG_PLACEHOLDER;
-  modalImg.alt = card.name;
+  setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
   const stats = [
     card.type,
     card.attribute,

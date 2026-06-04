@@ -126,6 +126,15 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .filter-group--wide {
   grid-column: span 2;
 }
+.filter-group--compact {
+  width: fit-content;
+  min-width: 11rem;
+  max-width: 13rem;
+}
+.filter-group--compact .filter-multi,
+.filter-group--compact .filter-multi-trigger {
+  width: 100%;
+}
 .filter-group label,
 .filter-group-heading,
 .filter-label {
@@ -198,7 +207,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .filter-ranges {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
   gap: 0.5rem;
 }
 .filter-ranges fieldset.filter-range {
@@ -211,6 +220,21 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   align-items: stretch;
   gap: 0.35rem;
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  align-self: start;
+}
+.filter-ranges fieldset.filter-range.filter-range--select,
+.filter-ranges fieldset.filter-range.filter-range--numeric {
+  grid-column: auto;
+  min-width: 0;
+  padding: 0.35rem 0.4rem;
+}
+.filter-range--numeric .filter-range-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 .filter-ranges legend {
   font-size: 0.8rem;
@@ -236,13 +260,17 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   font-variant-numeric: tabular-nums;
   box-sizing: border-box;
 }
-.filter-range-input--3 {
-  width: calc(9ch + 3rem);
-  min-width: calc(9ch + 3rem);
+.filter-range-select {
+  flex-shrink: 0;
+  min-width: 3rem;
+  width: 3rem;
+  padding: 0.35rem 0.45rem;
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
 }
 .filter-range-input--5 {
-  width: calc(10ch + 2.2rem);
-  min-width: calc(10ch + 2.2rem);
+  width: calc(5ch + 2.2rem);
+  min-width: calc(5ch + 2.2rem);
 }
 .link-marker-grid {
   display: grid;

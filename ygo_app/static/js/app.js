@@ -293,6 +293,39 @@ function appendRangeParam(params, keyMin, keyMax, minEl, maxEl) {
   if (maxVal !== "" && maxVal != null) params.set(keyMax, maxVal);
 }
 
+function initStatRangeSelects() {
+  const ranges = [
+    { min: "#level-min", max: "#level-max", lo: 1, hi: 12 },
+    { min: "#rank-min", max: "#rank-max", lo: 1, hi: 13 },
+    { min: "#link-rating-min", max: "#link-rating-max", lo: 1, hi: 6 },
+    { min: "#pendulum-scale-min", max: "#pendulum-scale-max", lo: 0, hi: 13 },
+  ];
+  for (const { min, max, lo, hi } of ranges) {
+    for (const sel of [min, max]) {
+      const el = $(sel);
+      if (!el) continue;
+      for (let v = lo; v <= hi; v++) {
+        const opt = document.createElement("option");
+        opt.value = String(v);
+        opt.textContent = String(v);
+        el.appendChild(opt);
+      }
+    }
+    const minEl = $(min);
+    const maxEl = $(max);
+    if (!minEl || !maxEl) continue;
+    const syncMax = () => {
+      const minVal = minEl.value;
+      const maxVal = maxEl.value;
+      if (minVal !== "" && maxVal !== "" && Number(minVal) > Number(maxVal)) {
+        maxEl.value = minVal;
+      }
+    };
+    minEl.addEventListener("change", syncMax);
+    maxEl.addEventListener("change", syncMax);
+  }
+}
+
 let summoningSuggestTimer = null;
 function setupSummoningSuggestions() {
   const input = $("#filter-summoning");
@@ -969,6 +1002,7 @@ async function init() {
     updateAuthUI();
     await loadStatus();
     initFilterMultiWidgets();
+    initStatRangeSelects();
     await loadFilters();
     setupLinkMarkerGrid();
     setupSummoningSuggestions();

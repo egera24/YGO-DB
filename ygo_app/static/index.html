@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=14" />
+  <link rel="stylesheet" href="/static/css/style.css?v=18" />
 </head>
 <body>
   <header class="app-header">
@@ -53,7 +53,7 @@
         <details id="advanced-filters" class="advanced-filters">
           <summary>Advanced filters</summary>
           <div class="advanced-filters-body">
-            <div class="filter-group">
+            <div class="filter-group filter-group--compact">
               <span class="filter-group-heading" id="filter-category-label">Category</span>
               <div class="filter-multi" id="filter-category">
                 <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-category-label">
@@ -68,7 +68,7 @@
                 </div>
               </div>
             </div>
-            <div class="filter-group">
+            <div class="filter-group filter-group--compact">
               <span class="filter-group-heading" id="filter-types-label">Type</span>
               <div class="filter-multi" id="filter-types">
                 <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-types-label">
@@ -78,7 +78,7 @@
                 <div class="filter-multi-panel" hidden></div>
               </div>
             </div>
-            <div class="filter-group">
+            <div class="filter-group filter-group--compact">
               <span class="filter-group-heading" id="filter-mechanic-label">Mechanic</span>
               <div class="filter-multi" id="filter-mechanic">
                 <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-mechanic-label">
@@ -88,7 +88,7 @@
                 <div class="filter-multi-panel" hidden></div>
               </div>
             </div>
-            <div class="filter-group">
+            <div class="filter-group filter-group--compact">
               <span class="filter-group-heading" id="filter-attribute-label">Attribute</span>
               <div class="filter-multi" id="filter-attribute">
                 <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-attribute-label">
@@ -109,39 +109,55 @@
               <datalist id="summoning-datalist"></datalist>
             </div>
             <div class="filter-ranges">
-              <fieldset class="filter-range">
+              <fieldset class="filter-range filter-range--select">
                 <legend>Level</legend>
                 <div class="filter-range-row">
-                  <input type="number" id="level-min" class="filter-range-input filter-range-input--3" min="0" max="12" placeholder="min" aria-label="Level minimum" />
+                  <select id="level-min" class="filter-range-select" aria-label="Level minimum">
+                    <option value="">min</option>
+                  </select>
                   <span class="filter-range-sep" aria-hidden="true">–</span>
-                  <input type="number" id="level-max" class="filter-range-input filter-range-input--3" min="0" max="12" placeholder="max" aria-label="Level maximum" />
+                  <select id="level-max" class="filter-range-select" aria-label="Level maximum">
+                    <option value="">max</option>
+                  </select>
                 </div>
               </fieldset>
-              <fieldset class="filter-range">
+              <fieldset class="filter-range filter-range--select">
                 <legend>Rank</legend>
                 <div class="filter-range-row">
-                  <input type="number" id="rank-min" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="min" aria-label="Rank minimum" />
+                  <select id="rank-min" class="filter-range-select" aria-label="Rank minimum">
+                    <option value="">min</option>
+                  </select>
                   <span class="filter-range-sep" aria-hidden="true">–</span>
-                  <input type="number" id="rank-max" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="max" aria-label="Rank maximum" />
+                  <select id="rank-max" class="filter-range-select" aria-label="Rank maximum">
+                    <option value="">max</option>
+                  </select>
                 </div>
               </fieldset>
-              <fieldset class="filter-range">
+              <fieldset class="filter-range filter-range--select">
                 <legend>Link rating</legend>
                 <div class="filter-range-row">
-                  <input type="number" id="link-rating-min" class="filter-range-input filter-range-input--3" min="0" max="6" placeholder="min" aria-label="Link rating minimum" />
+                  <select id="link-rating-min" class="filter-range-select" aria-label="Link rating minimum">
+                    <option value="">min</option>
+                  </select>
                   <span class="filter-range-sep" aria-hidden="true">–</span>
-                  <input type="number" id="link-rating-max" class="filter-range-input filter-range-input--3" min="0" max="6" placeholder="max" aria-label="Link rating maximum" />
+                  <select id="link-rating-max" class="filter-range-select" aria-label="Link rating maximum">
+                    <option value="">max</option>
+                  </select>
                 </div>
               </fieldset>
-              <fieldset class="filter-range">
+              <fieldset class="filter-range filter-range--select">
                 <legend>Pendulum scale</legend>
                 <div class="filter-range-row">
-                  <input type="number" id="pendulum-scale-min" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="min" aria-label="Pendulum scale minimum" />
+                  <select id="pendulum-scale-min" class="filter-range-select" aria-label="Pendulum scale minimum">
+                    <option value="">min</option>
+                  </select>
                   <span class="filter-range-sep" aria-hidden="true">–</span>
-                  <input type="number" id="pendulum-scale-max" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="max" aria-label="Pendulum scale maximum" />
+                  <select id="pendulum-scale-max" class="filter-range-select" aria-label="Pendulum scale maximum">
+                    <option value="">max</option>
+                  </select>
                 </div>
               </fieldset>
-              <fieldset class="filter-range">
+              <fieldset class="filter-range filter-range--numeric">
                 <legend>ATK</legend>
                 <div class="filter-range-row">
                   <input type="number" id="atk-min" class="filter-range-input filter-range-input--5" min="0" placeholder="min" aria-label="ATK minimum" />
@@ -149,7 +165,7 @@
                   <input type="number" id="atk-max" class="filter-range-input filter-range-input--5" min="0" placeholder="max" aria-label="ATK maximum" />
                 </div>
               </fieldset>
-              <fieldset class="filter-range">
+              <fieldset class="filter-range filter-range--numeric">
                 <legend>DEF</legend>
                 <div class="filter-range-row">
                   <input type="number" id="def-min" class="filter-range-input filter-range-input--5" min="0" placeholder="min" aria-label="DEF minimum" />
@@ -308,6 +324,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=14" type="module"></script>
+  <script src="/static/js/app.js?v=18" type="module"></script>
 </body>
 </html>

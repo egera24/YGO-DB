@@ -7,16 +7,64 @@ import csv
 import sys
 from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from ygo_app.catalog import fetch_card_entries, load_card_entries
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
-from ygo_app.database import Base, SessionLocal, engine, is_sqlite
+from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CollectionItem, Printing
 from ygo_app.search_index import ensure_search_index, rebuild_search_index
 from ygo_app.utils import normalize_rarity_code
+
+
+def _detach_collection_printing_links(session: Session) -> int:
+    """Clear printing_id so catalog rows can be replaced without FK violations."""
+    result = session.execute(
+        update(CollectionItem)
+        .where(CollectionItem.printing_id.isnot(None))
+        .values(printing_id=None)
+    )
+    return result.rowcount or 0
+
+
+def _relink_collection_printing_links(session: Session) -> int:
+    """Re-attach collection_items to new printings by set_code + rarity_code."""
+    if is_postgres():
+        result = session.execute(
+            text(
+                """
+                UPDATE collection_items AS ci
+                SET printing_id = p.id
+                FROM printings AS p
+                WHERE p.set_code = ci.set_code
+                  AND p.set_rarity_code = ci.rarity_code
+                  AND ci.printing_id IS NULL
+                """
+            )
+        )
+    else:
+        result = session.execute(
+            text(
+                """
+                UPDATE collection_items
+                SET printing_id = (
+                    SELECT p.id FROM printings AS p
+                    WHERE p.set_code = collection_items.set_code
+                      AND p.set_rarity_code = collection_items.rarity_code
+                    LIMIT 1
+                )
+                WHERE printing_id IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM printings AS p
+                    WHERE p.set_code = collection_items.set_code
+                      AND p.set_rarity_code = collection_items.rarity_code
+                  )
+                """
+            )
+        )
+    return result.rowcount or 0
 
 
 def reset_db():
@@ -104,7 +152,10 @@ def import_cards_entries(
         if limit:
             entries = entries[:limit]
 
-        session.query(Printing).delete()
+        _detach_collection_printing_links(session)
+
+        # Cards CASCADE to printings; printings must not be deleted first while
+        # collection_items still reference printing_id (no ON DELETE SET NULL).
         session.query(Card).delete()
         session.commit()
 
@@ -155,6 +206,7 @@ def import_cards_entries(
             printings_imported += len(batch_printings)
 
         rebuild_search_index(session)
+        _relink_collection_printing_links(session)
         session.commit()
         return cards_imported, printings_imported
     finally:

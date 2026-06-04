@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=12" />
+  <link rel="stylesheet" href="/static/css/style.css?v=13" />
 </head>
 <body>
   <header class="app-header">
@@ -109,35 +109,53 @@
               <datalist id="summoning-datalist"></datalist>
             </div>
             <div class="filter-ranges">
-              <fieldset><legend>Level</legend>
-                <input type="number" id="level-min" min="0" max="12" placeholder="min" />
-                <span>–</span>
-                <input type="number" id="level-max" min="0" max="12" placeholder="max" />
+              <fieldset class="filter-range">
+                <legend>Level</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="level-min" class="filter-range-input filter-range-input--3" min="0" max="12" placeholder="min" aria-label="Level minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="level-max" class="filter-range-input filter-range-input--3" min="0" max="12" placeholder="max" aria-label="Level maximum" />
+                </div>
               </fieldset>
-              <fieldset><legend>Rank</legend>
-                <input type="number" id="rank-min" min="0" max="13" placeholder="min" />
-                <span>–</span>
-                <input type="number" id="rank-max" min="0" max="13" placeholder="max" />
+              <fieldset class="filter-range">
+                <legend>Rank</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="rank-min" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="min" aria-label="Rank minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="rank-max" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="max" aria-label="Rank maximum" />
+                </div>
               </fieldset>
-              <fieldset><legend>Link rating</legend>
-                <input type="number" id="link-rating-min" min="0" max="6" placeholder="min" />
-                <span>–</span>
-                <input type="number" id="link-rating-max" min="0" max="6" placeholder="max" />
+              <fieldset class="filter-range">
+                <legend>Link rating</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="link-rating-min" class="filter-range-input filter-range-input--3" min="0" max="6" placeholder="min" aria-label="Link rating minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="link-rating-max" class="filter-range-input filter-range-input--3" min="0" max="6" placeholder="max" aria-label="Link rating maximum" />
+                </div>
               </fieldset>
-              <fieldset><legend>Pendulum scale</legend>
-                <input type="number" id="pendulum-scale-min" min="0" max="13" placeholder="min" />
-                <span>–</span>
-                <input type="number" id="pendulum-scale-max" min="0" max="13" placeholder="max" />
+              <fieldset class="filter-range">
+                <legend>Pendulum scale</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="pendulum-scale-min" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="min" aria-label="Pendulum scale minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="pendulum-scale-max" class="filter-range-input filter-range-input--3" min="0" max="13" placeholder="max" aria-label="Pendulum scale maximum" />
+                </div>
               </fieldset>
-              <fieldset><legend>ATK</legend>
-                <input type="number" id="atk-min" min="0" placeholder="min" />
-                <span>–</span>
-                <input type="number" id="atk-max" min="0" placeholder="max" />
+              <fieldset class="filter-range">
+                <legend>ATK</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="atk-min" class="filter-range-input filter-range-input--5" min="0" placeholder="min" aria-label="ATK minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="atk-max" class="filter-range-input filter-range-input--5" min="0" placeholder="max" aria-label="ATK maximum" />
+                </div>
               </fieldset>
-              <fieldset><legend>DEF</legend>
-                <input type="number" id="def-min" min="0" placeholder="min" />
-                <span>–</span>
-                <input type="number" id="def-max" min="0" placeholder="max" />
+              <fieldset class="filter-range">
+                <legend>DEF</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="def-min" class="filter-range-input filter-range-input--5" min="0" placeholder="min" aria-label="DEF minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="def-max" class="filter-range-input filter-range-input--5" min="0" placeholder="max" aria-label="DEF maximum" />
+                </div>
               </fieldset>
             </div>
             <div class="filter-group">

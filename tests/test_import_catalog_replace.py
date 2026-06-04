@@ -71,15 +71,10 @@ class TestImportCatalogReplace(unittest.TestCase):
             "ygo_app.import_data.SessionLocal", self.Session
         )
         self.init_db_patcher = patch("ygo_app.import_data.init_db", lambda: None)
-        self.search_patcher = patch(
-            "ygo_app.import_data.rebuild_search_index", lambda _session: None
-        )
         self.session_factory_patcher.start()
         self.init_db_patcher.start()
-        self.search_patcher.start()
 
     def tearDown(self):
-        self.search_patcher.stop()
         self.init_db_patcher.stop()
         self.session_factory_patcher.stop()
         self.engine.dispose()

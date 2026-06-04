@@ -15,7 +15,6 @@ from ygo_app.catalog import fetch_card_entries, load_card_entries
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CollectionItem, Printing
-from ygo_app.search_index import ensure_search_index, rebuild_search_index
 from ygo_app.utils import normalize_rarity_code
 
 
@@ -81,8 +80,6 @@ def init_db():
     # SQLite local dev: create tables without Alembic. Postgres/cloud: migrations only.
     if is_sqlite():
         Base.metadata.create_all(bind=engine)
-    with engine.connect() as conn:
-        ensure_search_index(conn)
 
 
 def _card_from_api(entry: dict) -> Card:
@@ -205,7 +202,6 @@ def import_cards_entries(
             cards_imported += len(batch_cards)
             printings_imported += len(batch_printings)
 
-        rebuild_search_index(session)
         _relink_collection_printing_links(session)
         session.commit()
         return cards_imported, printings_imported

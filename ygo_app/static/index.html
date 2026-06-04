@@ -40,7 +40,17 @@
   <main>
     <section id="view-search" class="view active">
       <form id="search-form" class="search-panel">
-        <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+        <input type="search" id="q" placeholder='Search: reveal, "You can reveal", wildcards *, ?' autocomplete="off" />
+        <details class="search-syntax-help">
+          <summary>Search syntax</summary>
+          <ul>
+            <li><code>reveal</code> — text in name, description, or archetype (any case)</li>
+            <li><code>"You can reveal"</code> — exact phrase</li>
+            <li><code>reveal hand</code> — both words (AND)</li>
+            <li><code>reveal OR hand</code> · <code>reveal -hand</code> (NOT)</li>
+            <li><code>millenn?um</code> · <code>reveal*</code> — wildcards</li>
+          </ul>
+        </details>
         <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
         <select id="frame-type"><option value="">Frame</option></select>
         <select id="attribute"><option value="">Attribute</option></select>

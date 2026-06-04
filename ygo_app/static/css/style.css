@@ -96,6 +96,19 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 }
 .search-panel.compact { grid-template-columns: 2fr 1fr auto auto; }
 
+.search-syntax-help {
+  grid-column: 1 / -1;
+  font-size: 0.85rem;
+  color: var(--muted, #888);
+}
+.search-syntax-help ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.25rem;
+}
+.search-syntax-help code {
+  font-size: 0.9em;
+}
+
 input, select, button {
   font: inherit;
   border-radius: var(--radius);

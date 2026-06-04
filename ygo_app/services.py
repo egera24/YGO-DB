@@ -11,7 +11,12 @@ from ygo_app.models import (
     UserCardTag,
     UserFavorite,
 )
-from ygo_app.search_index import fts_card_ids, ilike_text_filter
+from ygo_app.search_query import (
+    SearchQueryError,
+    Term,
+    compile_search_filter,
+    text_search_filter,
+)
 from ygo_app.utils import normalize_rarity_code, rarity_display
 
 
@@ -108,14 +113,13 @@ def search_cards(
             stmt = stmt.where(Card.id == int(term))
             count_stmt = select(func.count()).select_from(Card).where(Card.id == int(term))
         else:
-            fts_ids = fts_card_ids(session, term, limit=limit + offset)
-            if fts_ids:
-                stmt = stmt.where(Card.id.in_(fts_ids))
-                count_stmt = select(func.count()).select_from(Card).where(Card.id.in_(fts_ids))
-            else:
-                filt = ilike_text_filter(term)
+            try:
+                filt = text_search_filter(term)
+            except SearchQueryError:
+                filt = compile_search_filter(Term(term))
+            if filt is not None:
                 stmt = stmt.where(filt)
-                count_stmt = select(func.count()).select_from(Card).where(filt)
+                count_stmt = count_stmt.where(filt)
 
     if card_type:
         stmt = stmt.where(Card.type.ilike(f"%{card_type}%"))

@@ -83,7 +83,7 @@ Open http://127.0.0.1:8000 — register a **new account** (dev DB has no product
 |-------|----------|
 | `GET http://127.0.0.1:8000/api/status` | `ready: true`, `cards` ~14371 |
 | Search tab | Pagination ~29 pages (500 per page) |
-| My Collection → Import CSV | Success alert with row count |
+| My Collection → Import CSV | Header status line shows progress + ETA; success alert with row count |
 | `alembic current` | Shows `head` |
 
 ## Daily workflow

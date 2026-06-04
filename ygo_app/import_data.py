@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from sqlalchemy import select, text, update
@@ -15,6 +16,7 @@ from ygo_app.catalog import fetch_card_entries, load_card_entries
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CollectionItem, Printing
+from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code
 
 
@@ -250,12 +252,49 @@ def _link_printing(session: Session, set_code: str, rarity_code: str) -> int | N
 
 
 def import_collection_csv(
-    path: Path | str, *, user_id: int, replace: bool = True
+    path: Path | str,
+    *,
+    user_id: int,
+    replace: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> int:
     path = Path(path)
     init_db()
     session = SessionLocal()
     imported = 0
+
+    def _process_row(row: dict) -> None:
+        nonlocal imported
+        set_code = (row.get("Card Number") or "").strip()
+        if not set_code:
+            return
+        rarity_code = normalize_rarity_code(row.get("Rarity") or "")
+
+        item = CollectionItem(
+            user_id=user_id,
+            set_code=set_code,
+            rarity_code=rarity_code,
+            card_name=row.get("Card Name"),
+            expansion_code=row.get("Set Code"),
+            set_name=row.get("Set Name"),
+            quantity=int(row.get("Quantity") or 1),
+            trade_quantity=int(row.get("Trade Quantity") or 0),
+            condition=row.get("Condition"),
+            edition=row.get("Printing") or "Unlimited",
+            language=row.get("Language"),
+            folder_name=row.get("Folder Name"),
+            price_bought=_float_or_none(row.get("Price Bought")),
+            date_bought=row.get("Date Bought"),
+            avg_price=_float_or_none(row.get("AVG")),
+            low_price=_float_or_none(row.get("LOW")),
+            trend_price=_float_or_none(row.get("TREND")),
+            printing_id=_link_printing(session, set_code, rarity_code),
+        )
+        session.add(item)
+        imported += 1
+
+        if imported % 500 == 0:
+            session.commit()
 
     try:
         if replace:
@@ -271,38 +310,30 @@ def import_collection_csv(
 
         reader = csv.DictReader(lines)
         rows = list(reader)
+        total = len(rows)
+        if progress_callback is not None and total > 0:
+            progress_callback(0, total)
+        throttle = ProgressThrottle() if progress_callback else None
 
-        for row in tqdm(rows, desc="Importing collection"):
-            set_code = (row.get("Card Number") or "").strip()
-            if not set_code:
-                continue
-            rarity_code = normalize_rarity_code(row.get("Rarity") or "")
+        def _emit_progress(current: int) -> None:
+            if progress_callback is None:
+                return
+            if throttle is not None and not throttle.should_emit(current):
+                return
+            progress_callback(current, total)
 
-            item = CollectionItem(
-                user_id=user_id,
-                set_code=set_code,
-                rarity_code=rarity_code,
-                card_name=row.get("Card Name"),
-                expansion_code=row.get("Set Code"),
-                set_name=row.get("Set Name"),
-                quantity=int(row.get("Quantity") or 1),
-                trade_quantity=int(row.get("Trade Quantity") or 0),
-                condition=row.get("Condition"),
-                edition=row.get("Printing") or "Unlimited",
-                language=row.get("Language"),
-                folder_name=row.get("Folder Name"),
-                price_bought=_float_or_none(row.get("Price Bought")),
-                date_bought=row.get("Date Bought"),
-                avg_price=_float_or_none(row.get("AVG")),
-                low_price=_float_or_none(row.get("LOW")),
-                trend_price=_float_or_none(row.get("TREND")),
-                printing_id=_link_printing(session, set_code, rarity_code),
-            )
-            session.add(item)
-            imported += 1
+        if progress_callback is not None:
+            row_iter = enumerate(rows, start=1)
+        else:
+            row_iter = enumerate(tqdm(rows, desc="Importing collection"), start=1)
 
-            if imported % 500 == 0:
-                session.commit()
+        for index, row in row_iter:
+            _process_row(row)
+            if progress_callback is not None:
+                _emit_progress(index)
+
+        if progress_callback is not None and total > 0:
+            progress_callback(total, total)
 
         session.commit()
         return imported

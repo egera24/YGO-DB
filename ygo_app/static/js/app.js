@@ -118,6 +118,81 @@ async function loadStatus() {
     parts.push("log in for collection & decks");
   }
   line.textContent = parts.join(" · ");
+  line.classList.remove("status-importing");
+}
+
+function formatEta(seconds) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return "calculating…";
+  }
+  const totalSec = Math.ceil(seconds);
+  if (totalSec < 60) return "<1 min remaining";
+  const min = Math.ceil(totalSec / 60);
+  if (min < 60) return `~${min} min remaining`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (remMin === 0) return `~${hr} hr remaining`;
+  return `~${hr} hr ${remMin} min remaining`;
+}
+
+function setImportStatusLine(current, total, etaSeconds) {
+  const line = $("#status-line");
+  if (!line) return;
+  line.classList.add("status-importing");
+  line.style.color = "";
+  const prog = $("#import-progress");
+  if (!total) {
+    line.textContent = "Importing collection… preparing…";
+    if (prog) {
+      prog.hidden = false;
+      prog.removeAttribute("value");
+      prog.max = 100;
+    }
+    return;
+  }
+  const pct = Math.round((current / total) * 100);
+  const eta = formatEta(etaSeconds);
+  line.textContent = `Importing collection… ${current.toLocaleString()} / ${total.toLocaleString()} (${pct}%) · ${eta}`;
+  if (prog) {
+    prog.hidden = false;
+    prog.max = total;
+    prog.value = current;
+  }
+}
+
+function clearImportStatusLine() {
+  $("#status-line")?.classList.remove("status-importing");
+  const prog = $("#import-progress");
+  if (prog) prog.hidden = true;
+}
+
+async function readNdjsonStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let lastDone = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const ev = JSON.parse(line);
+      onEvent?.(ev);
+      if (ev.type === "done") lastDone = ev;
+      if (ev.type === "error") throw new Error(ev.detail || "Import failed");
+    }
+  }
+  if (buffer.trim()) {
+    const ev = JSON.parse(buffer);
+    onEvent?.(ev);
+    if (ev.type === "done") lastDone = ev;
+    if (ev.type === "error") throw new Error(ev.detail || "Import failed");
+  }
+  return lastDone;
 }
 
 const FILTER_MULTI_SUMMARY_MAX = 28;
@@ -932,6 +1007,9 @@ function wireEvents() {
     }
     const form = new FormData();
     form.append("file", file);
+    const importBtn = $("#reimport-collection");
+    if (importBtn) importBtn.disabled = true;
+    setImportStatusLine(0, 0, null);
     try {
       const res = await fetch(`${API}/collection/import-csv?replace=true`, {
         method: "POST",
@@ -942,14 +1020,23 @@ function wireEvents() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || res.statusText);
       }
-      const data = await res.json();
-      alert(`Imported ${data.imported} rows`);
+      const done = await readNdjsonStream(res, (ev) => {
+        if (ev.type === "progress") {
+          setImportStatusLine(ev.current, ev.total, ev.eta_seconds);
+        }
+      });
+      if (!done) throw new Error("Import finished without confirmation");
+      alert(`Imported ${done.imported} rows`);
       loadCollection();
-      loadStatus();
+      await loadStatus();
     } catch (err) {
       alert(err.message);
+      await loadStatus();
+    } finally {
+      clearImportStatusLine();
+      if (importBtn) importBtn.disabled = false;
+      e.target.value = "";
     }
-    e.target.value = "";
   });
 
   $("#modal-close").addEventListener("click", closeCardModalOverlay);

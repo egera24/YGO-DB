@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=22" />
+  <link rel="stylesheet" href="/static/css/style.css?v=23" />
 </head>
 <body>
   <header class="app-header">
@@ -14,6 +14,7 @@
       <div>
         <h1>Collection & Deck Builder</h1>
         <p id="status-line">Loading…</p>
+        <progress id="import-progress" class="import-progress" value="0" max="100" hidden></progress>
       </div>
     </div>
     <nav class="tabs" role="tablist">
@@ -325,6 +326,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=19" type="module"></script>
+  <script src="/static/js/app.js?v=21" type="module"></script>
 </body>
 </html>

@@ -1,11 +1,18 @@
+import asyncio
+import json
 import tempfile
+import threading
+import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ygo_app.auth import get_current_user
 from ygo_app.database import get_db
 from ygo_app.import_data import import_collection_csv
+from ygo_app.import_progress import eta_seconds
 from ygo_app.models import CollectionItem, User
 from ygo_app.schemas import CollectionItemCreate, CollectionItemOut, CollectionItemUpdate
 from ygo_app.services import add_collection_item, find_card_by_set_code, list_collection
@@ -102,6 +109,18 @@ def delete_item(
     return {"ok": True}
 
 
+def _progress_event(current: int, total: int, started: float) -> dict:
+    eta = eta_seconds(current, total, started)
+    percent = round(100 * current / total) if total else 0
+    return {
+        "type": "progress",
+        "current": current,
+        "total": total,
+        "percent": percent,
+        "eta_seconds": round(eta, 1) if eta is not None else None,
+    }
+
+
 @router.post("/import-csv")
 async def import_csv(
     file: UploadFile | None = None,
@@ -110,10 +129,58 @@ async def import_csv(
 ):
     if not file or not file.filename:
         raise HTTPException(400, "Upload a CSV file (multipart form field: file)")
-    suffix = ".csv"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
         content = await file.read()
         tmp.write(content)
         path = tmp.name
-    count = import_collection_csv(path, user_id=user.id, replace=replace)
-    return {"imported": count}
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    started = time.monotonic()
+
+    def on_progress(current: int, total: int) -> None:
+        payload = _progress_event(current, total, started)
+        loop.call_soon_threadsafe(queue.put_nowait, ("event", payload))
+
+    def worker() -> None:
+        try:
+            count = import_collection_csv(
+                path,
+                user_id=user.id,
+                replace=replace,
+                progress_callback=on_progress,
+            )
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                ("event", {"type": "done", "imported": count}),
+            )
+        except Exception as exc:
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                ("event", {"type": "error", "detail": str(exc)}),
+            )
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, ("close", None))
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        while True:
+            kind, payload = await queue.get()
+            if kind == "close":
+                break
+            yield json.dumps(payload) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -29,14 +29,35 @@ DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL"))
 DATABASE_URL_MIGRATIONS = _normalize_database_url(os.getenv("DATABASE_URL_MIGRATIONS"))
 
 
+def _is_postgres_url(url: str | None) -> bool:
+    if not url:
+        return False
+    try:
+        driver = make_url(url).drivername.split("+", 1)[0]
+        return driver in ("postgresql", "postgres")
+    except Exception:
+        return url.startswith(("postgresql", "postgres"))
+
+
+def postgres_connect_args(url: str) -> dict:
+    if not _is_postgres_url(url):
+        return {}
+    try:
+        if "sslmode" in dict(make_url(url).query):
+            return {}
+    except Exception:
+        pass
+    return {"sslmode": "require"}
+
+
 def database_url_for_migrations() -> str:
     """
     URL for Alembic / DDL. Prefer DATABASE_URL_MIGRATIONS; else direct Neon host
-  (strip -pooler). Pooled PgBouncer can prevent migrations from persisting.
+    (strip -pooler). Pooled PgBouncer can prevent migrations from persisting.
     """
     if DATABASE_URL_MIGRATIONS:
         return DATABASE_URL_MIGRATIONS
-    if not DATABASE_URL or not DATABASE_URL.startswith("postgresql"):
+    if not DATABASE_URL or not _is_postgres_url(DATABASE_URL):
         return DATABASE_URL or f"sqlite:///{(DATA_DIR / 'ygo.db').as_posix()}"
     try:
         url = make_url(DATABASE_URL)

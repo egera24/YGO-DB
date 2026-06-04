@@ -95,7 +95,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 }
 .search-primary {
   display: grid;
-  grid-template-columns: 2fr 1fr auto auto auto;
+  grid-template-columns: 2fr 1fr auto auto auto auto;
   gap: 0.5rem;
   align-items: center;
 }

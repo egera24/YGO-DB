@@ -375,6 +375,56 @@ async function fetchSearchPage(baseParams, offset = 0) {
   return api(`/cards/search?${pageParams}`);
 }
 
+function resetSearchFilters() {
+  const qEl = $("#q");
+  if (qEl) qEl.value = "";
+  const setCodeEl = $("#set-code");
+  if (setCodeEl) setCodeEl.value = "";
+  const ownedEl = $("#owned-only");
+  if (ownedEl) ownedEl.checked = false;
+  const favEl = $("#favorites-only");
+  if (favEl) favEl.checked = false;
+
+  document.querySelectorAll(".filter-multi").forEach((root) => {
+    root
+      .querySelectorAll('.filter-multi-panel input[type="checkbox"]')
+      .forEach((cb) => {
+        cb.checked = false;
+      });
+    updateFilterMultiSummary(root);
+  });
+
+  const archetypeEl = $("#filter-archetype");
+  if (archetypeEl) archetypeEl.value = "";
+  const summoningEl = $("#filter-summoning");
+  if (summoningEl) summoningEl.value = "";
+
+  for (const sel of [
+    "#level-min",
+    "#level-max",
+    "#rank-min",
+    "#rank-max",
+    "#link-rating-min",
+    "#link-rating-max",
+    "#pendulum-scale-min",
+    "#pendulum-scale-max",
+    "#atk-min",
+    "#atk-max",
+    "#def-min",
+    "#def-max",
+  ]) {
+    const el = $(sel);
+    if (el) el.value = "";
+  }
+
+  document.querySelectorAll(".link-marker-btn.selected").forEach((btn) => {
+    btn.classList.remove("selected");
+    btn.setAttribute("aria-pressed", "false");
+  });
+
+  closeAllFilterMultiPanels();
+}
+
 function buildSearchParams() {
   const params = new URLSearchParams();
   const q = $("#q").value.trim();
@@ -833,6 +883,10 @@ function wireEvents() {
   });
 
   $("#search-form").addEventListener("submit", runSearch);
+  $("#search-reset")?.addEventListener("click", async () => {
+    resetSearchFilters();
+    await runSearch();
+  });
   $("#collection-filter")?.addEventListener("submit", (e) => {
     e.preventDefault();
     loadCollection();

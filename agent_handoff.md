@@ -163,7 +163,7 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 | Type | `types` (JSON array) | Monsters: `typeline[]`; ST/Skill: `[property]` — filter **OR** |
 | Mechanic, Attribute | `mechanic`, `attribute` | Monsters only; multi-value **OR** |
 | Archetype | `archetype` | Substring `ILIKE` |
-| ATK/DEF/Level/Rank/Link/Pendulum | matching columns | Inclusive min/max params |
+| ATK/DEF/Level/Rank/Link/Pendulum | matching columns | Inclusive min/max query params; UI uses `<select>` for Level/Rank/Link/Pendulum, number inputs for ATK/DEF |
 | Link markers (3×3 grid) | `link_markers` (JSON) | Selected markers **AND** (subset match) |
 | Summoning condition | `summoning_condition` | `ILIKE`; autocomplete `GET /api/cards/summoning-suggestions` |
 
@@ -172,7 +172,9 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 | [`card_filters.py`](ygo_app/card_filters.py) | JSON list parse; `types` / `link_markers` SQL helpers |
 | [`services.search_cards`](ygo_app/services.py) | `q` + all filter params; one `COUNT` query |
 | [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders` auth-only |
-| UI | `#advanced-filters` in [`index.html`](ygo_app/static/index.html); [`app.js`](ygo_app/static/js/app.js) `buildSearchParams` |
+| UI | `#advanced-filters` in [`index.html`](ygo_app/static/index.html); [`app.js`](ygo_app/static/js/app.js) `buildSearchParams`, `initStatRangeSelects()` |
+
+**Advanced panel layout (static/CSS):** Category–Attribute = compact multi-selects (`.filter-group--compact`). Level/Rank/Link/Pendulum = min/max `<select>` (options from `initStatRangeSelects()`; Level 1–12, Rank 1–13, Link 1–6, Pendulum 0–13). ATK/DEF = number inputs. Stat fieldsets in `.filter-ranges` (flex wrap, `gap: 1.5rem`, `width: fit-content`). Bump `style.css` / `app.js` `?v=` in `index.html` after static edits.
 
 Legacy `frame_type` / `race` columns remain for YGOProDeck fallback import; **not** exposed in search UI.
 
@@ -271,6 +273,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-04**
+- **Advanced filter UI layout** — compact Category–Attribute dropdowns; Level/Rank/Link/Pendulum min/max `<select>` + `initStatRangeSelects()`; ATK/DEF numeric; `.filter-ranges` flex wrap (`gap: 1.5rem`). API/query params unchanged. Static-only (`style.css`, `app.js`, `index.html`).
 - **Yugipedia-native filters** — Alembic `003`; `card_import.py` maps scrape → `category`, `types`, `mechanic`, `rank`, `link_rating`, `pendulum_scale`, `link_markers`, `summoning_condition`; advanced search UI + `/api/filters` (no auth for catalog lists); `parse_skill_card`; assets `style.css?v=11`, `app.js?v=13`. **Re-import** after deploy to populate new columns (GHA workflow unchanged).
 - **Text search (`q`)** — `search_query.py` → `ILIKE`; removed `search_index.py` / `cards_fts` / `plainto_tsquery`.
 - **Search help UI** — `?` button + `#search-help-modal`.

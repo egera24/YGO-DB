@@ -1,6 +1,6 @@
 # Agent handoff — YGO Collection & Deck Builder
 
-**Last updated:** 2026-06-04 (Yugipedia **card-art URLs** scraped into JSON/DB via `parsing.extract_card_image`; no YGOPRODeck CDN on Yugipedia import path)
+**Last updated:** 2026-06-04 (TCG-only catalog: cards without `cts--EN` printings rejected at scrape + skipped at import)
 **Purpose:** Onboard the next agent/session without re-reading full chat history. Keep this file updated when architecture or deploy steps change.
 
 **New agents:** Read this file at session start for token-efficient context.
@@ -88,7 +88,9 @@ flowchart TB
 
 Orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full` (`--details-only --resume` supported). GHA uses **6 batched details jobs** (`--batch-index` / `--batch-count`); see workflow below.
 
-**Multi-rarity printings:** [`ygo_app/yugipedia/card_sets.py`](ygo_app/yugipedia/card_sets.py) — all `<a>` tags in rarity cell (not `<br>` split).
+**Multi-rarity printings:** [`ygo_app/yugipedia/card_sets.py`](ygo_app/yugipedia/card_sets.py) — all `<a>` tags in rarity cell (not `<br>` split). Only the English timeline table (`id` contains `cts--EN`).
+
+**TCG-only catalog:** Cards with no English printings (empty / missing `cts--EN` → no `card_sets` in scrape JSON) are **rejected** in [`details._process_card`](ygo_app/yugipedia/details.py) (`No English (TCG) printings (empty cts--EN)`) and **skipped** again in [`adapter.yugipedia_entries_to_api`](ygo_app/yugipedia/adapter.py). Passcode index still lists all `Concept:CG cards`; OCG-only entries land in `yugipedia_rejected_cards.json`, not `cards`. Card count after full import is **below** the old ~14k passcode total (exact count after one full scrape + import).
 
 **Import replaces catalog:** `import_cards_entries` deletes all `cards` and `printings` then reloads. Do **not** manually truncate Neon catalog tables.
 
@@ -214,6 +216,7 @@ data/catalog/          # gitignored scrape JSON
 tests/
   test_yugipedia_card_sets.py
   test_yugipedia_adapter.py
+  test_yugipedia_details.py
   test_yugipedia_images.py
   test_yugipedia_batch_slice.py
   test_scrape_progress.py
@@ -233,6 +236,13 @@ yugipedia/             # legacy CLI wrappers → ygo_app jobs
 ---
 
 ## 4. What was implemented
+
+### TCG-only catalog filter (2026-06-04)
+
+1. [`details._process_card`](ygo_app/yugipedia/details.py) — reject when parse succeeds but `card_sets` is empty.
+2. [`adapter.yugipedia_entries_to_api`](ygo_app/yugipedia/adapter.py) — skip entries without `card_sets` on import.
+3. Tests: [`test_yugipedia_details.py`](tests/test_yugipedia_details.py), adapter test for skipped OCG-only entries.
+4. **Apply to existing DB:** full details re-scrape + `python -m ygo_app.jobs.import_catalog_yugipedia` (import alone drops OCG-only rows still in old JSON).
 
 ### Yugipedia card images (2026-06-04)
 
@@ -401,7 +411,7 @@ python -m ygo_app.jobs.import_catalog
 | Check | Expected |
 |-------|----------|
 | `GET /api/health` | `{"ok": true}` |
-| `GET /api/status` | `ready: true`, `cards` ~14k+ (full) or ~500 (`test_mode`) |
+| `GET /api/status` | `ready: true`, `cards` TCG-printed only (full count &lt; old ~14k passcodes; ~500 in `test_mode`) |
 | GHA log | `Catalog import complete: N cards, M printings` |
 | GHA scrape (full) | Green: `passcodes`, `scrape_batch_0`…`5`, `import`; ~2–4 h; each batch `[BATCH_RESULT] missing=0` |
 | GHA scrape (test) | Green: `passcodes`, `scrape_batch_0`, `import`; batches 1–5 skipped; ~500 cards in Neon dev |

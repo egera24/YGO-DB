@@ -163,13 +163,19 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
 def yugipedia_entries_to_api(entries: list[dict]) -> list[dict]:
     """Convert scraped Yugipedia list to API-shaped entries for import_cards_entries."""
     api_entries: list[dict] = []
-    skipped = 0
+    skipped_invalid = 0
+    skipped_no_printings = 0
     for entry in entries:
+        if not entry.get("card_sets"):
+            skipped_no_printings += 1
+            continue
         mapped = yugipedia_card_to_api(entry)
         if mapped:
             api_entries.append(mapped)
         else:
-            skipped += 1
-    if skipped:
-        print(f"Skipped {skipped} entries with invalid passcode")
+            skipped_invalid += 1
+    if skipped_no_printings:
+        print(f"Skipped {skipped_no_printings} entries with no English printings")
+    if skipped_invalid:
+        print(f"Skipped {skipped_invalid} entries with invalid passcode")
     return api_entries

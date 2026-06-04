@@ -142,6 +142,12 @@ def _process_card(scraper, input_card: dict) -> dict:
     card_data, parse_error = parse_card_page(html, input_card)
     if parse_error:
         return {"success": False, "input_card": input_card, "error": parse_error}
+    if not card_data.get("card_sets"):
+        return {
+            "success": False,
+            "input_card": input_card,
+            "error": "No English (TCG) printings (empty cts--EN)",
+        }
     return {"success": True, "card_data": card_data, "input_card": input_card}
 
 

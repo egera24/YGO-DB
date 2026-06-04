@@ -117,6 +117,19 @@ python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
 
 After scrape, each entry in `data/catalog/yugipedia_all_cards.json` should include `image_url` and `image_url_small` pointing at `ms.yugipedia.com` (extracted from the wiki page HTML, not downloaded).
 
+### TCG-only catalog (English printings)
+
+The Yugipedia pipeline keeps only cards with at least one English timeline printing (`cts--EN` on the wiki → `card_sets` in JSON). OCG-only cards (e.g. no TCG release) are **rejected** during detail scrape (`yugipedia_rejected_cards.json`) and skipped on import. The passcode list still includes them until scrape runs.
+
+To remove OCG-only cards already in your dev DB from an older scrape:
+
+```powershell
+python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+python -m ygo_app.jobs.import_catalog_yugipedia
+```
+
+Re-import alone is enough if `yugipedia_all_cards.json` no longer contains entries without `card_sets`.
+
 **GitHub Actions:** **Import Yugipedia catalog** → **Run workflow** (not Re-run failed jobs) → branch `develop` → environment `dev` → `test_mode` **true** → `card_limit` **500**. `test_mode` on production is blocked in the workflow.
 
 ## Lightweight SQLite mode (not production-like)

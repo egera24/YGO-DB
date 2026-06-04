@@ -2,7 +2,7 @@
 
 import unittest
 
-from ygo_app.yugipedia.adapter import yugipedia_card_to_api
+from ygo_app.yugipedia.adapter import yugipedia_card_to_api, yugipedia_entries_to_api
 
 
 class TestYugipediaAdapter(unittest.TestCase):
@@ -58,6 +58,26 @@ class TestYugipediaAdapter(unittest.TestCase):
         self.assertIsNone(api["card_images"][0]["image_url"])
         self.assertIsNone(api["card_images"][0]["image_url_small"])
         self.assertEqual(api["ygoprodeck_url"], "https://ygoprodeck.com/card/85087012")
+
+    def test_entries_without_card_sets_skipped(self):
+        entries = [
+            {
+                "id": "11111111",
+                "name": "OCG Only",
+                "typeline": ["Dragon", "Normal"],
+                "type": "Dragon",
+            },
+            {
+                "id": "85087012",
+                "name": "Card Trooper",
+                "typeline": ["Machine", "Effect"],
+                "type": "Machine",
+                "card_sets": [{"set_code": "RA03-EN172", "set_name": "QCB", "set_rarity": "SR"}],
+            },
+        ]
+        api = yugipedia_entries_to_api(entries)
+        self.assertEqual(len(api), 1)
+        self.assertEqual(api[0]["id"], 85087012)
 
     def test_spell_card(self):
         entry = {

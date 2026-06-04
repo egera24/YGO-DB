@@ -18,6 +18,7 @@ from ygo_app.yugipedia.constants import (
     REQUESTS_PER_SECOND,
 )
 from ygo_app.yugipedia.http_client import create_scraper, fetch_page
+from ygo_app.yugipedia.passcodes import limit_passcode_list
 from ygo_app.yugipedia.parsing import parse_card_page
 from ygo_app.yugipedia.paths import (
     ALL_CARDS_PATH,
@@ -313,6 +314,7 @@ def scrape_card_details(
     resume: bool = False,
     batch_index: int | None = None,
     batch_count: int | None = None,
+    max_cards: int | None = None,
     checkpoint_every: int = CHECKPOINT_EVERY,
     failed_retry_rounds: int = FAILED_RETRY_ROUNDS,
 ) -> tuple[Path, Path, int, int]:
@@ -335,7 +337,7 @@ def scrape_card_details(
     if not input_path.exists():
         raise FileNotFoundError(f"Passcode list not found: {input_path}")
 
-    input_cards = _load_json_list(input_path)
+    input_cards = limit_passcode_list(_load_json_list(input_path), max_cards)
     total_in_list = len(input_cards)
     slice_cards = input_cards
 

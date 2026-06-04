@@ -267,6 +267,22 @@ git checkout develop
 git checkout main && git merge develop && git push   # prod app + full code on main
 ```
 
+### Yugipedia catalog — full vs test (500 cards)
+
+| Mode | Scrape | Import | Neon |
+|------|--------|--------|------|
+| **Full** | 6 GHA batches / `--full` locally | all JSON → **replaces** entire catalog | ~14k cards |
+| **Test** | `--max-cards 500` or GHA `test_mode` | `--limit 500` (min 400 mapped) | **dev only** — DB ends with 500 cards until full import |
+
+```powershell
+# Local test on Neon dev (~500 cards, not full scrape)
+python -m ygo_app.jobs.scrape_yugipedia_catalog --passcodes-only --max-cards 500
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-index 0 --batch-count 1
+python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
+```
+
+GHA test: **Run workflow** (new run, not Re-run) → branch **`develop`** → `environment=dev` → `test_mode=true` → `card_limit=500`. Skips scrape batches 1–5.
+
 ### Fallback catalog
 
 ```powershell

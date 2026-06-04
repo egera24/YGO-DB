@@ -22,17 +22,27 @@ def load_yugipedia_cards(path: Path) -> list[dict]:
     raise ValueError(f"Unexpected JSON shape in {path}")
 
 
+def resolve_min_cards(*, limit: int | None, min_cards: int | None) -> int:
+    """Default safety floor: 1000 full catalog; 80% of limit for test imports."""
+    if min_cards is not None:
+        return min_cards
+    if limit is not None:
+        return max(1, int(limit * 0.8))
+    return 1000
+
+
 def import_from_yugipedia_json(
     path: Path,
     *,
     limit: int | None = None,
-    min_cards: int = 1000,
+    min_cards: int | None = None,
 ) -> tuple[int, int]:
     entries = load_yugipedia_cards(path)
     api_entries = yugipedia_entries_to_api(entries)
-    if len(api_entries) < min_cards:
+    min_required = resolve_min_cards(limit=limit, min_cards=min_cards)
+    if len(api_entries) < min_required:
         raise RuntimeError(
-            f"Only {len(api_entries)} cards after mapping (minimum {min_cards}). "
+            f"Only {len(api_entries)} cards after mapping (minimum {min_required}). "
             "Scrape may have failed."
         )
     return import_cards_entries(api_entries, limit=limit)
@@ -50,10 +60,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--min-cards",
         type=int,
-        default=1000,
-        help="Abort if fewer cards mapped than this (safety)",
+        default=None,
+        help="Abort if fewer cards mapped than this (default: 1000, or 80%% of --limit)",
     )
     args = parser.parse_args(argv)
+
+    if args.limit is not None and args.limit < 1:
+        print("--limit must be >= 1", file=sys.stderr)
+        return 1
+    if args.min_cards is not None and args.min_cards < 1:
+        print("--min-cards must be >= 1", file=sys.stderr)
+        return 1
 
     if not args.json.exists():
         print(f"Catalog file not found: {args.json}", file=sys.stderr)

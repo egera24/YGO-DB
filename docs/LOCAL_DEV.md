@@ -101,6 +101,22 @@ alembic upgrade head
 python -m ygo_app.jobs.import_catalog
 ```
 
+## Yugipedia catalog test mode (~500 cards)
+
+Every Yugipedia import **fully replaces** `cards` and `printings` in the target database (not a merge). A test run leaves only the scraped subset until you run a full import again. Use **Neon dev** only.
+
+**Local CLI** (`.env` → dev `DATABASE_URL`):
+
+```powershell
+python -m ygo_app.jobs.scrape_yugipedia_catalog --passcodes-only --max-cards 500
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-index 0 --batch-count 1
+python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
+```
+
+`--limit 500` uses a minimum of 400 mapped cards (`80%`); override with `--min-cards` if needed.
+
+**GitHub Actions:** **Import Yugipedia catalog** → **Run workflow** (not Re-run failed jobs) → branch `develop` → environment `dev` → `test_mode` **true** → `card_limit` **500**. `test_mode` on production is blocked in the workflow.
+
 ## Lightweight SQLite mode (not production-like)
 
 For quick offline experiments only:

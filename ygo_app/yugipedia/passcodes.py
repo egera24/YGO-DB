@@ -100,7 +100,7 @@ def get_cards_in_password_range(
     return cards
 
 
-def fetch_all_passcodes() -> list[dict]:
+def fetch_all_passcodes(*, max_cards: int | None = None) -> list[dict]:
     api_url = "https://yugipedia.com/api.php"
     session = requests.Session()
     session.headers.update(
@@ -115,6 +115,9 @@ def fetch_all_passcodes() -> list[dict]:
     seen_passwords: set[str] = set()
 
     for range_num, (start, end) in enumerate(PASSWORD_RANGES, 1):
+        if max_cards is not None and len(all_cards) >= max_cards:
+            print(f"[TEST_MODE] stopping passcode fetch at {len(all_cards)} cards")
+            break
         print(f"\nRange {range_num}/{len(PASSWORD_RANGES)}: {start:08d} - {end:08d}")
         range_cards = get_cards_in_password_range(session, api_url, start, end)
         new_cards = 0
@@ -123,11 +126,27 @@ def fetch_all_passcodes() -> list[dict]:
                 all_cards.append(card)
                 seen_passwords.add(card["password"])
                 new_cards += 1
+                if max_cards is not None and len(all_cards) >= max_cards:
+                    break
         print(f"  Added {new_cards} unique cards (total {len(all_cards)})")
+        if max_cards is not None and len(all_cards) >= max_cards:
+            break
         if range_num < len(PASSWORD_RANGES):
             time.sleep(5)
 
-    return all_cards
+    return limit_passcode_list(all_cards, max_cards)
+
+
+def limit_passcode_list(cards: list[dict], max_cards: int | None) -> list[dict]:
+    """Return the first max_cards passcodes (stable order) for test / dev imports."""
+    if max_cards is None or max_cards < 1:
+        return cards
+    if len(cards) <= max_cards:
+        return cards
+    print(
+        f"[TEST_MODE] limiting catalog to {max_cards} passcodes (from {len(cards)})"
+    )
+    return cards[:max_cards]
 
 
 def save_passcode_list(cards: list[dict], path: Path | None = None) -> Path:
@@ -139,11 +158,15 @@ def save_passcode_list(cards: list[dict], path: Path | None = None) -> Path:
     return out
 
 
-def run_passcode_scrape(*, output_path: Path | None = None) -> Path:
+def run_passcode_scrape(
+    *,
+    output_path: Path | None = None,
+    max_cards: int | None = None,
+) -> Path:
     print("=" * 70)
     print(" Yugipedia passcode list scrape")
     print("=" * 70)
-    cards = fetch_all_passcodes()
+    cards = fetch_all_passcodes(max_cards=max_cards)
     if not cards:
         raise RuntimeError("No cards fetched from Yugipedia API")
     return save_passcode_list(cards, output_path)

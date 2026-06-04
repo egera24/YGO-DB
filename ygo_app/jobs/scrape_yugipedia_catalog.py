@@ -45,7 +45,18 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Total number of details batches (e.g. 6 for GHA)",
     )
+    parser.add_argument(
+        "--max-cards",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Scrape/import only the first N passcodes (test mode; passcodes + details)",
+    )
     args = parser.parse_args(argv)
+
+    if args.max_cards is not None and args.max_cards < 1:
+        print("--max-cards must be >= 1", file=sys.stderr)
+        return 1
 
     input_path = args.input or PASSCODE_LIST_PATH
     output_path = args.output or ALL_CARDS_PATH
@@ -67,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.full or args.passcodes_only:
-            run_passcode_scrape(output_path=input_path)
+            run_passcode_scrape(output_path=input_path, max_cards=args.max_cards)
 
         if args.full or args.details_only:
             if not input_path.exists():
@@ -80,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
                 resume=args.resume,
                 batch_index=args.batch_index,
                 batch_count=args.batch_count,
+                max_cards=args.max_cards,
             )
     except FileNotFoundError as e:
         print(e, file=sys.stderr)

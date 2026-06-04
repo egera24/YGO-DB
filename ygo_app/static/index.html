@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=8" />
+  <link rel="stylesheet" href="/static/css/style.css?v=9" />
 </head>
 <body>
   <header class="app-header">
@@ -40,17 +40,10 @@
   <main>
     <section id="view-search" class="view active">
       <form id="search-form" class="search-panel">
-        <input type="search" id="q" placeholder='Search: reveal, "You can reveal", wildcards *, ?' autocomplete="off" />
-        <details class="search-syntax-help">
-          <summary>Search syntax</summary>
-          <ul>
-            <li><code>reveal</code> — text in name, description, or archetype (any case)</li>
-            <li><code>"You can reveal"</code> — exact phrase</li>
-            <li><code>reveal hand</code> — both words (AND)</li>
-            <li><code>reveal OR hand</code> · <code>reveal -hand</code> (NOT)</li>
-            <li><code>millenn?um</code> · <code>reveal*</code> — wildcards</li>
-          </ul>
-        </details>
+        <div class="search-q-wrap">
+          <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+          <button type="button" id="search-help-btn" class="icon-btn search-help-btn" aria-label="Search syntax help" aria-haspopup="dialog" aria-controls="search-help-modal" aria-expanded="false">?</button>
+        </div>
         <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
         <select id="frame-type"><option value="">Frame</option></select>
         <select id="attribute"><option value="">Attribute</option></select>
@@ -138,6 +131,50 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=11" type="module"></script>
+  <div id="search-help-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-help-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="search-help-close" class="modal-close" aria-label="Close">&times;</button>
+      <header class="search-help-header">
+        <h2 id="search-help-title">Search syntax</h2>
+        <p class="muted">Search name, description, and archetype. Not case-sensitive.</p>
+      </header>
+      <dl class="search-help-list">
+        <div class="search-help-row">
+          <dt><code>reveal</code></dt>
+          <dd>Anywhere in name, description, or archetype</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>"You can reveal"</code></dt>
+          <dd>Exact phrase (words adjacent)</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>reveal hand</code></dt>
+          <dd>Both terms (AND)</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>reveal OR hand</code></dt>
+          <dd>Either term</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>reveal -hand</code> or <code>reveal NOT hand</code></dt>
+          <dd>Include first term, exclude second</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>millenn?um</code></dt>
+          <dd><code>?</code> matches one character</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>reveal*</code></dt>
+          <dd><code>*</code> matches any characters</dd>
+        </div>
+        <div class="search-help-row">
+          <dt><code>12345678</code></dt>
+          <dd>Passcode (digits only)</dd>
+        </div>
+      </dl>
+    </article>
+  </div>
+
+  <script src="/static/js/app.js?v=12" type="module"></script>
 </body>
 </html>

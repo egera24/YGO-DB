@@ -287,14 +287,50 @@ function applyModalReadableColors() {
 function openCardModalOverlay() {
   const dlg = $("#card-modal");
   dlg.hidden = false;
-  document.body.classList.add("modal-open");
+  syncModalOpenClass();
   applyModalReadableColors();
 }
 
 function closeCardModalOverlay() {
   const dlg = $("#card-modal");
   dlg.hidden = true;
-  document.body.classList.remove("modal-open");
+  syncModalOpenClass();
+}
+
+function isModalVisible(id) {
+  const el = $(id);
+  return el && !el.hidden;
+}
+
+function syncModalOpenClass() {
+  if (isModalVisible("#card-modal") || isModalVisible("#search-help-modal")) {
+    document.body.classList.add("modal-open");
+  } else {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+let searchHelpTrigger = null;
+
+function openSearchHelpModal() {
+  const dlg = $("#search-help-modal");
+  const trigger = $("#search-help-btn");
+  if (!dlg) return;
+  searchHelpTrigger = trigger;
+  dlg.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  syncModalOpenClass();
+  $("#search-help-close")?.focus();
+}
+
+function closeSearchHelpModal() {
+  const dlg = $("#search-help-modal");
+  if (!dlg || dlg.hidden) return;
+  dlg.hidden = true;
+  $("#search-help-btn")?.setAttribute("aria-expanded", "false");
+  syncModalOpenClass();
+  (searchHelpTrigger ?? $("#search-help-btn"))?.focus();
+  searchHelpTrigger = null;
 }
 
 let modalImageToken = 0;
@@ -614,8 +650,17 @@ function wireEvents() {
   $("#card-modal").addEventListener("click", (e) => {
     if (e.target === $("#card-modal")) closeCardModalOverlay();
   });
+
+  $("#search-help-btn")?.addEventListener("click", openSearchHelpModal);
+  $("#search-help-close")?.addEventListener("click", closeSearchHelpModal);
+  $("#search-help-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#search-help-modal")) closeSearchHelpModal();
+  });
+
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("#card-modal").hidden) closeCardModalOverlay();
+    if (e.key !== "Escape") return;
+    if (isModalVisible("#search-help-modal")) closeSearchHelpModal();
+    else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });
 
   $("#modal-favorite").addEventListener("click", async () => {

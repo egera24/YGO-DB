@@ -73,7 +73,7 @@ def fts_card_ids(session: Session, term: str, *, limit: int) -> list[int] | None
                     WHERE to_tsvector(
                         'english',
                         coalesce(name, '') || ' ' ||
-                        coalesce(desc, '') || ' ' ||
+                        coalesce("desc", '') || ' ' ||
                         coalesce(archetype, '') || ' ' ||
                         coalesce(type, '') || ' ' ||
                         coalesce(race, '')

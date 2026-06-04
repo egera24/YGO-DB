@@ -198,7 +198,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .filter-ranges {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
   gap: 0.5rem;
 }
 .filter-ranges fieldset.filter-range {
@@ -237,12 +237,12 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   box-sizing: border-box;
 }
 .filter-range-input--3 {
-  width: calc(3ch + 1rem);
-  min-width: calc(3ch + 1rem);
+  width: calc(9ch + 3rem);
+  min-width: calc(9ch + 3rem);
 }
 .filter-range-input--5 {
-  width: calc(5ch + 1.1rem);
-  min-width: calc(5ch + 1.1rem);
+  width: calc(10ch + 2.2rem);
+  min-width: calc(10ch + 2.2rem);
 }
 .link-marker-grid {
   display: grid;

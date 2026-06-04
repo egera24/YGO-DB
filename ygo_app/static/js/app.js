@@ -55,6 +55,7 @@ function updateAuthUI() {
   $("#auth-login-form")?.classList.toggle("hidden", loggedIn);
   $("#auth-register-form")?.classList.toggle("hidden", loggedIn);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
+  $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
   if (loggedIn) {
     userEl.textContent = state.user.email;
@@ -342,17 +343,6 @@ async function loadFilters() {
   setFilterMultiOptions("filter-mechanic", data.mechanics || []);
   setFilterMultiOptions("filter-attribute", data.attributes || []);
   setDatalist("#archetype-datalist", data.archetypes || []);
-
-  const folderSel = $("#collection-folder");
-  if (folderSel && state.token) {
-    folderSel.querySelectorAll("option:not([value=''])").forEach((o) => o.remove());
-    (data.folders || []).forEach((f) => {
-      const o = document.createElement("option");
-      o.value = f;
-      o.textContent = f;
-      folderSel.appendChild(o);
-    });
-  }
 }
 
 function selectedLinkMarkers() {
@@ -437,7 +427,6 @@ function switchView(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   $(`#view-${name}`).classList.add("active");
   document.querySelector(`.tab[data-view="${name}"]`).classList.add("active");
-  if (name === "collection") loadCollection();
   if (name === "decks") loadDecks();
 }
 
@@ -813,62 +802,20 @@ async function openCardModal(cardId) {
   openCardModalOverlay();
 }
 
-async function loadCollection() {
-  if (!state.token) {
-    $("#collection-list").innerHTML =
-      '<p class="empty-msg">Log in to view your collection.</p>';
-    return;
+async function refreshOwnedSearchState() {
+  if (state.activeView === "search") {
+    await loadSearchPage(state.searchPage);
   }
-  const params = new URLSearchParams({ limit: "500" });
-  const q = $("#collection-q")?.value.trim();
-  const folder = $("#collection-folder")?.value;
-  if (q) params.set("q", q);
-  if (folder) params.set("folder", folder);
+}
 
-  const items = await api(`/collection?${params}`);
-  $("#collection-stats").textContent = `${items.length} rows shown (max 500 per page)`;
-
-  const wrap = $("#collection-list");
-  if (!items.length) {
-    wrap.innerHTML = '<p class="empty-msg">No collection items. Import my_collection.csv first.</p>';
-    return;
-  }
-
-  wrap.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th></th>
-          <th>Set code</th>
-          <th>Rarity</th>
-          <th>Name</th>
-          <th>Qty</th>
-          <th>Folder</th>
-          <th>Condition</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${items
-          .map(
-            (i) => `
-          <tr data-id="${i.id}" ${i.card_id ? `data-card="${i.card_id}"` : ""} class="${i.card_id ? "clickable" : ""}">
-            <td>${cardImgTag(i.image_url_small, 'width="36" height="52"')}</td>
-            <td class="set-code">${escapeHtml(i.set_code)}</td>
-            <td>${escapeHtml((i.rarity_code || "").replace(/[()]/g, ""))}</td>
-            <td>${escapeHtml(i.card_name || "")}</td>
-            <td>${i.quantity}</td>
-            <td>${escapeHtml(i.folder_name || "")}</td>
-            <td>${escapeHtml(i.condition || "")}</td>
-          </tr>`
-          )
-          .join("")}
-      </tbody>
-    </table>`;
-
-  wrap.querySelectorAll("tr[data-card]").forEach((row) => {
-    row.style.cursor = "pointer";
-    row.addEventListener("click", () => openCardModal(Number(row.dataset.card)));
-  });
+function downloadRejectedCsv(csvText) {
+  const blob = new Blob(["\ufeff", csvText], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rejected_cards.csv";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function loadDecks() {
@@ -962,11 +909,6 @@ function wireEvents() {
     resetSearchFilters();
     await runSearch();
   });
-  $("#collection-filter")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    loadCollection();
-  });
-
   $("#auth-login-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
@@ -990,7 +932,7 @@ function wireEvents() {
 
   $("#auth-logout")?.addEventListener("click", logout);
 
-  $("#reimport-collection")?.addEventListener("click", () => {
+  $("#import-collection-btn")?.addEventListener("click", () => {
     if (!state.token) {
       alert("Log in first.");
       return;
@@ -1007,7 +949,7 @@ function wireEvents() {
     }
     const form = new FormData();
     form.append("file", file);
-    const importBtn = $("#reimport-collection");
+    const importBtn = $("#import-collection-btn");
     if (importBtn) importBtn.disabled = true;
     setImportStatusLine(0, 0, null);
     try {
@@ -1026,9 +968,16 @@ function wireEvents() {
         }
       });
       if (!done) throw new Error("Import finished without confirmation");
-      alert(`Imported ${done.imported} rows`);
-      loadCollection();
+      if (done.rejected_count > 0 && done.rejected_csv) {
+        downloadRejectedCsv(done.rejected_csv);
+        alert(
+          `Imported ${done.imported} rows. ${done.rejected_count} could not be matched — downloaded as rejected_cards.csv.`
+        );
+      } else {
+        alert(`Imported ${done.imported} rows.`);
+      }
       await loadStatus();
+      await refreshOwnedSearchState();
     } catch (err) {
       alert(err.message);
       await loadStatus();
@@ -1096,7 +1045,8 @@ function wireEvents() {
     });
     alert(`Added ${qty}× ${set_code}`);
     openCardModal(state.currentCardId);
-    loadStatus();
+    await loadStatus();
+    await refreshOwnedSearchState();
   });
 
   $("#deck-add-card-btn").addEventListener("click", async () => {

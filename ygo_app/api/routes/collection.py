@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import json
 import tempfile
 import threading
@@ -11,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ygo_app.auth import get_current_user
 from ygo_app.database import get_db
-from ygo_app.import_data import import_collection_csv
+from ygo_app.import_data import CollectionImportResult, import_collection_csv
 from ygo_app.import_progress import eta_seconds
 from ygo_app.models import CollectionItem, User
 from ygo_app.schemas import CollectionItemCreate, CollectionItemOut, CollectionItemUpdate
@@ -109,6 +111,18 @@ def delete_item(
     return {"ok": True}
 
 
+def _rejected_csv_text(result: CollectionImportResult) -> str | None:
+    if not result.rejected:
+        return None
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf, fieldnames=result.fieldnames, extrasaction="ignore"
+    )
+    writer.writeheader()
+    writer.writerows(result.rejected)
+    return buf.getvalue()
+
+
 def _progress_event(current: int, total: int, started: float) -> dict:
     eta = eta_seconds(current, total, started)
     percent = round(100 * current / total) if total else 0
@@ -144,7 +158,7 @@ async def import_csv(
 
     def worker() -> None:
         try:
-            count = import_collection_csv(
+            result = import_collection_csv(
                 path,
                 user_id=user.id,
                 replace=replace,
@@ -152,7 +166,15 @@ async def import_csv(
             )
             loop.call_soon_threadsafe(
                 queue.put_nowait,
-                ("event", {"type": "done", "imported": count}),
+                (
+                    "event",
+                    {
+                        "type": "done",
+                        "imported": result.imported,
+                        "rejected_count": len(result.rejected),
+                        "rejected_csv": _rejected_csv_text(result),
+                    },
+                ),
             )
         except Exception as exc:
             loop.call_soon_threadsafe(

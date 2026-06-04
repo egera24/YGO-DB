@@ -6,6 +6,7 @@ import argparse
 import csv
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import select, text, update
@@ -17,7 +18,9 @@ from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CollectionItem, Printing
 from ygo_app.import_progress import ProgressThrottle
-from ygo_app.utils import normalize_rarity_code
+from ygo_app.utils import normalize_rarity_code, rarity_display
+
+IMPORT_ERROR_COLUMN = "Import Error"
 
 
 def _detach_collection_printing_links(session: Session) -> int:
@@ -251,24 +254,53 @@ def _link_printing(session: Session, set_code: str, rarity_code: str) -> int | N
     return row[0] if row else None
 
 
+def _match_printing(
+    session: Session, set_code: str, rarity_code: str
+) -> tuple[int | None, str | None]:
+    if not set_code:
+        return None, "Missing card number"
+    printing_id = _link_printing(session, set_code, rarity_code)
+    if printing_id is not None:
+        return printing_id, None
+    has_set = session.execute(
+        select(Printing.id).where(Printing.set_code == set_code).limit(1)
+    ).scalar()
+    if has_set:
+        return None, (
+            f"Rarity '{rarity_display(rarity_code)}' not found for set code '{set_code}'"
+        )
+    return None, f"Set code '{set_code}' not found in catalog"
+
+
+@dataclass
+class CollectionImportResult:
+    imported: int
+    rejected: list[dict] = field(default_factory=list)
+    fieldnames: list[str] = field(default_factory=list)
+
+
 def import_collection_csv(
     path: Path | str,
     *,
     user_id: int,
     replace: bool = True,
     progress_callback: Callable[[int, int], None] | None = None,
-) -> int:
+) -> CollectionImportResult:
     path = Path(path)
     init_db()
     session = SessionLocal()
     imported = 0
+    rejected: list[dict] = []
+    output_fieldnames: list[str] = []
 
     def _process_row(row: dict) -> None:
         nonlocal imported
         set_code = (row.get("Card Number") or "").strip()
-        if not set_code:
-            return
         rarity_code = normalize_rarity_code(row.get("Rarity") or "")
+        printing_id, reason = _match_printing(session, set_code, rarity_code)
+        if reason:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
+            return
 
         item = CollectionItem(
             user_id=user_id,
@@ -288,7 +320,7 @@ def import_collection_csv(
             avg_price=_float_or_none(row.get("AVG")),
             low_price=_float_or_none(row.get("LOW")),
             trend_price=_float_or_none(row.get("TREND")),
-            printing_id=_link_printing(session, set_code, rarity_code),
+            printing_id=printing_id,
         )
         session.add(item)
         imported += 1
@@ -309,6 +341,7 @@ def import_collection_csv(
             lines = lines[1:]
 
         reader = csv.DictReader(lines)
+        output_fieldnames = list(reader.fieldnames or []) + [IMPORT_ERROR_COLUMN]
         rows = list(reader)
         total = len(rows)
         if progress_callback is not None and total > 0:
@@ -336,7 +369,11 @@ def import_collection_csv(
             progress_callback(total, total)
 
         session.commit()
-        return imported
+        return CollectionImportResult(
+            imported=imported,
+            rejected=rejected,
+            fieldnames=output_fieldnames,
+        )
     finally:
         session.close()
 
@@ -379,8 +416,15 @@ def main(argv: list[str] | None = None) -> int:
         if not args.collection.exists():
             print(f"Collection file not found: {args.collection}", file=sys.stderr)
             return 1
-        n = import_collection_csv(args.collection, user_id=args.user_id)
-        print(f"Imported {n} collection rows for user_id={args.user_id}.")
+        result = import_collection_csv(args.collection, user_id=args.user_id)
+        print(
+            f"Imported {result.imported} collection rows for user_id={args.user_id}."
+        )
+        if result.rejected:
+            print(
+                f"Rejected {len(result.rejected)} rows (no catalog match).",
+                file=sys.stderr,
+            )
 
     return 0
 

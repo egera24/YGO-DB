@@ -19,7 +19,6 @@
     </div>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-view="search">Search</button>
-      <button class="tab" data-view="collection">My Collection</button>
       <button class="tab" data-view="decks">Decks</button>
     </nav>
     <div id="auth-panel" class="auth-panel">
@@ -34,6 +33,8 @@
         <input type="password" id="register-password" placeholder="Password (8+)" required minlength="8" autocomplete="new-password" />
         <button type="submit" class="secondary">Register</button>
       </form>
+      <button type="button" id="import-collection-btn" class="secondary hidden">Import my collection</button>
+      <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
     </div>
   </header>
@@ -197,18 +198,6 @@
       <div id="search-results" class="card-grid"></div>
     </section>
 
-    <section id="view-collection" class="view">
-      <form id="collection-filter" class="search-panel compact">
-        <input type="search" id="collection-q" placeholder="Filter by name or set code…" />
-        <select id="collection-folder"><option value="">All folders</option></select>
-        <button type="submit">Filter</button>
-        <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
-        <button type="button" id="reimport-collection" class="secondary">Import CSV</button>
-      </form>
-      <div id="collection-stats" class="stats-bar"></div>
-      <div id="collection-list" class="collection-table-wrap"></div>
-    </section>
-
     <section id="view-decks" class="view">
       <div class="deck-layout">
         <aside class="deck-sidebar">
@@ -326,6 +315,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=21" type="module"></script>
+  <script src="/static/js/app.js?v=22" type="module"></script>
 </body>
 </html>

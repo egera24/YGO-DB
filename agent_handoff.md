@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-05
+> **Last updated:** 2026-06-10
 
 ---
 
@@ -171,8 +171,8 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 |-------|------|
 | [`card_filters.py`](ygo_app/card_filters.py) | JSON list parse; `types` / `link_markers` SQL helpers |
 | [`services.search_cards`](ygo_app/services.py) | `q` + all filter params; one `COUNT` query |
-| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders` in JSON but unused in UI |
-| UI | Tabs: **Search**, **My Collection**, **Decks**. [`app.js`](ygo_app/static/js/app.js) — `buildSearchParams`, `initStatRangeSelects()`, header **Import/Export my collection**, collection folder sidebar + paginated table |
+| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders[]` = distinct `folder_name` (legacy; My Collection uses `/api/collection/stats` instead) |
+| UI | Tabs: **Search**, **My Collection**, **Decks**. [`app.js?v=30`](ygo_app/static/js/app.js) — `buildSearchParams`, `initStatRangeSelects()`, `loadCollectionView()` / folder sidebar / paginated table. Header **Import/Export my collection**. Static [`style.css?v=25`](ygo_app/static/css/style.css). |
 
 **Advanced panel layout (static/CSS):** Category–Attribute = compact multi-selects (`.filter-group--compact`). Level/Rank/Link/Pendulum = min/max `<select>` (options from `initStatRangeSelects()`; Level 1–12, Rank 1–13, Link 1–6, Pendulum 0–13). ATK/DEF = number inputs. Stat fieldsets in `.filter-ranges` (flex wrap, `gap: 1.5rem`, `width: fit-content`). Bump `style.css` / `app.js` `?v=` in `index.html` after static edits.
 
@@ -182,19 +182,38 @@ Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_fi
 
 ### User collection (owned)
 
+**Data model:** `collection_items` — one row per user per `(set_code, rarity_code)` with quantity, condition, edition, language, notes, prices, and **`folder_name`** (free-text physical location; DragonShield “Folder Name”). Optional `printing_id` FK → `printings`. No separate `folders` table.
+
+**Physical folders:** Use `folder_name` strings (`Binder A`, `Box 3`, etc.). Sidebar filters by folder; `folder=__unassigned__` (`UNASSIGNED_FOLDER` in [`services.py`](ygo_app/services.py)) = null/empty `folder_name`. Double-click a folder in the sidebar → bulk rename via `PATCH /api/collection/folders/rename`.
+
 | Piece | Role |
 |-------|------|
-| `collection_items` | Per-user rows keyed by `(set_code, rarity_code)`; `printing_id` → `printings` when matched |
 | **Owned filter** | `owned_only` on `GET /api/cards/search` — join `collection_items` ↔ `printings` on set code **and** rarity |
-| **CSV import** | Header **Import my collection** → `POST /api/collection/import-csv` (NDJSON stream + `#import-progress`). DragonShield CSV via [`import_collection_csv`](ygo_app/import_data.py) |
-| **Matching** | `_match_printing`: row must match a `printings` row or it is **rejected** (not stored). `done` event: `imported`, `rejected_count`, `rejected_csv` → browser downloads `rejected_cards.csv` with **Import Error** column |
-| **Manual add** | Card modal **Add to collection** → `POST /api/collection` (single row; still allowed) |
-| **My Collection tab** | Folder sidebar (All / Unassigned / `folder_name` labels), stats bar, paginated table with inline qty/folder edit. `GET /api/collection` (paginated), `GET /api/collection/stats`, `PATCH /api/collection/folders/rename` |
-| **API list** | `list_collection` uses `joinedload` on `printing_id` → card (no per-row N+1) |
+| **My Collection tab** | `#view-collection` — folder sidebar, stats bar, search/set-code/sort toolbar, paginated table (100/page), inline qty & folder edit, delete, row click → card modal |
+| **CSV import** | Header **Import my collection** → `POST /api/collection/import-csv` (NDJSON + `#import-progress`). DragonShield via [`import_collection_csv`](ygo_app/import_data.py). `replace=true` wipes user rows first |
+| **CSV export** | Header **Export my collection** → modal → `GET /api/collection/export-csv?format=dragonshield`. [`collection_export.py`](ygo_app/collection_export.py) round-trips with import |
+| **Matching** | `_match_printing`: row must match `printings` or **rejected**; `done` includes `rejected_csv` |
+| **Manual add** | Card modal **Add to collection** → `POST /api/collection` |
 
-`replace=true` on import wipes the user's `collection_items` first. Progress: [`import_progress.py`](ygo_app/import_progress.py) throttle unchanged.
+**Collection API** ([`api/routes/collection.py`](ygo_app/api/routes/collection.py)):
 
-Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), `test_list_collection.py`, `test_collection_stats.py`, `test_collection_folder_rename.py`.
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/collection` | Paginated `{ items, total, limit, offset }`. Query: `q`, `folder`, `set_code`, `sort` (`set_code`\|`card_name`\|`folder_name`\|`quantity`) |
+| GET | `/api/collection/stats` | Totals + `folders[]` + `unassigned_count` / `unassigned_quantity` |
+| PATCH | `/api/collection/folders/rename` | Body `{ from_name, to_name }` → `{ updated }` |
+| GET | `/api/collection/export-formats` | List export format ids |
+| GET | `/api/collection/export-csv` | DragonShield CSV download |
+| POST | `/api/collection` | Add single row |
+| PATCH | `/api/collection/{id}` | Update qty, folder, condition, notes, etc. |
+| DELETE | `/api/collection/{id}` | Remove row |
+| POST | `/api/collection/import-csv` | NDJSON stream |
+
+**`list_collection`** ([`services.py`](ygo_app/services.py)): `joinedload(CollectionItem.linked_printing).joinedload(Printing.card)` + batched `_cards_by_set_codes` fallback for rows missing `printing_id`. Returns `rarity_display` per row. **No per-row N+1.**
+
+Progress throttle: [`import_progress.py`](ygo_app/import_progress.py).
+
+Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [`test_export_collection_csv.py`](tests/test_export_collection_csv.py), [`test_list_collection.py`](tests/test_list_collection.py), [`test_collection_stats.py`](tests/test_collection_stats.py), [`test_collection_folder_rename.py`](tests/test_collection_folder_rename.py).
 
 ---
 
@@ -290,7 +309,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-10**
-- **My Collection tab restored** — folder sidebar (`folder_name` / DragonShield), stats endpoint, paginated `GET /api/collection`, bulk folder rename, inline qty/folder edit. `list_collection` N+1 fixed via `joinedload`. Tests: `test_list_collection.py`, `test_collection_stats.py`, `test_collection_folder_rename.py`.
+- **My Collection tab restored** — third tab between Search and Decks. Folder sidebar (All / Unassigned / distinct `folder_name`), stats bar, paginated table (100/page) with thumbnails, inline qty/folder edit, delete, double-click folder rename. APIs: paginated `GET /api/collection`, `GET /api/collection/stats`, `PATCH /api/collection/folders/rename`. `list_collection` N+1 fixed via `joinedload` + batched set-code fallback. Static `app.js?v=30`, `style.css?v=25`. Tests: `test_list_collection.py`, `test_collection_stats.py`, `test_collection_folder_rename.py`.
 
 **2026-06-05**
 - **Collection CSV-only UI** — removed My Collection tab/view; header **Import my collection**; browse owned via Search **Owned only**. CSV import rejects unmatched catalog rows (`CollectionImportResult`, `_match_printing`); stream `done` includes `rejected_csv`. Modal add-to-collection kept. `app.js?v=22`. Tests: `test_import_collection_csv.py`.
@@ -357,12 +376,13 @@ ygo_app/
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
   import_data.py               # catalog replace + import_collection_csv (CollectionImportResult)
+  collection_export.py         # DragonShield CSV export
   import_progress.py           # CSV import progress throttle / ETA
   search_query.py              # q parser + ILIKE compiler
   services.py  models.py  schemas.py  auth.py  config.py  database.py  catalog.py  utils.py
   static/                      # index.html, css/style.css, js/app.js
 alembic/versions/  001 … 003_yugipedia_card_fields.py
-tests/                         # 16+ unittest modules (search, scrape, test_import_collection_csv, …)
+tests/                         # 22 unittest modules (search, scrape, collection list/stats/rename, import/export CSV, …)
 .github/workflows/             # import-catalog-yugipedia.yml, import-catalog-ygoprodeck.yml, db-keepalive.yml
 .cursor/rules/                 # github-actions-yugipedia-workflow-sync.mdc
 docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md
@@ -390,4 +410,8 @@ data/catalog/                  # gitignored scrape JSON
 | `GET /api/cards/search?category=Monster&types=Fusion` | OR on `types` JSON |
 | `GET /api/cards/summoning-suggestions?q=WATER` | Distinct `summoning_condition` substring matches |
 | Logged in: **Import my collection** | Header button visible; NDJSON progress on `#import-progress` |
+| Logged in: **Export my collection** | Modal lists DragonShield format; downloads UTF-8 BOM CSV |
+| Logged in: **My Collection** tab | Folder sidebar, stats line, table with thumbnails; pagination when >100 rows |
+| `GET /api/collection/stats` (auth) | `total_items`, `folders[]`, `unassigned_count` |
+| `folder=__unassigned__` on list | Returns rows with null/empty `folder_name` |
 | CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |

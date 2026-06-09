@@ -64,6 +64,7 @@ class CollectionItemOut(BaseModel):
     id: int
     set_code: str
     rarity_code: str
+    rarity_display: str | None = None
     card_name: str | None
     expansion_code: str | None
     set_name: str | None
@@ -83,6 +84,37 @@ class CollectionItemOut(BaseModel):
     image_url_small: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class CollectionListOut(BaseModel):
+    items: list[CollectionItemOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class CollectionFolderStats(BaseModel):
+    name: str
+    item_count: int
+    quantity: int
+
+
+class CollectionStatsOut(BaseModel):
+    total_items: int
+    total_quantity: int
+    unique_printings: int
+    unassigned_count: int
+    unassigned_quantity: int
+    folders: list[CollectionFolderStats]
+
+
+class FolderRenameRequest(BaseModel):
+    from_name: str
+    to_name: str
+
+
+class FolderRenameResult(BaseModel):
+    updated: int
 
 
 class CollectionItemCreate(BaseModel):

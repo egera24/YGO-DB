@@ -22,7 +22,14 @@ const state = {
   searchTotal: 0,
   searchParams: new URLSearchParams(),
   exportFormats: null,
+  collectionPage: 0,
+  collectionTotal: 0,
+  collectionFolder: null,
+  collectionStats: null,
 };
+
+const COLLECTION_PAGE_SIZE = 100;
+const UNASSIGNED_FOLDER = "__unassigned__";
 
 async function api(path, options = {}) {
   const headers = { Accept: "application/json", ...(options.headers || {}) };
@@ -427,6 +434,7 @@ function switchView(name) {
   $(`#view-${name}`).classList.add("active");
   document.querySelector(`.tab[data-view="${name}"]`).classList.add("active");
   if (name === "decks") loadDecks();
+  if (name === "collection") loadCollectionView();
 }
 
 const SEARCH_PAGE_SIZE = 500;
@@ -813,6 +821,292 @@ async function refreshOwnedSearchState() {
   }
 }
 
+function buildCollectionParams(offset = 0) {
+  const params = new URLSearchParams();
+  params.set("limit", String(COLLECTION_PAGE_SIZE));
+  params.set("offset", String(offset));
+  if (state.collectionFolder) params.set("folder", state.collectionFolder);
+  const q = $("#collection-q")?.value.trim();
+  if (q) params.set("q", q);
+  const setCode = $("#collection-set-code")?.value.trim();
+  if (setCode) params.set("set_code", setCode);
+  params.set("sort", $("#collection-sort")?.value || "set_code");
+  return params;
+}
+
+function renderCollectionStatsLine() {
+  const el = $("#collection-stats-line");
+  if (!el || !state.collectionStats) return;
+  const s = state.collectionStats;
+  const folderLabel = s.folders.length + (s.unassigned_count > 0 ? 1 : 0);
+  el.textContent = `${s.unique_printings.toLocaleString()} printings · ${s.total_quantity.toLocaleString()} cards · ${folderLabel} folder${folderLabel === 1 ? "" : "s"}`;
+}
+
+function renderCollectionSidebar() {
+  const list = $("#collection-folder-list");
+  if (!list || !state.collectionStats) return;
+  const s = state.collectionStats;
+  const active = state.collectionFolder;
+
+  const entries = [
+    { key: null, label: "All", count: s.total_items, qty: s.total_quantity },
+  ];
+  if (s.unassigned_count > 0) {
+    entries.push({
+      key: UNASSIGNED_FOLDER,
+      label: "Unassigned",
+      count: s.unassigned_count,
+      qty: s.unassigned_quantity,
+    });
+  }
+  for (const f of s.folders) {
+    entries.push({ key: f.name, label: f.name, count: f.item_count, qty: f.quantity });
+  }
+
+  list.innerHTML = entries
+    .map(
+      (e) => `
+    <li class="${active === e.key ? "active" : ""}" data-folder="${e.key === null ? "" : encodeURIComponent(e.key)}">
+      <span class="collection-folder-label">${escapeHtml(e.label)}</span>
+      <span class="collection-folder-count muted">${e.count}</span>
+    </li>`
+    )
+    .join("");
+
+  list.querySelectorAll("li").forEach((li) => {
+    li.addEventListener("click", async () => {
+      const raw = li.dataset.folder;
+      state.collectionFolder = raw === "" ? null : decodeURIComponent(raw);
+      state.collectionPage = 0;
+      renderCollectionSidebar();
+      await loadCollectionPage(0);
+    });
+    if (li.dataset.folder && li.dataset.folder !== UNASSIGNED_FOLDER) {
+      li.addEventListener("dblclick", async (e) => {
+        e.preventDefault();
+        const fromName = decodeURIComponent(li.dataset.folder);
+        const toName = prompt("Rename folder:", fromName);
+        if (!toName?.trim() || toName.trim() === fromName) return;
+        try {
+          const result = await api("/collection/folders/rename", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from_name: fromName, to_name: toName.trim() }),
+          });
+          if (state.collectionFolder === fromName) {
+            state.collectionFolder = toName.trim();
+          }
+          await loadCollectionStats();
+          renderCollectionSidebar();
+          await loadCollectionPage(state.collectionPage);
+          alert(`Renamed folder (${result.updated} items updated).`);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    }
+  });
+}
+
+function renderCollectionPagination() {
+  const bar = $("#collection-pagination");
+  if (!bar) return;
+  const total = state.collectionTotal;
+  const totalPages = Math.max(1, Math.ceil(total / COLLECTION_PAGE_SIZE));
+  const page = state.collectionPage;
+
+  if (totalPages <= 1) {
+    bar.classList.add("hidden");
+    bar.innerHTML = "";
+    return;
+  }
+
+  const start = page * COLLECTION_PAGE_SIZE + 1;
+  const end = Math.min((page + 1) * COLLECTION_PAGE_SIZE, total);
+
+  bar.classList.remove("hidden");
+  bar.innerHTML = `
+    <button type="button" id="collection-prev" class="secondary"${page === 0 ? " disabled" : ""}>← Previous</button>
+    <span class="search-page-info">Page ${page + 1} of ${totalPages} · ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}</span>
+    <button type="button" id="collection-next" class="secondary"${page >= totalPages - 1 ? " disabled" : ""}>Next →</button>`;
+
+  $("#collection-prev")?.addEventListener("click", () => {
+    if (state.collectionPage > 0) loadCollectionPage(state.collectionPage - 1);
+  });
+  $("#collection-next")?.addEventListener("click", () => {
+    const lastPage = Math.ceil(state.collectionTotal / COLLECTION_PAGE_SIZE) - 1;
+    if (state.collectionPage < lastPage) loadCollectionPage(state.collectionPage + 1);
+  });
+}
+
+async function patchCollectionItem(itemId, body) {
+  await api(`/collection/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  await loadCollectionStats();
+  renderCollectionStatsLine();
+  renderCollectionSidebar();
+}
+
+async function removeCollectionItem(itemId, { confirm: askConfirm = true } = {}) {
+  if (askConfirm && !confirm("Remove this printing from your collection?")) return false;
+  await api(`/collection/${itemId}`, { method: "DELETE" });
+  await loadCollectionStats();
+  renderCollectionStatsLine();
+  renderCollectionSidebar();
+  await loadCollectionPage(state.collectionPage);
+  const tbody = $("#collection-tbody");
+  if (tbody && !tbody.querySelector(".collection-row") && state.collectionPage > 0) {
+    state.collectionPage -= 1;
+    await loadCollectionPage(state.collectionPage);
+  }
+  await loadStatus();
+  return true;
+}
+
+function renderCollectionTable(items) {
+  const tbody = $("#collection-tbody");
+  const emptyEl = $("#collection-empty");
+  const tableWrap = $(".collection-table-wrap");
+  if (!tbody) return;
+
+  if (!items.length) {
+    tbody.innerHTML = "";
+    emptyEl?.classList.remove("hidden");
+    tableWrap?.classList.add("hidden");
+    $("#collection-pagination")?.classList.add("hidden");
+    return;
+  }
+
+  emptyEl?.classList.add("hidden");
+  tableWrap?.classList.remove("hidden");
+
+  tbody.innerHTML = items
+    .map(
+      (item) => `
+    <tr data-id="${item.id}" data-card-id="${item.card_id ?? ""}" class="collection-row">
+      <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
+      <td>${escapeHtml(item.card_name || "—")}</td>
+      <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
+      <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+      <td>
+        <input type="number" class="collection-qty-input" min="0" value="${item.quantity}" aria-label="Quantity" />
+      </td>
+      <td>${escapeHtml(item.condition || "—")}</td>
+      <td>
+        <input type="text" class="collection-folder-input" value="${escapeHtml(item.folder_name || "")}" placeholder="Unassigned" aria-label="Folder" />
+      </td>
+      <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
+      <td>
+        <button type="button" class="secondary collection-delete-btn" title="Remove">Delete</button>
+      </td>
+    </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll(".collection-row").forEach((row) => {
+    const itemId = Number(row.dataset.id);
+    const cardId = row.dataset.cardId ? Number(row.dataset.cardId) : null;
+
+    row.addEventListener("click", (e) => {
+      if (
+        e.target.closest("input") ||
+        e.target.closest("button") ||
+        !cardId
+      ) {
+        return;
+      }
+      openCardModal(cardId);
+    });
+
+    const qtyInput = row.querySelector(".collection-qty-input");
+    qtyInput?.addEventListener("change", async () => {
+      const qty = Math.max(0, Number(qtyInput.value) || 0);
+      qtyInput.value = String(qty);
+      try {
+        if (qty === 0) {
+          await removeCollectionItem(itemId);
+        } else {
+          await patchCollectionItem(itemId, { quantity: qty });
+        }
+      } catch (err) {
+        alert(err.message);
+        await loadCollectionPage(state.collectionPage);
+      }
+    });
+
+    const folderInput = row.querySelector(".collection-folder-input");
+    folderInput?.addEventListener("change", async () => {
+      const folder = folderInput.value.trim() || null;
+      try {
+        await patchCollectionItem(itemId, { folder_name: folder });
+        await loadCollectionPage(state.collectionPage);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    row.querySelector(".collection-delete-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await removeCollectionItem(itemId);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+async function loadCollectionStats() {
+  state.collectionStats = await api("/collection/stats");
+}
+
+async function loadCollectionPage(pageIndex) {
+  state.collectionPage = pageIndex;
+  const tbody = $("#collection-tbody");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">Loading…</td></tr>';
+  $("#collection-pagination")?.classList.add("hidden");
+
+  try {
+    const offset = pageIndex * COLLECTION_PAGE_SIZE;
+    const page = await api(`/collection?${buildCollectionParams(offset)}`);
+    state.collectionTotal = page.total;
+    renderCollectionTable(page.items);
+    renderCollectionPagination();
+  } catch (err) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+}
+
+async function loadCollectionView() {
+  const loggedIn = Boolean(state.token && state.user);
+  $("#collection-login-prompt")?.classList.toggle("hidden", loggedIn);
+  $("#collection-main")?.classList.toggle("hidden", !loggedIn);
+  if (!loggedIn) return;
+
+  try {
+    await loadCollectionStats();
+    renderCollectionStatsLine();
+    renderCollectionSidebar();
+    await loadCollectionPage(state.collectionPage);
+  } catch (err) {
+    const tbody = $("#collection-tbody");
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+}
+
+async function refreshCollectionIfActive() {
+  if (state.activeView === "collection" && state.token) {
+    await loadCollectionView();
+  }
+}
+
 function downloadRejectedCsv(csvText) {
   downloadCsvBlob(csvText, "rejected_cards.csv");
 }
@@ -1129,6 +1423,7 @@ function wireEvents() {
       }
       await loadStatus();
       await refreshOwnedSearchState();
+      await refreshCollectionIfActive();
     } catch (err) {
       alert(err.message);
       await loadStatus();
@@ -1137,6 +1432,12 @@ function wireEvents() {
       if (importBtn) importBtn.disabled = false;
       e.target.value = "";
     }
+  });
+
+  $("#collection-filter-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    state.collectionPage = 0;
+    await loadCollectionPage(0);
   });
 
   $("#modal-close").addEventListener("click", closeCardModalOverlay);
@@ -1199,6 +1500,7 @@ function wireEvents() {
     openCardModal(state.currentCardId);
     await loadStatus();
     await refreshOwnedSearchState();
+    await refreshCollectionIfActive();
   });
 
   $("#deck-add-card-btn").addEventListener("click", async () => {

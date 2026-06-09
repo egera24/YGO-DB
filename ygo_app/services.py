@@ -379,6 +379,16 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
     return card
 
 
+UNASSIGNED_FOLDER = "__unassigned__"
+
+_COLLECTION_SORT_COLUMNS = {
+    "set_code": CollectionItem.set_code,
+    "card_name": CollectionItem.card_name,
+    "folder_name": CollectionItem.folder_name,
+    "quantity": CollectionItem.quantity,
+}
+
+
 def find_card_by_set_code(session: Session, set_code: str) -> Card | None:
     printing = session.execute(
         select(Printing).where(Printing.set_code == set_code).limit(1)
@@ -388,6 +398,63 @@ def find_card_by_set_code(session: Session, set_code: str) -> Card | None:
     return session.get(Card, printing.card_id)
 
 
+def _cards_by_set_codes(session: Session, set_codes: set[str]) -> dict[str, Card | None]:
+    if not set_codes:
+        return {}
+    rows = session.execute(
+        select(Printing.set_code, Card)
+        .join(Card, Printing.card_id == Card.id)
+        .where(Printing.set_code.in_(set_codes))
+    ).all()
+    result: dict[str, Card | None] = dict.fromkeys(set_codes)
+    for set_code, card in rows:
+        if result[set_code] is None:
+            result[set_code] = card
+    return result
+
+
+def _card_for_collection_item(
+    item: CollectionItem,
+    *,
+    set_code_fallback: dict[str, Card | None] | None = None,
+) -> Card | None:
+    printing = item.linked_printing
+    if printing is not None and printing.card is not None:
+        return printing.card
+    if set_code_fallback is not None:
+        return set_code_fallback.get(item.set_code)
+    return None
+
+
+def _collection_item_row(
+    item: CollectionItem,
+    *,
+    set_code_fallback: dict[str, Card | None] | None = None,
+) -> dict:
+    card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
+    row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
+    row["printing"] = row.pop("edition", None)
+    return {
+        **row,
+        "card_id": card.id if card else None,
+        "image_url_small": card.image_url_small if card else None,
+        "rarity_display": rarity_display(item.rarity_code),
+    }
+
+
+def _apply_collection_folder_filter(stmt, folder: str | None):
+    if not folder:
+        return stmt
+    if folder == UNASSIGNED_FOLDER:
+        return stmt.where(
+            or_(
+                CollectionItem.folder_name.is_(None),
+                CollectionItem.folder_name == "",
+            )
+        )
+    return stmt.where(CollectionItem.folder_name == folder)
+
+
 def list_collection(
     session: Session,
     *,
@@ -395,6 +462,7 @@ def list_collection(
     q: str | None = None,
     folder: str | None = None,
     set_code: str | None = None,
+    sort: str = "set_code",
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -408,8 +476,7 @@ def list_collection(
                 CollectionItem.set_name.ilike(like),
             )
         )
-    if folder:
-        stmt = stmt.where(CollectionItem.folder_name == folder)
+    stmt = _apply_collection_folder_filter(stmt, folder)
     if set_code:
         stmt = stmt.where(CollectionItem.set_code.ilike(f"%{set_code.strip()}%"))
 
@@ -417,26 +484,131 @@ def list_collection(
         select(func.count()).select_from(stmt.subquery())
     ).scalar() or 0
 
+    order_col = _COLLECTION_SORT_COLUMNS.get(sort, CollectionItem.set_code)
     items = (
-        session.execute(stmt.order_by(CollectionItem.set_code).offset(offset).limit(limit))
+        session.execute(
+            stmt.options(
+                joinedload(CollectionItem.linked_printing).joinedload(Printing.card)
+            )
+            .order_by(order_col)
+            .offset(offset)
+            .limit(limit)
+        )
+        .unique()
         .scalars()
         .all()
     )
 
-    results = []
-    for item in items:
-        card = find_card_by_set_code(session, item.set_code)
-        row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
-        row["printing"] = row.pop("edition", None)
-        results.append(
-            {
-                **row,
-                "card_id": card.id if card else None,
-                "image_url_small": card.image_url_small if card else None,
-                "rarity_display": rarity_display(item.rarity_code),
-            }
-        )
+    missing_codes = {
+        item.set_code
+        for item in items
+        if _card_for_collection_item(item) is None
+    }
+    fallback_map = _cards_by_set_codes(session, missing_codes)
+
+    results = [
+        _collection_item_row(item, set_code_fallback=fallback_map) for item in items
+    ]
     return results, int(total)
+
+
+def collection_stats(session: Session, *, user_id: int) -> dict:
+    total_items = (
+        session.execute(
+            select(func.count())
+            .select_from(CollectionItem)
+            .where(CollectionItem.user_id == user_id)
+        ).scalar()
+        or 0
+    )
+    total_quantity = (
+        session.execute(
+            select(func.coalesce(func.sum(CollectionItem.quantity), 0)).where(
+                CollectionItem.user_id == user_id
+            )
+        ).scalar()
+        or 0
+    )
+    unassigned_count = (
+        session.execute(
+            select(func.count())
+            .select_from(CollectionItem)
+            .where(
+                CollectionItem.user_id == user_id,
+                or_(
+                    CollectionItem.folder_name.is_(None),
+                    CollectionItem.folder_name == "",
+                ),
+            )
+        ).scalar()
+        or 0
+    )
+    unassigned_quantity = (
+        session.execute(
+            select(func.coalesce(func.sum(CollectionItem.quantity), 0)).where(
+                CollectionItem.user_id == user_id,
+                or_(
+                    CollectionItem.folder_name.is_(None),
+                    CollectionItem.folder_name == "",
+                ),
+            )
+        ).scalar()
+        or 0
+    )
+
+    folder_rows = session.execute(
+        select(
+            CollectionItem.folder_name,
+            func.count(),
+            func.coalesce(func.sum(CollectionItem.quantity), 0),
+        )
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.folder_name.isnot(None),
+            CollectionItem.folder_name != "",
+        )
+        .group_by(CollectionItem.folder_name)
+        .order_by(CollectionItem.folder_name)
+    ).all()
+
+    return {
+        "total_items": int(total_items),
+        "total_quantity": int(total_quantity),
+        "unique_printings": int(total_items),
+        "unassigned_count": int(unassigned_count),
+        "unassigned_quantity": int(unassigned_quantity),
+        "folders": [
+            {
+                "name": name,
+                "item_count": int(item_count),
+                "quantity": int(qty),
+            }
+            for name, item_count, qty in folder_rows
+        ],
+    }
+
+
+def rename_collection_folder(
+    session: Session,
+    *,
+    user_id: int,
+    from_name: str,
+    to_name: str,
+) -> int:
+    from_clean = from_name.strip()
+    to_clean = to_name.strip()
+    if not from_clean or not to_clean:
+        raise ValueError("from_name and to_name are required")
+    rows = session.execute(
+        select(CollectionItem).where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.folder_name == from_clean,
+        )
+    ).scalars().all()
+    for item in rows:
+        item.folder_name = to_clean
+    session.commit()
+    return len(rows)
 
 
 def deck_counts(session: Session, deck_id: int) -> dict[str, int]:

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=24" />
+  <link rel="stylesheet" href="/static/css/style.css?v=25" />
 </head>
 <body>
   <header class="app-header">
@@ -19,6 +19,7 @@
     </div>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-view="search">Search</button>
+      <button class="tab" data-view="collection">My Collection</button>
       <button class="tab" data-view="decks">Decks</button>
     </nav>
     <div id="auth-panel" class="auth-panel">
@@ -199,6 +200,52 @@
       <div id="search-results" class="card-grid"></div>
     </section>
 
+    <section id="view-collection" class="view">
+      <div id="collection-login-prompt" class="collection-empty hidden">
+        <p>Log in to view and manage your collection.</p>
+      </div>
+      <div id="collection-main" class="collection-layout hidden">
+        <aside class="collection-sidebar">
+          <h2 class="collection-sidebar-title">Folders</h2>
+          <ul id="collection-folder-list" class="collection-folder-list"></ul>
+        </aside>
+        <div class="collection-panel">
+          <form id="collection-filter-form" class="collection-toolbar">
+            <input type="search" id="collection-q" placeholder="Search name or set…" autocomplete="off" />
+            <input type="text" id="collection-set-code" placeholder="Set code" />
+            <select id="collection-sort" aria-label="Sort collection">
+              <option value="set_code">Sort: Set code</option>
+              <option value="card_name">Sort: Name</option>
+              <option value="folder_name">Sort: Folder</option>
+              <option value="quantity">Sort: Quantity</option>
+            </select>
+            <button type="submit">Apply</button>
+          </form>
+          <p id="collection-stats-line" class="stats-bar"></p>
+          <div class="collection-table-wrap">
+            <table id="collection-table">
+              <thead>
+                <tr>
+                  <th scope="col"></th>
+                  <th scope="col">Card</th>
+                  <th scope="col">Set</th>
+                  <th scope="col">Rarity</th>
+                  <th scope="col">Qty</th>
+                  <th scope="col">Condition</th>
+                  <th scope="col">Folder</th>
+                  <th scope="col">Notes</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody id="collection-tbody"></tbody>
+            </table>
+          </div>
+          <div id="collection-pagination" class="search-pagination hidden"></div>
+          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Import my collection</strong> in the header to get started.</p>
+        </div>
+      </div>
+    </section>
+
     <section id="view-decks" class="view">
       <div class="deck-layout">
         <aside class="deck-sidebar">
@@ -335,6 +382,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=29" type="module"></script>
+  <script src="/static/js/app.js?v=30" type="module"></script>
 </body>
 </html>

@@ -8,10 +8,11 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ygo_app.auth import get_current_user
+from ygo_app.collection_export import export_collection_csv, list_export_formats
 from ygo_app.database import get_db
 from ygo_app.import_data import CollectionImportResult, import_collection_csv
 from ygo_app.import_progress import eta_seconds
@@ -68,6 +69,31 @@ def get_collection(
         offset=offset,
     )
     return [CollectionItemOut(**item) for item in items]
+
+
+@router.get("/export-formats")
+def get_export_formats(user: User = Depends(get_current_user)):
+    return list_export_formats()
+
+
+@router.get("/export-csv")
+def export_csv(
+    format: str = Query(..., description="Export format id (e.g. dragonshield)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        csv_text, media_type, filename = export_collection_csv(
+            db, user_id=user.id, format_id=format
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    content = "\ufeff" + csv_text
+    return Response(
+        content=content.encode("utf-8"),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", response_model=CollectionItemOut)

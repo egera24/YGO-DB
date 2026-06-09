@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=23" />
+  <link rel="stylesheet" href="/static/css/style.css?v=24" />
 </head>
 <body>
   <header class="app-header">
@@ -34,6 +34,7 @@
         <button type="submit" class="secondary">Register</button>
       </form>
       <button type="button" id="import-collection-btn" class="secondary hidden">Import my collection</button>
+      <button type="button" id="export-collection-btn" class="secondary hidden">Export my collection</button>
       <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
     </div>
@@ -262,6 +263,24 @@
     </article>
   </div>
 
+  <div id="export-collection-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="export-collection-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="export-collection-close" class="modal-close" aria-label="Close">&times;</button>
+      <header class="export-collection-header">
+        <h2 id="export-collection-title">Export collection</h2>
+        <p class="muted">Choose a CSV format for your download.</p>
+      </header>
+      <fieldset id="export-format-list" class="export-format-list">
+        <legend class="sr-only">Export format</legend>
+      </fieldset>
+      <p id="export-format-note" class="export-format-note muted"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="export-collection-cancel" class="secondary">Cancel</button>
+        <button type="button" id="export-collection-confirm">Export</button>
+      </div>
+    </article>
+  </div>
+
   <div id="search-help-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-help-title" hidden>
     <article class="modal-card modal-card--narrow">
       <button type="button" id="search-help-close" class="modal-close" aria-label="Close">&times;</button>
@@ -316,6 +335,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=26" type="module"></script>
+  <script src="/static/js/app.js?v=29" type="module"></script>
 </body>
 </html>

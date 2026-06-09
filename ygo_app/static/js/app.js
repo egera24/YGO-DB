@@ -21,6 +21,7 @@ const state = {
   searchPage: 0,
   searchTotal: 0,
   searchParams: new URLSearchParams(),
+  exportFormats: null,
 };
 
 async function api(path, options = {}) {
@@ -53,6 +54,7 @@ function updateAuthUI() {
   $("#auth-register-form")?.classList.toggle("hidden", loggedIn);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
   $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
   if (loggedIn) {
     userEl.textContent = state.user.email;
@@ -659,7 +661,11 @@ function isModalVisible(id) {
 }
 
 function syncModalOpenClass() {
-  if (isModalVisible("#card-modal") || isModalVisible("#search-help-modal")) {
+  if (
+    isModalVisible("#card-modal") ||
+    isModalVisible("#search-help-modal") ||
+    isModalVisible("#export-collection-modal")
+  ) {
     document.body.classList.add("modal-open");
   } else {
     document.body.classList.remove("modal-open");
@@ -808,13 +814,89 @@ async function refreshOwnedSearchState() {
 }
 
 function downloadRejectedCsv(csvText) {
+  downloadCsvBlob(csvText, "rejected_cards.csv");
+}
+
+function downloadCsvBlob(csvText, filename) {
   const blob = new Blob(["\ufeff", csvText], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "rejected_cards.csv";
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function loadExportFormats() {
+  if (state.exportFormats) return state.exportFormats;
+  state.exportFormats = await api("/collection/export-formats");
+  return state.exportFormats;
+}
+
+function renderExportFormatOptions(formats) {
+  const list = $("#export-format-list");
+  if (!list) return;
+  list.innerHTML = formats
+    .map(
+      (fmt, index) => `
+    <label class="export-format-option">
+      <input type="radio" name="export-format" value="${escapeHtml(fmt.id)}"${
+        index === 0 ? " checked" : ""
+      } />
+      <span class="export-format-label">${escapeHtml(fmt.label)}</span>
+    </label>`
+    )
+    .join("");
+  const note = $("#export-format-note");
+  if (note && formats[0]?.description) {
+    note.textContent = formats[0].description;
+  }
+  list.querySelectorAll('input[name="export-format"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      const selected = formats.find((f) => f.id === input.value);
+      if (note && selected) note.textContent = selected.description || "";
+    });
+  });
+}
+
+let exportCollectionTrigger = null;
+
+function openExportCollectionModal() {
+  const dlg = $("#export-collection-modal");
+  const trigger = $("#export-collection-btn");
+  if (!dlg) return;
+  exportCollectionTrigger = trigger;
+  dlg.hidden = false;
+  syncModalOpenClass();
+  $("#export-collection-close")?.focus();
+}
+
+function closeExportCollectionModal() {
+  const dlg = $("#export-collection-modal");
+  if (!dlg || dlg.hidden) return;
+  dlg.hidden = true;
+  syncModalOpenClass();
+  (exportCollectionTrigger ?? $("#export-collection-btn"))?.focus();
+  exportCollectionTrigger = null;
+}
+
+async function downloadCollectionExport(formatId) {
+  const headers = { Accept: "text/csv" };
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const res = await fetch(
+    `${API}/collection/export-csv?format=${encodeURIComponent(formatId)}`,
+    { headers }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || res.statusText);
+  }
+  const formats = state.exportFormats || [];
+  const fmt = formats.find((f) => f.id === formatId);
+  const filename = fmt?.filename || "collection_export.csv";
+  const csvText = await res.text();
+  const body = csvText.startsWith("\ufeff") ? csvText.slice(1) : csvText;
+  downloadCsvBlob(body, filename);
 }
 
 async function populateDeckSelect() {
@@ -967,6 +1049,48 @@ function wireEvents() {
     $("#collection-csv-file")?.click();
   });
 
+  $("#export-collection-btn")?.addEventListener("click", async () => {
+    if (!state.token) {
+      alert("Log in first.");
+      return;
+    }
+    try {
+      const formats = await loadExportFormats();
+      if (!formats.length) {
+        alert("No export formats available.");
+        return;
+      }
+      renderExportFormatOptions(formats);
+      openExportCollectionModal();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  $("#export-collection-cancel")?.addEventListener("click", closeExportCollectionModal);
+  $("#export-collection-close")?.addEventListener("click", closeExportCollectionModal);
+  $("#export-collection-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#export-collection-modal")) closeExportCollectionModal();
+  });
+
+  $("#export-collection-confirm")?.addEventListener("click", async () => {
+    const selected = document.querySelector('input[name="export-format"]:checked');
+    if (!selected) {
+      alert("Choose an export format.");
+      return;
+    }
+    const confirmBtn = $("#export-collection-confirm");
+    if (confirmBtn) confirmBtn.disabled = true;
+    try {
+      await downloadCollectionExport(selected.value);
+      closeExportCollectionModal();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      if (confirmBtn) confirmBtn.disabled = false;
+    }
+  });
+
   $("#collection-csv-file")?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1028,7 +1152,8 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (isModalVisible("#search-help-modal")) closeSearchHelpModal();
+    if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
+    else if (isModalVisible("#search-help-modal")) closeSearchHelpModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });
 

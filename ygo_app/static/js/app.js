@@ -796,6 +796,8 @@ async function openCardModal(cardId) {
     )
     .join("");
 
+  await populateDeckSelect();
+
   openCardModalOverlay();
 }
 
@@ -813,6 +815,32 @@ function downloadRejectedCsv(csvText) {
   a.download = "rejected_cards.csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function populateDeckSelect() {
+  const sel = $("#deck-target");
+  if (!sel) return;
+  if (!state.token) {
+    sel.innerHTML = "";
+    return;
+  }
+  const decks = await api("/decks");
+  if (!decks.length) {
+    sel.innerHTML =
+      '<option value="" disabled selected>No decks — create one in Decks tab</option>';
+    return;
+  }
+  sel.innerHTML = decks
+    .map(
+      (d) =>
+        `<option value="${d.id}">${escapeHtml(d.name)} (#${d.id})</option>`
+    )
+    .join("");
+  const preferred =
+    state.activeDeckId && decks.some((d) => d.id === state.activeDeckId)
+      ? state.activeDeckId
+      : decks[0].id;
+  sel.value = String(preferred);
 }
 
 async function loadDecks() {
@@ -836,6 +864,8 @@ async function loadDecks() {
   list.querySelectorAll("li").forEach((li) => {
     li.addEventListener("click", () => selectDeck(Number(li.dataset.id)));
   });
+
+  await populateDeckSelect();
 }
 
 async function selectDeck(deckId) {
@@ -1047,16 +1077,24 @@ function wireEvents() {
   });
 
   $("#deck-add-card-btn").addEventListener("click", async () => {
-    if (!state.activeDeckId) {
-      alert("Select a deck first (Decks tab).");
+    if (!state.token) {
+      alert("Log in to add cards to a deck.");
+      return;
+    }
+    const deckId = Number($("#deck-target").value);
+    if (!deckId) {
+      alert("Create a deck first (Decks tab → New deck).");
       return;
     }
     const zone = $("#deck-zone").value;
-    await api(`/decks/${state.activeDeckId}/cards`, {
+    await api(`/decks/${deckId}/cards`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ card_id: state.currentCardId, zone, quantity: 1 }),
     });
+    if (deckId === state.activeDeckId) {
+      await selectDeck(deckId);
+    }
     alert("Added to deck.");
   });
 

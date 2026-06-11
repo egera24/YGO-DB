@@ -107,6 +107,32 @@ class TestCollectionFolderAllocations(unittest.TestCase):
             )
         session.close()
 
+    def test_copy_increases_quantity_with_allocations(self):
+        """Copy-shaped PATCH: raise total quantity and allocate the new copies."""
+        session = self.Session()
+        item = session.get(CollectionItem, self.item_id)
+        update_collection_item(
+            session,
+            user_id=self.user_id,
+            item=item,
+            data={
+                "quantity": 13,
+                "folder_allocations": [
+                    {"folder_id": self.folder_a_id, "quantity": 3},
+                    {"folder_id": self.folder_b_id, "quantity": 10},
+                ],
+            },
+        )
+        session.refresh(item)
+        by_folder = {
+            row.folder_id: row.quantity for row in item.folder_allocations
+        }
+        quantity = item.quantity
+        session.close()
+        self.assertEqual(quantity, 13)
+        self.assertEqual(by_folder[self.folder_a_id], 3)
+        self.assertEqual(by_folder[self.folder_b_id], 10)
+
     def test_update_item_with_folder_allocations(self):
         session = self.Session()
         item = session.get(CollectionItem, self.item_id)

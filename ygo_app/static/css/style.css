@@ -670,6 +670,33 @@ tr:hover td { background: var(--surface); }
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
+#collection-table.collection-table--in-folder thead th:nth-child(7),
+#collection-table.collection-table--in-folder tbody tr.collection-row td:nth-child(7) {
+  display: none;
+}
+.collection-row-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: nowrap;
+}
+.move-copy-field {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+.move-copy-field select,
+.move-copy-field input {
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+}
+.move-copy-error {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  color: var(--danger, #e5484d);
+}
 .collection-folder-list {
   list-style: none;
   padding: 0;

@@ -1206,6 +1206,135 @@ function openFolderAllocationEditor(item, itemId) {
   }, 0);
 }
 
+function closeMoveCopyPopover() {
+  const popover = document.querySelector(".move-copy-popover");
+  if (!popover) return;
+  if (popover._outsideHandler) {
+    document.removeEventListener("click", popover._outsideHandler);
+  }
+  popover.remove();
+}
+
+function sameFolderId(a, b) {
+  return (a ?? null) === (b ?? null);
+}
+
+function openMoveCopyPopover(item, itemId, mode, anchor) {
+  closeFolderAllocationPopover();
+  closeMoveCopyPopover();
+
+  const isMove = mode === "move";
+  const currentFolderId =
+    state.collectionFolder === NO_FOLDER ? null : Number(state.collectionFolder);
+  const available = item.quantity;
+
+  const targets = [];
+  if (state.collectionFolder !== NO_FOLDER) {
+    targets.push({ id: null, name: "No Folder" });
+  }
+  for (const folder of state.collectionStats?.folders || []) {
+    if (folder.id === currentFolderId) continue;
+    targets.push({ id: folder.id, name: folder.name });
+  }
+  if (!targets.length) {
+    alert("No other folder available. Create a folder first.");
+    return;
+  }
+
+  const popover = document.createElement("div");
+  popover.className = "folder-allocation-popover move-copy-popover";
+  popover.innerHTML = `
+    <p class="folder-allocation-title">
+      ${isMove ? "Move" : "Copy"} ${escapeHtml(item.card_name || item.set_code)}${isMove ? ` (max ${available})` : ""}
+    </p>
+    <label class="move-copy-field">
+      <span>To folder</span>
+      <select class="move-copy-target">
+        ${targets
+          .map(
+            (t) => `<option value="${t.id ?? ""}">${escapeHtml(t.name)}</option>`
+          )
+          .join("")}
+      </select>
+    </label>
+    <label class="move-copy-field">
+      <span>Quantity</span>
+      <input type="number" class="move-copy-qty" min="1" ${isMove ? `max="${available}"` : ""} value="1" />
+    </label>
+    <p class="move-copy-error hidden"></p>
+    <div class="folder-allocation-actions">
+      <button type="button" class="secondary move-copy-cancel">Cancel</button>
+      <button type="button" class="move-copy-confirm">${isMove ? "Move" : "Copy"}</button>
+    </div>`;
+
+  document.body.appendChild(popover);
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    popover.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - popover.offsetWidth - 8)}px`;
+  }
+
+  const errorEl = popover.querySelector(".move-copy-error");
+  const showError = (msg) => {
+    errorEl.textContent = msg;
+    errorEl.classList.remove("hidden");
+  };
+
+  popover.querySelector(".move-copy-cancel")?.addEventListener("click", closeMoveCopyPopover);
+  popover.querySelector(".move-copy-confirm")?.addEventListener("click", async () => {
+    errorEl.classList.add("hidden");
+    const qty = Number(popover.querySelector(".move-copy-qty")?.value);
+    if (!Number.isInteger(qty) || qty < 1) {
+      showError("Enter a whole number of at least 1.");
+      return;
+    }
+    if (isMove && qty > available) {
+      showError(`Maximum ${available} can be moved from this folder.`);
+      return;
+    }
+    const targetRaw = popover.querySelector(".move-copy-target")?.value ?? "";
+    const targetFolderId = targetRaw === "" ? null : Number(targetRaw);
+
+    const allocs = (item.folders || []).map((row) => ({
+      folder_id: row.folder_id ?? null,
+      quantity: row.quantity,
+    }));
+
+    if (isMove) {
+      const source = allocs.find((row) => sameFolderId(row.folder_id, currentFolderId));
+      if (!source || source.quantity < qty) {
+        showError("Not enough copies in this folder.");
+        return;
+      }
+      source.quantity -= qty;
+    }
+    const target = allocs.find((row) => sameFolderId(row.folder_id, targetFolderId));
+    if (target) {
+      target.quantity += qty;
+    } else {
+      allocs.push({ folder_id: targetFolderId, quantity: qty });
+    }
+    const updated = allocs.filter((row) => row.quantity > 0);
+    const body = { folder_allocations: updated };
+    if (!isMove) {
+      body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
+    }
+    try {
+      await patchCollectionItem(itemId, body);
+      closeMoveCopyPopover();
+      await loadCollectionPage(state.collectionPage);
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  const outsideHandler = (e) => {
+    if (!popover.contains(e.target)) closeMoveCopyPopover();
+  };
+  popover._outsideHandler = outsideHandler;
+  setTimeout(() => document.addEventListener("click", outsideHandler), 0);
+}
+
 async function createCollectionFolder() {
   const name = prompt("New folder name:");
   if (!name?.trim()) return;
@@ -1390,6 +1519,9 @@ function renderCollectionTable(items) {
   const tableWrap = $(".collection-table-wrap");
   if (!tbody) return;
 
+  const inFolder = Boolean(state.collectionFolder);
+  $("#collection-table")?.classList.toggle("collection-table--in-folder", inFolder);
+
   state.collectionItemsById = {};
   for (const item of items) {
     state.collectionItemsById[item.id] = item;
@@ -1425,7 +1557,12 @@ function renderCollectionTable(items) {
       </td>
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
       <td>
-        <button type="button" class="secondary collection-delete-btn" title="Remove">Delete</button>
+        <div class="collection-row-actions">
+          ${inFolder ? `
+          <button type="button" class="secondary collection-move-btn" title="Move copies to another folder">Move</button>
+          <button type="button" class="secondary collection-copy-btn" title="Copy to another folder">Copy</button>` : ""}
+          <button type="button" class="secondary collection-delete-btn" title="Remove">Delete</button>
+        </div>
       </td>
     </tr>`
     )
@@ -1486,6 +1623,16 @@ function renderCollectionTable(items) {
     row.querySelector(".collection-folder-picker")?.addEventListener("click", (e) => {
       e.stopPropagation();
       openFolderAllocationEditor(item, itemId);
+    });
+
+    row.querySelector(".collection-move-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openMoveCopyPopover(item, itemId, "move", e.currentTarget);
+    });
+
+    row.querySelector(".collection-copy-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openMoveCopyPopover(item, itemId, "copy", e.currentTarget);
     });
 
     row.querySelector(".collection-delete-btn")?.addEventListener("click", async (e) => {

@@ -71,6 +71,7 @@ class CollectionItemOut(BaseModel):
     set_code: str
     rarity_code: str
     rarity_display: str | None = None
+    rarity_name: str | None = None
     card_name: str | None
     expansion_code: str | None
     set_name: str | None

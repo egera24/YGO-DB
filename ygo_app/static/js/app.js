@@ -1553,7 +1553,7 @@ function populateCollectionEditRarity(printings, setCode, item) {
   }
   if (setCode === item.set_code && !seen.has(item.rarity_code)) {
     parts.unshift(
-      `<option value="${escapeHtml(item.rarity_code)}">${escapeHtml(item.rarity_display || item.rarity_code)}</option>`
+      `<option value="${escapeHtml(item.rarity_code)}">${escapeHtml(item.rarity_name || item.rarity_display || item.rarity_code)}</option>`
     );
   }
   raritySel.innerHTML = parts.join("");
@@ -1594,7 +1594,7 @@ async function openCollectionEditModal(item, itemId) {
   setSel.disabled = true;
   raritySel.disabled = true;
   setSel.innerHTML = `<option value="${escapeHtml(item.set_code)}">${escapeHtml(item.set_code)}</option>`;
-  raritySel.innerHTML = `<option value="${escapeHtml(item.rarity_code)}">${escapeHtml(item.rarity_display || item.rarity_code)}</option>`;
+  raritySel.innerHTML = `<option value="${escapeHtml(item.rarity_code)}">${escapeHtml(item.rarity_name || item.rarity_display || item.rarity_code)}</option>`;
 
   dlg.hidden = false;
   syncModalOpenClass();

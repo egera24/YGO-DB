@@ -842,6 +842,8 @@ def _collection_item_row(
     folder_filter: str | None = None,
 ) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
+    linked = item.linked_printing
+    rarity_name = linked.set_rarity if linked is not None else None
     row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
     row["printing"] = row.pop("edition", None)
     folders = _folder_allocations_for_row(item)
@@ -859,6 +861,7 @@ def _collection_item_row(
         "card_id": card.id if card else None,
         "image_url_small": card.image_url_small if card else None,
         "rarity_display": rarity_display(item.rarity_code),
+        "rarity_name": rarity_name,
         "folders": folders,
     }
 

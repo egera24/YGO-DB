@@ -108,6 +108,21 @@ class TestCollectionStats(unittest.TestCase):
         self.assertEqual(stats["folders"][0]["item_count"], 2)
         self.assertEqual(stats["folders"][0]["quantity"], 5)
 
+    def test_empty_folder_appears_in_stats(self):
+        session = self.Session()
+        empty = CollectionFolder(user_id=self.user_id, name="Empty Box", name_key="empty box")
+        session.add(empty)
+        session.commit()
+
+        stats = collection_stats(session, user_id=self.user_id)
+        session.close()
+
+        names = [f["name"] for f in stats["folders"]]
+        self.assertIn("Empty Box", names)
+        empty_stats = next(f for f in stats["folders"] if f["name"] == "Empty Box")
+        self.assertEqual(empty_stats["item_count"], 0)
+        self.assertEqual(empty_stats["quantity"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=27" />
+  <link rel="stylesheet" href="/static/css/style.css?v=28" />
 </head>
 <body>
   <header class="app-header">
@@ -216,8 +216,11 @@
         <aside class="collection-sidebar">
           <div class="collection-sidebar-header">
             <h2 class="collection-sidebar-title">Folders</h2>
-            <button type="button" id="collection-new-folder-btn" class="secondary collection-new-folder-btn" title="New folder">+</button>
           </div>
+          <button type="button" id="collection-new-folder-btn" class="collection-new-folder-btn" title="Create a new folder">
+            <span class="collection-new-folder-icon" aria-hidden="true">+</span>
+            New folder
+          </button>
           <ul id="collection-folder-list" class="collection-folder-list"></ul>
         </aside>
         <div class="collection-panel">

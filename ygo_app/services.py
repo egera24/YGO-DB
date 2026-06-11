@@ -1009,11 +1009,11 @@ def collection_stats(session: Session, *, user_id: int) -> dict:
             func.count(func.distinct(CollectionItemFolder.collection_item_id)),
             func.coalesce(func.sum(CollectionItemFolder.quantity), 0),
         )
-        .join(
+        .outerjoin(
             CollectionItemFolder,
             CollectionItemFolder.folder_id == CollectionFolder.id,
         )
-        .join(CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id)
+        .outerjoin(CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id)
         .where(CollectionFolder.user_id == user_id)
         .group_by(CollectionFolder.id, CollectionFolder.name)
         .order_by(CollectionFolder.sort_order, CollectionFolder.name)

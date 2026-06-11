@@ -17,7 +17,7 @@
 | **Test** | `python -m unittest discover -s tests` |
 | **DB** | PostgreSQL on **Neon** (pooled URL, `sslmode=require`). Falls back to SQLite `data/ygo.db` only when `DATABASE_URL` is unset. **Not** Render Postgres. |
 | **Catalog source** | **Yugipedia** scrape (primary) → JSON → Neon. YGOProDeck API = emergency fallback only. |
-| **Card images** | **CDN only** (`ms.yugipedia.com` URLs stored in DB; browser loads at view time). Nothing is downloaded. |
+| **Card images** | **Cloudflare R2 mirror** (WebP, `IMAGE_BASE_URL` URLs in DB) with `ms.yugipedia.com` fallback for unmirrored cards (see [§5](#5-card-images)). |
 | **Deeper docs** | [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) · [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md) · [`docs/DEPLOY_FREE.md`](docs/DEPLOY_FREE.md) · [`README.md`](README.md) |
 
 **Recommended local setup:** point `.env` `DATABASE_URL` at the Neon **dev** branch with `ENV=production` for prod parity (see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)).
@@ -57,10 +57,12 @@ flowchart TB
     Wiki[Yugipedia API + wiki pages] --> JSON["data/catalog/*.json"]
   end
   subgraph gha [GitHub Actions - chained jobs]
-    P[prepare] --> PC[passcodes] --> B0[scrape_batch_0..5] --> IM[import]
+    P[prepare] --> PC[passcodes] --> B0[scrape_batch_0..5] --> IMG[images] --> IM[import]
     PC --> Art["artifact catalog-state"]
     B0 --> Art --> IM
+    IMG --> Man["artifact images-manifest"] --> IM
   end
+  IMG --> R2[(R2 bucket)]
   subgraph neon [Neon Postgres]
     Cards[cards + printings]
   end
@@ -73,7 +75,7 @@ flowchart TB
   ProdWeb --> Cards
   Browser --> DevWeb
   Browser --> ProdWeb
-  Browser --> CDN["ms.yugipedia.com"]
+  Browser --> CDN["IMAGE_BASE_URL (R2 public domain)"]
 ```
 
 **Stages** (orchestrator: `python -m ygo_app.jobs.scrape_yugipedia_catalog --full`; supports `--details-only --resume`):
@@ -122,14 +124,21 @@ Chained jobs each have a 60–90 min timeout; full run is **~2–4 h** wall cloc
 
 ## 5. Card images
 
-Yugipedia URLs only — no downloads, no server storage.
+Scrape finds Yugipedia art URLs; a GHA `images` job mirrors them as WebP to a **Cloudflare R2** bucket (S3 API, vendor-portable); import writes mirrored URLs into the DB with Yugipedia fallback.
+
+**Mirror scheme:** keys `cards/{passcode}.webp` (full, quality 82) + `cards/{passcode}-small.webp` (150px), `Cache-Control: immutable`. Served from `IMAGE_BASE_URL` (r2.dev subdomain or custom domain). `data/catalog/images_manifest.json` lists mirrored passcodes (artifact `images-manifest` in GHA). Bucket/credentials via `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` (boto3, `region_name="auto"`). Migration to another S3 vendor = `rclone sync` + change `S3_*`/`IMAGE_BASE_URL` + re-import.
 
 | Piece | Role |
 |-------|------|
 | [`parsing.extract_card_image`](ygo_app/yugipedia/parsing.py) | Picks largest card-art `<img>` on `ms.yugipedia.com` from the same page fetch as metadata; skips `noviewer`, `.svg`, UI/attribute icons |
 | [`images.py`](ygo_app/yugipedia/images.py) | Thumb → full URL normalization; 150px small thumb. `image_urls_for_passcode()` is **only** for the YGOProDeck API fallback |
-| [`adapter._resolve_images`](ygo_app/yugipedia/adapter.py) | Maps scrape JSON → `card_images`; **no** YGOProDeck CDN fallback (null if scrape found no art) |
+| [`jobs/sync_card_images.py`](ygo_app/jobs/sync_card_images.py) | Mirror job: lists bucket, downloads missing art (rate-limited cloudscraper), WebP via Pillow, uploads via boto3, writes manifest. Flags: `--limit`, `--force`, `--manifest-only` (rebuild manifest from bucket listing, used by `import_only`). **Incremental** — safe to re-run; first backfill ~hours |
+| [`image_mirror.py`](ygo_app/image_mirror.py) | Vendor-neutral keys/URLs, manifest load/save, `rewrite_image_urls()` (mirrored pid + `IMAGE_BASE_URL` set → bucket URLs, else original) |
+| [`adapter._resolve_images`](ygo_app/yugipedia/adapter.py) | Maps scrape JSON → `card_images`, then applies `rewrite_image_urls`; **no** YGOProDeck CDN fallback (null if scrape found no art) |
 | Browser ([`app.js`](ygo_app/static/js/app.js)) | Loads `image_url`/`image_url_small`; shows `IMG_PLACEHOLDER` when null |
+
+- **No manifest / no secrets → graceful fallback:** the `images` job skips itself when `S3_BUCKET` is unset and import keeps Yugipedia URLs. URL changes require a **re-import** (URLs live in `cards` rows).
+- Tests: `test_image_mirror.py`, `test_sync_card_images.py`.
 
 JSON shape per card in `yugipedia_all_cards.json`:
 
@@ -245,7 +254,7 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 
 | Workflow | UI name | Notes |
 |----------|---------|-------|
-| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod |
+| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → images → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck fallback) | Manual emergency only |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Both secrets |
 
@@ -324,6 +333,8 @@ git checkout main && git merge develop && git push   # promote app to prod
 | `DATABASE_URL_MIGRATIONS` | optional direct Neon URL (no `-pooler`) | optional; overrides auto strip of `-pooler` in [`database_url_for_migrations()`](ygo_app/config.py) |
 | `ENV` | `production` (parity) or unset → SQLite | `production` |
 | `SECRET_KEY` | any local value | per Render service |
+| `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | optional in `.env` for local image sync | GHA repo secrets (image mirror; job skips when unset) |
+| `IMAGE_BASE_URL` | optional (import-time URL rewrite) | GHA repo secret (import jobs); **not** needed on Render |
 
 **Alembic on Neon:** [`alembic/env.py`](alembic/env.py) uses `database_url_for_migrations()` (direct host when pooled URL is set) and **`connection.commit()`** after `run_migrations()` so DDL + `alembic_version` persist. Without commit, `alembic upgrade head` can log success but leave Neon at the old revision. Verify with `alembic current` or `SELECT version_num FROM alembic_version`.
 
@@ -334,6 +345,9 @@ git checkout main && git merge develop && git push   # promote app to prod
 ## 9. Changelog
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
+
+**2026-06-12**
+- **Cloudflare R2 card image mirror** — stop hotlinking `ms.yugipedia.com`: new [`jobs/sync_card_images.py`](ygo_app/jobs/sync_card_images.py) downloads art once, converts to WebP (full + 150px, Pillow), uploads to an S3-compatible bucket (boto3; keys `cards/{pid}.webp` / `cards/{pid}-small.webp`, immutable cache) and writes `data/catalog/images_manifest.json`. [`image_mirror.py`](ygo_app/image_mirror.py) holds vendor-neutral helpers; `adapter._resolve_images` rewrites import URLs for mirrored passcodes when `IMAGE_BASE_URL` is set (Yugipedia fallback otherwise). GHA workflow gains an `images` job (between batches and import; skips without `S3_BUCKET` secret; `import_only` rebuilds the manifest from the bucket via `--manifest-only`). New env/secrets: `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `IMAGE_BASE_URL`. Deps: boto3, Pillow. Tests: `test_image_mirror.py`, `test_sync_card_images.py`. See [§5](#5-card-images).
 
 **2026-06-11**
 - **Collection Edit modal + read-only Quantity** — table column renamed Qty → Quantity and made read-only (no inline number input). New per-row **Edit** button (all views) opens `#collection-edit-modal`: Set + Rarity `<select>`s populated from `GET /api/cards/{card_id}` printings (rarity re-filtered per set; disabled for catalog-unmatched rows), Quantity (min 1; folder-aware allocation update inside a folder view), Condition `<select>` limited to the DragonShield scale `Mint`/`NearMint`/`Excellent`/`Good`/`LightPlayed`/`Played`/`Poor` (MT/NM/EX/GD/LP/PL/PO; legacy values shown as extra option until edited). Backend: `CollectionItemUpdate` gains `set_code`/`rarity` (re-links `printing_id`, refreshes set/card fields via `_reassign_collection_item_printing`; 400 on unknown printing or duplicate user row) and validates `condition` against `COLLECTION_CONDITIONS` in [`schemas.py`](ygo_app/schemas.py). Static `app.js?v=35`, `style.css?v=30`. Tests: `test_collection_item_update.py`.
@@ -412,6 +426,8 @@ ygo_app/
     scrape_yugipedia_catalog.py
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
+    sync_card_images.py        # mirror card art to S3-compatible bucket (R2)
+  image_mirror.py              # mirrored image keys/URLs + manifest + import rewrite
   import_data.py               # catalog replace + import_collection_csv (CollectionImportResult)
   collection_export.py         # DragonShield CSV export
   import_progress.py           # CSV import progress throttle / ETA
@@ -438,7 +454,7 @@ data/catalog/                  # gitignored scrape JSON
 | `python -m unittest discover -s tests` | All pass |
 | GHA scrape (full) | Green `passcodes` + `scrape_batch_0..5` + `import`; each batch `[BATCH_RESULT] missing=0` |
 | GHA scrape (test) | Green `passcodes` + `scrape_batch_0` + `import`; batches 1–5 skipped; ~500 cards on dev |
-| `GET /api/cards/{passcode}` | `image_url` host is `ms.yugipedia.com` (not `images.ygoprodeck.com`) |
+| `GET /api/cards/{passcode}` | `image_url` host is `IMAGE_BASE_URL` (mirrored) or `ms.yugipedia.com` (fallback) — never `images.ygoprodeck.com` |
 | `GET /api/cards/search?q=reveal` | Cards whose name/desc/archetype contain `reveal` |
 | `GET /api/cards/search?q="You can reveal"` | Only the contiguous phrase (case-insensitive) |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. `RA03-EN172`) |

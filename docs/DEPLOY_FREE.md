@@ -9,7 +9,7 @@ Render’s free PostgreSQL **expires after 30 days**. This guide uses **Neon** f
 | Database | [Neon](https://neon.com) Free Postgres | $0, permanent |
 | Web app | [Render](https://render.com) Free Web Service | $0 (cold starts after idle) |
 | Catalog import | GitHub Actions (Yugipedia scrape + import) | $0 on public repos |
-| Card images | Yugipedia CDN (`ms.yugipedia.com`) | $0 (browser loads URLs) |
+| Card images | [Cloudflare R2](https://developers.cloudflare.com/r2/) mirror (WebP), Yugipedia CDN fallback | $0 within free tier (10 GB storage, zero egress) |
 
 ## Prerequisites
 
@@ -65,6 +65,30 @@ python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume
 python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-index 2 --batch-count 6
 python -m ygo_app.jobs.import_catalog_yugipedia
 ```
+
+### Card image mirror (Cloudflare R2)
+
+The `images` job in the Yugipedia workflow mirrors card art to an S3-compatible bucket (WebP full + 150px thumb, keys `cards/{passcode}.webp` / `cards/{passcode}-small.webp`) so the app stops hotlinking `ms.yugipedia.com`. The import then writes bucket URLs into `cards.image_url` / `image_url_small` for every mirrored passcode (Yugipedia URL fallback otherwise).
+
+One-time setup:
+
+1. Cloudflare Dashboard → **R2 Object Storage** → activate (needs a payment card; free tier is 10 GB storage / 1M writes / 10M reads per month — this project stays far below). Set a **billing notification** at $1 as a tripwire.
+2. Create bucket `ygo-card-images` → Settings → **Public access** via the `r2.dev` subdomain (or a custom domain for full CDN caching).
+3. **Manage R2 API Tokens** → create token with **Object Read & Write** scoped to the bucket.
+4. Add **repository secrets** (also usable in `.env` for local runs):
+   - `S3_ENDPOINT_URL` — `https://<account_id>.r2.cloudflarestorage.com`
+   - `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` — from the R2 API token
+   - `S3_BUCKET` — `ygo-card-images`
+   - `IMAGE_BASE_URL` — public base URL (e.g. `https://pub-xxxx.r2.dev`)
+
+If the secrets are absent the `images` job skips itself and the import keeps Yugipedia URLs. The job is **incremental** — re-runs only download images missing from the bucket. The first full backfill (~14k cards) takes a few hours; it can also be run locally:
+
+```powershell
+python -m ygo_app.jobs.sync_card_images            # needs data/catalog/yugipedia_all_cards.json
+python -m ygo_app.jobs.sync_card_images --manifest-only   # rebuild manifest from bucket listing only
+```
+
+Vendor migration later: `rclone sync` the bucket to any S3-compatible provider, change `S3_*` + `IMAGE_BASE_URL` secrets, re-run the import (or one SQL `UPDATE ... replace(...)`).
 
 ### Optional: DB keep-alive workflow
 

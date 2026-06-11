@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ygo_app.image_mirror import rewrite_image_urls
 from ygo_app.yugipedia.constants import MONSTER_MECHANICS, MONSTER_TYPES
 from ygo_app.yugipedia.images import passcode_to_int, ygoprodeck_card_url
 
@@ -77,11 +78,16 @@ def _adapt_card_sets(card_sets: list[dict] | None) -> list[dict]:
 
 
 def _resolve_images(entry: dict, pid: int) -> dict[str, str | None]:
-    """Use Yugipedia URLs from scrape JSON; no YGOPRODeck CDN fallback."""
+    """Use Yugipedia URLs from scrape JSON; no YGOPRODeck CDN fallback.
+
+    When IMAGE_BASE_URL is set and the passcode is in the image-mirror
+    manifest, URLs are rewritten to the mirrored bucket objects.
+    """
     image_url = entry.get("image_url")
     image_url_small = entry.get("image_url_small")
     if image_url and not image_url_small:
         image_url_small = image_url
+    image_url, image_url_small = rewrite_image_urls(pid, image_url, image_url_small)
     return {
         "ygoprodeck_url": ygoprodeck_card_url(pid),
         "image_url": image_url,

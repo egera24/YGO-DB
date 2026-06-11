@@ -30,3 +30,5 @@ yugipedia/image_small/
 
 # Logs
 *.log
+
+DO NOT DELETE/SECRETS/cloudflare.txt

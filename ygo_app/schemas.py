@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PrintingOut(BaseModel):
@@ -184,3 +184,103 @@ class DeckCardMutate(BaseModel):
 
 class TagMutate(BaseModel):
     tag: str
+
+
+SEARCH_PRESET_PARAM_KEYS = frozenset(
+    {
+        "q",
+        "set_code",
+        "category",
+        "types",
+        "mechanic",
+        "attribute",
+        "archetype",
+        "summoning_condition",
+        "link_markers",
+        "level_min",
+        "level_max",
+        "rank_min",
+        "rank_max",
+        "link_rating_min",
+        "link_rating_max",
+        "pendulum_scale_min",
+        "pendulum_scale_max",
+        "atk_min",
+        "atk_max",
+        "def_min",
+        "def_max",
+        "owned_only",
+        "favorites_only",
+    }
+)
+
+
+def normalize_search_preset_params(params: dict[str, str]) -> dict[str, str]:
+    unknown = set(params) - SEARCH_PRESET_PARAM_KEYS
+    if unknown:
+        raise ValueError(f"Unknown preset params: {', '.join(sorted(unknown))}")
+    cleaned: dict[str, str] = {}
+    for key, value in params.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            cleaned[key] = text
+    return cleaned
+
+
+class SearchPresetOut(BaseModel):
+    id: int
+    name: str
+    params: dict[str, str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SearchPresetCreate(BaseModel):
+    name: str
+    params: dict[str, str] = Field(default_factory=dict)
+    overwrite: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Preset name is required")
+        return name
+
+    @field_validator("params")
+    @classmethod
+    def validate_params(cls, value: dict[str, str]) -> dict[str, str]:
+        return normalize_search_preset_params(value)
+
+
+class SearchPresetUpdate(BaseModel):
+    name: str | None = None
+    params: dict[str, str] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        if not name:
+            raise ValueError("Preset name is required")
+        return name
+
+    @field_validator("params")
+    @classmethod
+    def validate_params(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        return normalize_search_preset_params(value)
+
+    @model_validator(mode="after")
+    def require_field(self):
+        if self.name is None and self.params is None:
+            raise ValueError("At least one of name or params is required")
+        return self

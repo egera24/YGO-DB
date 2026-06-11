@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-10
+> **Last updated:** 2026-06-11
 
 ---
 
@@ -11,7 +11,7 @@
 
 | | |
 |------|--------|
-| **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user owned collection (set code + rarity), decks, favorites, tags. **My Collection** tab for browse/edit; Search **Owned only** + header CSV import/export. |
+| **What** | Browser UI + FastAPI API for Yu-Gi-Oh! card search, per-user owned collection (set code + rarity), decks, favorites, tags, **named search presets**. **My Collection** tab for browse/edit; Search **Owned only** + header CSV import/export. |
 | **Stack** | Python 3.12 · FastAPI · SQLAlchemy 2 · Pydantic 2 · Alembic · static HTML/JS · BeautifulSoup + cloudscraper (scrape) · JWT auth (bcrypt). |
 | **Run locally** | `pip install -r requirements.txt` → `alembic upgrade head` → `python run.py` (opens browser; API docs at `/docs`). |
 | **Test** | `python -m unittest discover -s tests` |
@@ -172,13 +172,37 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 | [`card_filters.py`](ygo_app/card_filters.py) | JSON list parse; `types` / `link_markers` SQL helpers |
 | [`services.search_cards`](ygo_app/services.py) | `q` + all filter params; one `COUNT` query |
 | [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders[]` = distinct `folder_name` (legacy; My Collection uses `/api/collection/stats` instead) |
-| UI | Tabs: **Search**, **My Collection**, **Decks**. [`app.js?v=30`](ygo_app/static/js/app.js) — `buildSearchParams`, `initStatRangeSelects()`, `loadCollectionView()` / folder sidebar / paginated table. Header **Import/Export my collection**. Static [`style.css?v=25`](ygo_app/static/css/style.css). |
+| UI | Tabs: **Search**, **My Collection**, **Decks**. [`app.js?v=31`](ygo_app/static/js/app.js) — `buildSearchParams` / `applySearchParams`, preset toolbar, `initStatRangeSelects()`, `loadCollectionView()` / folder sidebar / paginated table. Header **Import/Export my collection**. Static [`style.css?v=26`](ygo_app/static/css/style.css). |
 
 **Advanced panel layout (static/CSS):** Category–Attribute = compact multi-selects (`.filter-group--compact`). Level/Rank/Link/Pendulum = min/max `<select>` (options from `initStatRangeSelects()`; Level 1–12, Rank 1–13, Link 1–6, Pendulum 0–13). ATK/DEF = number inputs. Stat fieldsets in `.filter-ranges` (flex wrap, `gap: 1.5rem`, `width: fit-content`). Bump `style.css` / `app.js` `?v=` in `index.html` after static edits.
 
 Legacy `frame_type` / `race` columns remain for YGOProDeck fallback import; **not** exposed in search UI.
 
-Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_filters.py`, `test_summoning_suggestions.py`, `test_yugipedia_card_import.py`.
+Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_filters.py`, `test_summoning_suggestions.py`, `test_yugipedia_card_import.py`, `test_search_presets.py`.
+
+### Search presets (logged-in, Search tab only)
+
+**Data model:** `search_presets` — one row per user per unique `name`; `params` = JSON object mirroring `/api/cards/search` query keys from `buildSearchParams()` (no pagination). Migration [`004_search_presets.py`](alembic/versions/004_search_presets.py). Cascade delete with user.
+
+| Piece | Role |
+|-------|------|
+| **Save / load** | `#search-presets-bar` — dropdown + Load / Save / Rename / Delete (hidden when logged out) |
+| **Serialize** | `buildSearchParams()` → snapshot; `applySearchParams()` restores DOM + `runSearch()` |
+| **Edit workflow** | Load preset → edit filters → **Save** PATCHes same preset (no extra confirm) |
+| **New / overwrite** | **Save** without loaded preset → name prompt; duplicate name → confirm → POST with `overwrite: true` |
+
+**Search presets API** ([`api/routes/search_presets.py`](ygo_app/api/routes/search_presets.py)) — all require auth:
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/search-presets` | List presets (includes `params` for client load) |
+| POST | `/api/search-presets` | Body `{ name, params, overwrite? }`; **409** if name exists and `overwrite=false` |
+| PATCH | `/api/search-presets/{id}` | Update `name` and/or `params`; **409** on rename conflict |
+| DELETE | `/api/search-presets/{id}` | Remove preset |
+
+Param allowlist validated in [`schemas.py`](ygo_app/schemas.py) (`SEARCH_PRESET_PARAM_KEYS`). CRUD in [`services.py`](ygo_app/services.py) (`SearchPresetConflictError` on duplicate name).
+
+**Out of scope:** My Collection tab filters; API-only `tag` param (no UI).
 
 ### User collection (owned)
 
@@ -297,8 +321,11 @@ git checkout main && git merge develop && git push   # promote app to prod
 |----------|-------|--------------|
 | `DATABASE_URL` | Neon **dev** (`.env`) | Render `ygo-app` (prod) · GHA `environment=production` |
 | `DATABASE_URL_DEV` | — | GHA `environment=dev` |
+| `DATABASE_URL_MIGRATIONS` | optional direct Neon URL (no `-pooler`) | optional; overrides auto strip of `-pooler` in [`database_url_for_migrations()`](ygo_app/config.py) |
 | `ENV` | `production` (parity) or unset → SQLite | `production` |
 | `SECRET_KEY` | any local value | per Render service |
+
+**Alembic on Neon:** [`alembic/env.py`](alembic/env.py) uses `database_url_for_migrations()` (direct host when pooled URL is set) and **`connection.commit()`** after `run_migrations()` so DDL + `alembic_version` persist. Without commit, `alembic upgrade head` can log success but leave Neon at the old revision. Verify with `alembic current` or `SELECT version_num FROM alembic_version`.
 
 **GitHub secrets must be the raw Neon pooled URL only** — `postgresql://user:pass@ep-xxx-pooler.../neondb?sslmode=require`. No quotes, no `DATABASE_URL=` prefix, no whitespace. [`config.py`](ygo_app/config.py) `_normalize_database_url()` strips these defensively, but fix the secret at the source.
 
@@ -307,6 +334,10 @@ git checkout main && git merge develop && git push   # promote app to prod
 ## 9. Changelog
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
+
+**2026-06-11**
+- **Search presets** — per-user named snapshots of Search tab filters. Table `search_presets` (Alembic `004`); API `/api/search-presets` CRUD with 409 on duplicate name unless `overwrite`. UI preset toolbar on Search tab (`#search-presets-bar`). `buildSearchParams` / `applySearchParams` in `app.js`. Static `app.js?v=31`, `style.css?v=26`. Tests: `test_search_presets.py`.
+- **Alembic Neon commit fix** — [`alembic/env.py`](alembic/env.py) calls `connection.commit()` after online migrations so upgrades persist on Neon (fixes “upgrade logs 003→004 but DB stays 003”).
 
 **2026-06-10**
 - **My Collection tab restored** — third tab between Search and Decks. Folder sidebar (All / Unassigned / distinct `folder_name`), stats bar, paginated table (100/page) with thumbnails, inline qty/folder edit, delete, double-click folder rename. APIs: paginated `GET /api/collection`, `GET /api/collection/stats`, `PATCH /api/collection/folders/rename`. `list_collection` N+1 fixed via `joinedload` + batched set-code fallback. Static `app.js?v=30`, `style.css?v=25`. Tests: `test_list_collection.py`, `test_collection_stats.py`, `test_collection_folder_rename.py`.
@@ -360,6 +391,8 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 | “Do I need to cherry-pick the GHA workflow?” | Usually no — same YAML; need **app code** on the workflow branch + re-import |
 | CSV import: rows missing from **Owned only** | Row rejected at import — fix set code/rarity vs catalog or use `rejected_cards.csv`; only matched `(set_code, rarity_code)` rows are stored |
 | Old **My Collection** tab very slow | Fixed: `list_collection` batch-joins via `linked_printing` + `printing_id`; paginated API |
+| `alembic upgrade head` logs success but Neon `alembic_version` unchanged | Missing commit after migrations — fixed in [`alembic/env.py`](alembic/env.py) (`connection.commit()` after `run_migrations()`). Re-run `alembic upgrade head`; confirm with `alembic current` → `004` |
+| Local Alembic only updates SQLite, not Neon | Set `DATABASE_URL` in `.env` to the Neon **dev** pooled URL before running Alembic (see [§8](#8-commands--env-vars)) |
 
 ---
 
@@ -367,7 +400,7 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 
 ```
 ygo_app/
-  api/                 # FastAPI: main.py + routes/{auth,cards,collection,decks,meta}.py
+  api/                 # FastAPI: main.py + routes/{auth,cards,collection,decks,meta,search_presets}.py
   yugipedia/           # passcodes, details, parsing, card_sets, adapter, card_import,
                        #   images, http_client, scrape_progress, constants, paths
   card_filters.py      # advanced search SQL helpers
@@ -381,8 +414,8 @@ ygo_app/
   search_query.py              # q parser + ILIKE compiler
   services.py  models.py  schemas.py  auth.py  config.py  database.py  catalog.py  utils.py
   static/                      # index.html, css/style.css, js/app.js
-alembic/versions/  001 … 003_yugipedia_card_fields.py
-tests/                         # 22 unittest modules (search, scrape, collection list/stats/rename, import/export CSV, …)
+alembic/versions/  001 … 004_search_presets.py
+tests/                         # 23 unittest modules (search, presets, scrape, collection list/stats/rename, import/export CSV, …)
 .github/workflows/             # import-catalog-yugipedia.yml, import-catalog-ygoprodeck.yml, db-keepalive.yml
 .cursor/rules/                 # github-actions-yugipedia-workflow-sync.mdc
 docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md
@@ -415,3 +448,5 @@ data/catalog/                  # gitignored scrape JSON
 | `GET /api/collection/stats` (auth) | `total_items`, `folders[]`, `unassigned_count` |
 | `folder=__unassigned__` on list | Returns rows with null/empty `folder_name` |
 | CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |
+| Logged in: Search **preset** toolbar | `#search-presets-bar` visible; Save/Load/Rename/Delete; `GET /api/search-presets` returns list |
+| `alembic current` (Neon dev in `.env`) | `004 (head)` after search-presets migration |

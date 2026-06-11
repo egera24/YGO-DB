@@ -26,6 +26,8 @@ const state = {
   collectionTotal: 0,
   collectionFolder: null,
   collectionStats: null,
+  activePresetId: null,
+  searchPresets: [],
 };
 
 const COLLECTION_PAGE_SIZE = 100;
@@ -37,7 +39,12 @@ async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || res.statusText);
+    const message = err.detail || res.statusText;
+    const error = new Error(
+      typeof message === "string" ? message : JSON.stringify(message)
+    );
+    error.status = res.status;
+    throw error;
   }
   if (res.status === 204) return null;
   return res.json();
@@ -62,6 +69,7 @@ function updateAuthUI() {
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
   $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
   $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
   if (loggedIn) {
     userEl.textContent = state.user.email;
@@ -83,6 +91,7 @@ async function login(email, password) {
   updateAuthUI();
   await loadStatus();
   await loadFilters();
+  await loadSearchPresets();
 }
 
 async function register(email, password) {
@@ -100,8 +109,11 @@ async function register(email, password) {
 function logout() {
   state.token = null;
   state.user = null;
+  state.activePresetId = null;
+  state.searchPresets = [];
   localStorage.removeItem("ygo_token");
   updateAuthUI();
+  renderSearchPresetSelect();
   loadStatus();
 }
 
@@ -240,6 +252,18 @@ function updateFilterMultiSummary(root) {
     return;
   }
   summary.textContent = `${selected.length} selected`;
+}
+
+function setFilterMultiValues(id, values) {
+  const root = getFilterMultiRoot(id);
+  if (!root) return;
+  const wanted = new Set(values);
+  root
+    .querySelectorAll('.filter-multi-panel input[type="checkbox"]')
+    .forEach((cb) => {
+      cb.checked = wanted.has(cb.value);
+    });
+  updateFilterMultiSummary(root);
 }
 
 function setFilterMultiOptions(id, values) {
@@ -546,6 +570,232 @@ function buildSearchParams() {
   if ($("#owned-only").checked) params.set("owned_only", "true");
   if ($("#favorites-only").checked) params.set("favorites_only", "true");
   return params;
+}
+
+function searchParamsToSnapshot(params) {
+  const snapshot = {};
+  for (const [key, value] of params.entries()) snapshot[key] = value;
+  return snapshot;
+}
+
+function applySearchParams(snapshot) {
+  resetSearchFilters();
+  const s = snapshot || {};
+
+  if (s.q) $("#q").value = s.q;
+  if (s.set_code) $("#set-code").value = s.set_code;
+
+  if (s.category) setFilterMultiValues("filter-category", s.category.split(","));
+  if (s.types) setFilterMultiValues("filter-types", s.types.split(","));
+  if (s.mechanic) setFilterMultiValues("filter-mechanic", s.mechanic.split(","));
+  if (s.attribute) setFilterMultiValues("filter-attribute", s.attribute.split(","));
+
+  if (s.archetype) {
+    const el = $("#filter-archetype");
+    if (el) el.value = s.archetype;
+  }
+  if (s.summoning_condition) {
+    const el = $("#filter-summoning");
+    if (el) el.value = s.summoning_condition;
+  }
+
+  if (s.link_markers) {
+    const markers = new Set(s.link_markers.split(",").filter(Boolean));
+    document.querySelectorAll(".link-marker-btn").forEach((btn) => {
+      if (markers.has(btn.dataset.marker)) {
+        btn.classList.add("selected");
+        btn.setAttribute("aria-pressed", "true");
+      }
+    });
+  }
+
+  const rangeMap = [
+    ["level_min", "#level-min"],
+    ["level_max", "#level-max"],
+    ["rank_min", "#rank-min"],
+    ["rank_max", "#rank-max"],
+    ["link_rating_min", "#link-rating-min"],
+    ["link_rating_max", "#link-rating-max"],
+    ["pendulum_scale_min", "#pendulum-scale-min"],
+    ["pendulum_scale_max", "#pendulum-scale-max"],
+    ["atk_min", "#atk-min"],
+    ["atk_max", "#atk-max"],
+    ["def_min", "#def-min"],
+    ["def_max", "#def-max"],
+  ];
+  for (const [key, sel] of rangeMap) {
+    if (s[key]) {
+      const el = $(sel);
+      if (el) el.value = s[key];
+    }
+  }
+
+  if (s.owned_only === "true") $("#owned-only").checked = true;
+  if (s.favorites_only === "true") $("#favorites-only").checked = true;
+}
+
+function clearActivePreset() {
+  state.activePresetId = null;
+  const select = $("#search-preset-select");
+  if (select) select.value = "";
+}
+
+function renderSearchPresetSelect() {
+  const select = $("#search-preset-select");
+  if (!select) return;
+  const activeId = state.activePresetId;
+  select.innerHTML =
+    '<option value="">— None —</option>' +
+    state.searchPresets
+      .map(
+        (p) =>
+          `<option value="${p.id}"${p.id === activeId ? " selected" : ""}>${escapeHtml(p.name)}</option>`
+      )
+      .join("");
+}
+
+async function loadSearchPresets() {
+  if (!state.token) {
+    state.searchPresets = [];
+    state.activePresetId = null;
+    renderSearchPresetSelect();
+    return;
+  }
+  try {
+    state.searchPresets = await api("/search-presets");
+    if (
+      state.activePresetId &&
+      !state.searchPresets.some((p) => p.id === state.activePresetId)
+    ) {
+      state.activePresetId = null;
+    }
+    renderSearchPresetSelect();
+  } catch {
+    state.searchPresets = [];
+    renderSearchPresetSelect();
+  }
+}
+
+async function loadSearchPresetById(presetId) {
+  const preset = state.searchPresets.find((p) => p.id === presetId);
+  if (!preset) return;
+  applySearchParams(preset.params);
+  state.activePresetId = preset.id;
+  renderSearchPresetSelect();
+  await runSearch();
+}
+
+function currentSearchSnapshot() {
+  return searchParamsToSnapshot(buildSearchParams());
+}
+
+async function saveSearchPreset() {
+  if (!state.token) {
+    alert("Log in to save presets.");
+    return;
+  }
+
+  const snapshot = currentSearchSnapshot();
+
+  if (state.activePresetId) {
+    const preset = await api(`/search-presets/${state.activePresetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ params: snapshot }),
+    });
+    state.activePresetId = preset.id;
+    await loadSearchPresets();
+    renderSearchPresetSelect();
+    $("#search-preset-select").value = String(preset.id);
+    return;
+  }
+
+  const name = prompt("Preset name:");
+  if (!name?.trim()) return;
+
+  try {
+    const preset = await api("/search-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), params: snapshot }),
+    });
+    state.activePresetId = preset.id;
+    await loadSearchPresets();
+    renderSearchPresetSelect();
+    $("#search-preset-select").value = String(preset.id);
+  } catch (err) {
+    if (err.status !== 409) {
+      alert(err.message);
+      return;
+    }
+    if (
+      !confirm(
+        `A preset named "${name.trim()}" already exists. Overwrite it?`
+      )
+    ) {
+      return;
+    }
+    const preset = await api("/search-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        params: snapshot,
+        overwrite: true,
+      }),
+    });
+    state.activePresetId = preset.id;
+    await loadSearchPresets();
+    renderSearchPresetSelect();
+    $("#search-preset-select").value = String(preset.id);
+  }
+}
+
+async function renameSearchPreset() {
+  if (!state.token) {
+    alert("Log in to rename presets.");
+    return;
+  }
+  const presetId = Number($("#search-preset-select")?.value);
+  if (!presetId) {
+    alert("Select a preset to rename.");
+    return;
+  }
+  const current = state.searchPresets.find((p) => p.id === presetId);
+  const newName = prompt("New preset name:", current?.name || "");
+  if (!newName?.trim() || newName.trim() === current?.name) return;
+
+  try {
+    const preset = await api(`/search-presets/${presetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim() }),
+    });
+    state.activePresetId = preset.id;
+    await loadSearchPresets();
+    renderSearchPresetSelect();
+    $("#search-preset-select").value = String(preset.id);
+  } catch (err) {
+    alert(err.status === 409 ? "That name is already in use." : err.message);
+  }
+}
+
+async function deleteSearchPreset() {
+  if (!state.token) {
+    alert("Log in to delete presets.");
+    return;
+  }
+  const presetId = Number($("#search-preset-select")?.value);
+  if (!presetId) {
+    alert("Select a preset to delete.");
+    return;
+  }
+  const current = state.searchPresets.find((p) => p.id === presetId);
+  if (!confirm(`Delete preset "${current?.name || presetId}"?`)) return;
+
+  await api(`/search-presets/${presetId}`, { method: "DELETE" });
+  if (state.activePresetId === presetId) state.activePresetId = null;
+  await loadSearchPresets();
 }
 
 function renderSearchPagination() {
@@ -1310,7 +1560,30 @@ function wireEvents() {
   $("#search-form").addEventListener("submit", runSearch);
   $("#search-reset")?.addEventListener("click", async () => {
     resetSearchFilters();
+    clearActivePreset();
     await runSearch();
+  });
+  $("#search-preset-load")?.addEventListener("click", async () => {
+    const presetId = Number($("#search-preset-select")?.value);
+    if (!presetId) {
+      alert("Select a preset to load.");
+      return;
+    }
+    await loadSearchPresetById(presetId);
+  });
+  $("#search-preset-select")?.addEventListener("change", () => {
+    const presetId = Number($("#search-preset-select")?.value);
+    if (presetId) state.activePresetId = presetId;
+    else clearActivePreset();
+  });
+  $("#search-preset-save")?.addEventListener("click", () => {
+    saveSearchPreset().catch((err) => alert(err.message));
+  });
+  $("#search-preset-rename")?.addEventListener("click", () => {
+    renameSearchPreset().catch((err) => alert(err.message));
+  });
+  $("#search-preset-delete")?.addEventListener("click", () => {
+    deleteSearchPreset().catch((err) => alert(err.message));
   });
   $("#auth-login-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1327,6 +1600,7 @@ function wireEvents() {
       await register($("#register-email").value, $("#register-password").value);
       await loadStatus();
       await loadFilters();
+      await loadSearchPresets();
       alert("Account created. You are logged in.");
     } catch (err) {
       alert(err.message);
@@ -1559,6 +1833,7 @@ async function init() {
     await loadFilters();
     setupLinkMarkerGrid();
     setupSummoningSuggestions();
+    if (state.token) await loadSearchPresets();
     await runSearch();
   } catch (err) {
     $("#status-line").textContent = err.message;

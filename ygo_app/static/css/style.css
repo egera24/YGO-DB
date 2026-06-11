@@ -107,6 +107,21 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   gap: 0.5rem;
   align-items: center;
 }
+.search-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.search-presets label {
+  font-weight: 600;
+  color: var(--muted);
+}
+.search-presets select {
+  min-width: 10rem;
+  flex: 1 1 10rem;
+  max-width: 20rem;
+}
 .search-panel.compact { grid-template-columns: 2fr 1fr auto auto; }
 
 .advanced-filters summary {

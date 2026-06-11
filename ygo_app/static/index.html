@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=25" />
+  <link rel="stylesheet" href="/static/css/style.css?v=26" />
 </head>
 <body>
   <header class="app-header">
@@ -54,6 +54,14 @@
           <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
           <button type="button" id="search-reset" class="secondary">Reset</button>
           <button type="submit">Search</button>
+        </div>
+        <div class="search-presets hidden" id="search-presets-bar">
+          <label for="search-preset-select">Preset</label>
+          <select id="search-preset-select"><option value="">— None —</option></select>
+          <button type="button" id="search-preset-load" class="secondary">Load</button>
+          <button type="button" id="search-preset-save" class="secondary">Save</button>
+          <button type="button" id="search-preset-rename" class="secondary">Rename</button>
+          <button type="button" id="search-preset-delete" class="secondary">Delete</button>
         </div>
         <details id="advanced-filters" class="advanced-filters">
           <summary>Advanced filters</summary>
@@ -382,6 +390,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=30" type="module"></script>
+  <script src="/static/js/app.js?v=31" type="module"></script>
 </body>
 </html>

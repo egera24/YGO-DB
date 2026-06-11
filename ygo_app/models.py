@@ -27,6 +27,7 @@ class User(Base):
     decks: Mapped[list["Deck"]] = relationship(back_populates="user")
     favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="user")
     card_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="user")
+    search_presets: Mapped[list["SearchPreset"]] = relationship(back_populates="user")
 
 
 class Card(Base):
@@ -173,3 +174,23 @@ class DeckCard(Base):
 
     deck: Mapped["Deck"] = relationship(back_populates="cards")
     card: Mapped["Card"] = relationship(back_populates="deck_entries")
+
+
+class SearchPreset(Base):
+    __tablename__ = "search_presets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_search_preset_user_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(128))
+    params: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    user: Mapped["User"] = relationship(back_populates="search_presets")

@@ -1,12 +1,16 @@
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, joinedload
 
+import json
+from datetime import datetime
+
 from ygo_app.models import (
     Card,
     CollectionItem,
     Deck,
     DeckCard,
     Printing,
+    SearchPreset,
     User,
     UserCardTag,
     UserFavorite,
@@ -23,6 +27,129 @@ from ygo_app.search_query import (
     text_search_filter,
 )
 from ygo_app.utils import normalize_rarity_code, rarity_display
+
+
+class SearchPresetConflictError(Exception):
+    """Raised when a preset name already exists for the user."""
+
+
+def _preset_params_from_db(raw: str) -> dict[str, str]:
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items()}
+
+
+def _preset_params_to_db(params: dict[str, str]) -> str:
+    return json.dumps(params, sort_keys=True)
+
+
+def _search_preset_out(preset: SearchPreset) -> dict:
+    return {
+        "id": preset.id,
+        "name": preset.name,
+        "params": _preset_params_from_db(preset.params),
+        "created_at": preset.created_at,
+        "updated_at": preset.updated_at,
+    }
+
+
+def list_search_presets(session: Session, user_id: int) -> list[SearchPreset]:
+    return (
+        session.execute(
+            select(SearchPreset)
+            .where(SearchPreset.user_id == user_id)
+            .order_by(SearchPreset.name.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+
+def get_search_preset(
+    session: Session, preset_id: int, user_id: int
+) -> SearchPreset | None:
+    preset = session.get(SearchPreset, preset_id)
+    if not preset or preset.user_id != user_id:
+        return None
+    return preset
+
+
+def get_search_preset_by_name(
+    session: Session, user_id: int, name: str
+) -> SearchPreset | None:
+    return session.execute(
+        select(SearchPreset).where(
+            SearchPreset.user_id == user_id,
+            SearchPreset.name == name.strip(),
+        )
+    ).scalar_one_or_none()
+
+
+def create_search_preset(
+    session: Session,
+    user_id: int,
+    name: str,
+    params: dict[str, str],
+    *,
+    overwrite: bool = False,
+) -> SearchPreset:
+    name = name.strip()
+    existing = get_search_preset_by_name(session, user_id, name)
+    if existing:
+        if not overwrite:
+            raise SearchPresetConflictError(name)
+        existing.params = _preset_params_to_db(params)
+        existing.updated_at = datetime.utcnow()
+        session.commit()
+        session.refresh(existing)
+        return existing
+
+    preset = SearchPreset(
+        user_id=user_id,
+        name=name,
+        params=_preset_params_to_db(params),
+    )
+    session.add(preset)
+    session.commit()
+    session.refresh(preset)
+    return preset
+
+
+def update_search_preset(
+    session: Session,
+    preset_id: int,
+    user_id: int,
+    *,
+    name: str | None = None,
+    params: dict[str, str] | None = None,
+) -> SearchPreset | None:
+    preset = get_search_preset(session, preset_id, user_id)
+    if not preset:
+        return None
+
+    if name is not None and name != preset.name:
+        conflict = get_search_preset_by_name(session, user_id, name)
+        if conflict and conflict.id != preset.id:
+            raise SearchPresetConflictError(name)
+        preset.name = name
+
+    if params is not None:
+        preset.params = _preset_params_to_db(params)
+
+    preset.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(preset)
+    return preset
+
+
+def delete_search_preset(session: Session, preset_id: int, user_id: int) -> bool:
+    preset = get_search_preset(session, preset_id, user_id)
+    if not preset:
+        return False
+    session.delete(preset)
+    session.commit()
+    return True
 
 
 def _apply_int_range(column, min_val: int | None, max_val: int | None):

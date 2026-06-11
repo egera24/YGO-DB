@@ -17,7 +17,15 @@ from ygo_app.collection_export import (
     list_export_formats,
 )
 from ygo_app.import_data import import_collection_csv
-from ygo_app.models import Base, Card, CollectionItem, Printing, User
+from ygo_app.models import (
+    Base,
+    Card,
+    CollectionFolder,
+    CollectionItem,
+    CollectionItemFolder,
+    Printing,
+    User,
+)
 
 
 def _sqlite_engine(path: str):
@@ -62,26 +70,35 @@ class TestExportCollectionCsv(unittest.TestCase):
         session.flush()
         self.printing_id = printing.id
 
+        folder = CollectionFolder(user_id=self.user_id, name="main", name_key="main")
+        session.add(folder)
+        session.flush()
+        item = CollectionItem(
+            user_id=self.user_id,
+            set_code="LOB-001",
+            rarity_code="(UR)",
+            card_name="Ahrima, the Wicked Warden",
+            expansion_code="LOB",
+            set_name="Legend of Blue Eyes White Dragon",
+            quantity=2,
+            trade_quantity=1,
+            condition="NearMint",
+            edition="Foil",
+            language="English",
+            price_bought=0.52,
+            date_bought="2019-09-19",
+            avg_price=0.26,
+            low_price=0.05,
+            trend_price=0.32,
+            printing_id=self.printing_id,
+        )
+        session.add(item)
+        session.flush()
         session.add(
-            CollectionItem(
-                user_id=self.user_id,
-                set_code="LOB-001",
-                rarity_code="(UR)",
-                card_name='Ahrima, the Wicked Warden',
-                expansion_code="LOB",
-                set_name="Legend of Blue Eyes White Dragon",
+            CollectionItemFolder(
+                collection_item_id=item.id,
+                folder_id=folder.id,
                 quantity=2,
-                trade_quantity=1,
-                condition="NearMint",
-                edition="Foil",
-                language="English",
-                folder_name="main",
-                price_bought=0.52,
-                date_bought="2019-09-19",
-                avg_price=0.26,
-                low_price=0.05,
-                trend_price=0.32,
-                printing_id=self.printing_id,
             )
         )
         session.commit()
@@ -170,13 +187,23 @@ class TestExportCollectionCsv(unittest.TestCase):
             item = session.execute(
                 select(CollectionItem).where(CollectionItem.user_id == self.user_id)
             ).scalar_one()
+            folder = session.execute(
+                select(CollectionFolder).where(CollectionFolder.user_id == self.user_id)
+            ).scalar_one()
+            allocation = session.execute(
+                select(CollectionItemFolder).where(
+                    CollectionItemFolder.collection_item_id == item.id
+                )
+            ).scalar_one()
             session.close()
             self.assertEqual(item.set_code, "LOB-001")
             self.assertEqual(item.rarity_code, "(UR)")
             self.assertEqual(item.quantity, 2)
             self.assertEqual(item.trade_quantity, 1)
             self.assertEqual(item.edition, "Foil")
-            self.assertEqual(item.folder_name, "main")
+            self.assertEqual(folder.name, "main")
+            self.assertEqual(allocation.folder_id, folder.id)
+            self.assertEqual(allocation.quantity, 2)
         finally:
             self.init_db_patcher.stop()
             self.session_factory_patcher.stop()

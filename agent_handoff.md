@@ -206,9 +206,9 @@ Param allowlist validated in [`schemas.py`](ygo_app/schemas.py) (`SEARCH_PRESET_
 
 ### User collection (owned)
 
-**Data model:** `collection_items` — one row per user per `(set_code, rarity_code)` with quantity, condition, edition, language, notes, prices, and **`folder_name`** (free-text physical location; DragonShield “Folder Name”). Optional `printing_id` FK → `printings`. No separate `folders` table.
+**Data model:** `collection_items` — one row per user per `(set_code, rarity_code)` with quantity, condition, edition, language, notes, prices. **`collection_folders`** + **`collection_item_folders`** (split qty per folder; `folder_id NULL` = No Folder). Optional `printing_id` FK → `printings`. Migration `005`.
 
-**Physical folders:** Use `folder_name` strings (`Binder A`, `Box 3`, etc.). Sidebar filters by folder; `folder=__unassigned__` (`UNASSIGNED_FOLDER` in [`services.py`](ygo_app/services.py)) = null/empty `folder_name`. Double-click a folder in the sidebar → bulk rename via `PATCH /api/collection/folders/rename`.
+**Physical folders:** `collection_folders` entity + `collection_item_folders` junction (split qty per folder). Sidebar filters by folder id or `folder=__no_folder__` (`NO_FOLDER` in [`services.py`](ygo_app/services.py)) for allocations with `folder_id IS NULL`. UI: **+ New folder**, double-click rename, delete (moves copies to No Folder). Per-row multi-folder picker with qty split validation.
 
 | Piece | Role |
 |-------|------|
@@ -224,8 +224,8 @@ Param allowlist validated in [`schemas.py`](ygo_app/schemas.py) (`SEARCH_PRESET_
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/api/collection` | Paginated `{ items, total, limit, offset }`. Query: `q`, `folder`, `set_code`, `sort` (`set_code`\|`card_name`\|`folder_name`\|`quantity`) |
-| GET | `/api/collection/stats` | Totals + `folders[]` + `unassigned_count` / `unassigned_quantity` |
-| PATCH | `/api/collection/folders/rename` | Body `{ from_name, to_name }` → `{ updated }` |
+| GET | `/api/collection/stats` | Totals + `folders[]` (with `id`) + `no_folder_count` / `no_folder_quantity` |
+| GET/POST/PATCH/DELETE | `/api/collection/folders` | Folder CRUD; delete moves allocations to No Folder |
 | GET | `/api/collection/export-formats` | List export format ids |
 | GET | `/api/collection/export-csv` | DragonShield CSV download |
 | POST | `/api/collection` | Add single row |
@@ -336,6 +336,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-11**
+- **Collection folders refactor** — `collection_folders` + `collection_item_folders` (split qty per folder); Alembic `005`. Folder CRUD API (`GET/POST/PATCH/DELETE /api/collection/folders`). Multi-folder dropdown in My Collection; virtual **No Folder** (`__no_folder__`). Import get-or-create folder (case-insensitive); export one CSV row per allocation. Static `app.js?v=32`, `style.css?v=27`. Tests: `test_collection_folders.py`, `test_collection_folder_allocations.py` + updated list/stats/import/export/rename.
 - **Search presets** — per-user named snapshots of Search tab filters. Table `search_presets` (Alembic `004`); API `/api/search-presets` CRUD with 409 on duplicate name unless `overwrite`. UI preset toolbar on Search tab (`#search-presets-bar`). `buildSearchParams` / `applySearchParams` in `app.js`. Static `app.js?v=31`, `style.css?v=26`. Tests: `test_search_presets.py`.
 - **Alembic Neon commit fix** — [`alembic/env.py`](alembic/env.py) calls `connection.commit()` after online migrations so upgrades persist on Neon (fixes “upgrade logs 003→004 but DB stays 003”).
 
@@ -445,8 +446,8 @@ data/catalog/                  # gitignored scrape JSON
 | Logged in: **Import my collection** | Header button visible; NDJSON progress on `#import-progress` |
 | Logged in: **Export my collection** | Modal lists DragonShield format; downloads UTF-8 BOM CSV |
 | Logged in: **My Collection** tab | Folder sidebar, stats line, table with thumbnails; pagination when >100 rows |
-| `GET /api/collection/stats` (auth) | `total_items`, `folders[]`, `unassigned_count` |
-| `folder=__unassigned__` on list | Returns rows with null/empty `folder_name` |
+| `GET /api/collection/stats` (auth) | `total_items`, `folders[]` (with `id`), `no_folder_count` |
+| `folder=__no_folder__` on list | Returns items with No Folder allocation |
 | CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |
 | Logged in: Search **preset** toolbar | `#search-presets-bar` visible; Save/Load/Rename/Delete; `GET /api/search-presets` returns list |
-| `alembic current` (Neon dev in `.env`) | `004 (head)` after search-presets migration |
+| `alembic current` (Neon dev in `.env`) | `005 (head)` after collection-folders migration |

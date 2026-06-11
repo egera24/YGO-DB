@@ -80,15 +80,13 @@ def filters(
 ):
     folders: list[str] = []
     if user:
+        from ygo_app.models import CollectionFolder
+
         folders = list(
             db.execute(
-                select(CollectionItem.folder_name)
-                .where(
-                    CollectionItem.user_id == user.id,
-                    CollectionItem.folder_name.isnot(None),
-                )
-                .distinct()
-                .order_by(CollectionItem.folder_name)
+                select(CollectionFolder.name)
+                .where(CollectionFolder.user_id == user.id)
+                .order_by(CollectionFolder.sort_order, CollectionFolder.name)
             )
             .scalars()
             .all()

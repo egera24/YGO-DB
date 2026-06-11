@@ -24,6 +24,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="user")
+    collection_folders: Mapped[list["CollectionFolder"]] = relationship(
+        back_populates="user"
+    )
     decks: Mapped[list["Deck"]] = relationship(back_populates="user")
     favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="user")
     card_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="user")
@@ -102,7 +105,6 @@ class CollectionItem(Base):
     condition: Mapped[str | None] = mapped_column(String(32))
     edition: Mapped[str | None] = mapped_column(String(32))
     language: Mapped[str | None] = mapped_column(String(32))
-    folder_name: Mapped[str | None] = mapped_column(String(128), index=True)
     price_bought: Mapped[float | None] = mapped_column(Float)
     date_bought: Mapped[str | None] = mapped_column(String(32))
     avg_price: Mapped[float | None] = mapped_column(Float)
@@ -114,6 +116,58 @@ class CollectionItem(Base):
     user: Mapped["User"] = relationship(back_populates="collection_items")
     linked_printing: Mapped["Printing | None"] = relationship(
         back_populates="collection_items"
+    )
+    folder_allocations: Mapped[list["CollectionItemFolder"]] = relationship(
+        back_populates="collection_item",
+        cascade="all, delete-orphan",
+    )
+
+
+class CollectionFolder(Base):
+    __tablename__ = "collection_folders"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name_key", name="uq_collection_folder_user_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(128))
+    name_key: Mapped[str] = mapped_column(String(128), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="collection_folders")
+    item_allocations: Mapped[list["CollectionItemFolder"]] = relationship(
+        back_populates="folder"
+    )
+
+
+class CollectionItemFolder(Base):
+    __tablename__ = "collection_item_folders"
+    __table_args__ = (
+        UniqueConstraint(
+            "collection_item_id",
+            "folder_id",
+            name="uq_collection_item_folder",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    collection_item_id: Mapped[int] = mapped_column(
+        ForeignKey("collection_items.id", ondelete="CASCADE"), index=True
+    )
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("collection_folders.id", ondelete="SET NULL"), index=True
+    )
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+
+    collection_item: Mapped["CollectionItem"] = relationship(
+        back_populates="folder_allocations"
+    )
+    folder: Mapped["CollectionFolder | None"] = relationship(
+        back_populates="item_allocations"
     )
 
 

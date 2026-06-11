@@ -6,7 +6,9 @@ from datetime import datetime
 
 from ygo_app.models import (
     Card,
+    CollectionFolder,
     CollectionItem,
+    CollectionItemFolder,
     Deck,
     DeckCard,
     Printing,
@@ -506,12 +508,292 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
     return card
 
 
-UNASSIGNED_FOLDER = "__unassigned__"
+NO_FOLDER = "__no_folder__"
+RESERVED_FOLDER_NAME_KEYS = frozenset({"no folder"})
+
+
+class FolderConflictError(Exception):
+    """Raised when a folder name already exists for the user."""
+
+
+def normalize_folder_name(name: str) -> str:
+    return name.strip()
+
+
+def folder_name_key(name: str) -> str:
+    return normalize_folder_name(name).lower()
+
+
+def _folder_allocations_for_row(item: CollectionItem) -> list[dict]:
+    allocations = sorted(
+        item.folder_allocations,
+        key=lambda row: (
+            row.folder.name.lower() if row.folder else "",
+            row.folder_id or 0,
+        ),
+    )
+    return [
+        {
+            "folder_id": row.folder_id,
+            "name": row.folder.name if row.folder else None,
+            "quantity": int(row.quantity),
+        }
+        for row in allocations
+    ]
+
+
+def _default_folder_allocations(quantity: int) -> list[dict]:
+    return [{"folder_id": None, "quantity": quantity}]
+
+
+def get_or_create_folder(
+    session: Session, user_id: int, name: str
+) -> CollectionFolder | None:
+    clean = normalize_folder_name(name)
+    if not clean:
+        return None
+    key = folder_name_key(clean)
+    if key in RESERVED_FOLDER_NAME_KEYS:
+        raise ValueError('Folder name "No Folder" is reserved')
+    existing = session.execute(
+        select(CollectionFolder).where(
+            CollectionFolder.user_id == user_id,
+            CollectionFolder.name_key == key,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return existing
+    folder = CollectionFolder(user_id=user_id, name=clean, name_key=key)
+    session.add(folder)
+    session.flush()
+    return folder
+
+
+def list_collection_folders(session: Session, *, user_id: int) -> list[dict]:
+    folders = session.execute(
+        select(CollectionFolder)
+        .where(CollectionFolder.user_id == user_id)
+        .order_by(CollectionFolder.sort_order, CollectionFolder.name)
+    ).scalars().all()
+
+    stats_rows = session.execute(
+        select(
+            CollectionItemFolder.folder_id,
+            func.count(func.distinct(CollectionItemFolder.collection_item_id)),
+            func.coalesce(func.sum(CollectionItemFolder.quantity), 0),
+        )
+        .join(CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id)
+        .where(CollectionItem.user_id == user_id, CollectionItemFolder.folder_id.isnot(None))
+        .group_by(CollectionItemFolder.folder_id)
+    ).all()
+    stats_by_id = {
+        folder_id: (int(item_count), int(qty))
+        for folder_id, item_count, qty in stats_rows
+    }
+
+    return [
+        {
+            "id": folder.id,
+            "name": folder.name,
+            "sort_order": folder.sort_order,
+            "item_count": stats_by_id.get(folder.id, (0, 0))[0],
+            "quantity": stats_by_id.get(folder.id, (0, 0))[1],
+        }
+        for folder in folders
+    ]
+
+
+def create_collection_folder(session: Session, *, user_id: int, name: str) -> CollectionFolder:
+    clean = normalize_folder_name(name)
+    if not clean:
+        raise ValueError("Folder name is required")
+    key = folder_name_key(clean)
+    if key in RESERVED_FOLDER_NAME_KEYS:
+        raise ValueError('Folder name "No Folder" is reserved')
+    existing = session.execute(
+        select(CollectionFolder).where(
+            CollectionFolder.user_id == user_id,
+            CollectionFolder.name_key == key,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise FolderConflictError(f"Folder '{existing.name}' already exists")
+    folder = CollectionFolder(user_id=user_id, name=clean, name_key=key)
+    session.add(folder)
+    session.commit()
+    session.refresh(folder)
+    return folder
+
+
+def update_collection_folder(
+    session: Session,
+    *,
+    user_id: int,
+    folder_id: int,
+    name: str | None = None,
+    sort_order: int | None = None,
+) -> CollectionFolder:
+    folder = session.get(CollectionFolder, folder_id)
+    if not folder or folder.user_id != user_id:
+        raise ValueError("Folder not found")
+    if name is not None:
+        clean = normalize_folder_name(name)
+        if not clean:
+            raise ValueError("Folder name is required")
+        key = folder_name_key(clean)
+        if key in RESERVED_FOLDER_NAME_KEYS:
+            raise ValueError('Folder name "No Folder" is reserved')
+        conflict = session.execute(
+            select(CollectionFolder).where(
+                CollectionFolder.user_id == user_id,
+                CollectionFolder.name_key == key,
+                CollectionFolder.id != folder_id,
+            )
+        ).scalar_one_or_none()
+        if conflict:
+            raise FolderConflictError(f"Folder '{conflict.name}' already exists")
+        folder.name = clean
+        folder.name_key = key
+    if sort_order is not None:
+        folder.sort_order = sort_order
+    session.commit()
+    session.refresh(folder)
+    return folder
+
+
+def delete_collection_folder(
+    session: Session, *, user_id: int, folder_id: int
+) -> tuple[int, int]:
+    folder = session.get(CollectionFolder, folder_id)
+    if not folder or folder.user_id != user_id:
+        raise ValueError("Folder not found")
+    allocations = (
+        session.execute(
+            select(CollectionItemFolder)
+            .join(
+                CollectionItem,
+                CollectionItem.id == CollectionItemFolder.collection_item_id,
+            )
+            .where(
+                CollectionItem.user_id == user_id,
+                CollectionItemFolder.folder_id == folder_id,
+            )
+            .options(
+                joinedload(CollectionItemFolder.collection_item).joinedload(
+                    CollectionItem.folder_allocations
+                )
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    moved_allocations = 0
+    moved_quantity = 0
+    for allocation in allocations:
+        item = allocation.collection_item
+        moved_allocations += 1
+        moved_quantity += int(allocation.quantity)
+        no_folder = next(
+            (row for row in item.folder_allocations if row.folder_id is None),
+            None,
+        )
+        if no_folder:
+            no_folder.quantity += allocation.quantity
+            session.delete(allocation)
+        else:
+            allocation.folder_id = None
+    session.delete(folder)
+    session.commit()
+    return moved_allocations, moved_quantity
+
+
+def _validate_folder_allocations(
+    session: Session,
+    *,
+    user_id: int,
+    item: CollectionItem,
+    allocations: list[dict],
+) -> list[dict]:
+    if not allocations:
+        raise ValueError("At least one folder allocation is required")
+    merged: dict[int | None, int] = {}
+    for row in allocations:
+        folder_id = row.get("folder_id")
+        qty = int(row["quantity"])
+        if qty < 1:
+            raise ValueError("Allocation quantity must be at least 1")
+        if folder_id is not None:
+            folder = session.get(CollectionFolder, folder_id)
+            if not folder or folder.user_id != user_id:
+                raise ValueError("Folder not found")
+        merged[folder_id] = merged.get(folder_id, 0) + qty
+    total = sum(merged.values())
+    if total != item.quantity:
+        raise ValueError(
+            f"Folder allocations must sum to item quantity ({item.quantity}), got {total}"
+        )
+    return [{"folder_id": key, "quantity": value} for key, value in merged.items()]
+
+
+def set_item_folder_allocations(
+    session: Session,
+    *,
+    user_id: int,
+    item: CollectionItem,
+    allocations: list[dict],
+) -> None:
+    normalized = _validate_folder_allocations(
+        session, user_id=user_id, item=item, allocations=allocations
+    )
+    item.folder_allocations.clear()
+    session.flush()
+    for row in normalized:
+        item.folder_allocations.append(
+            CollectionItemFolder(
+                folder_id=row["folder_id"],
+                quantity=row["quantity"],
+            )
+        )
+
+
+def _reconcile_allocations_after_quantity_change(item: CollectionItem) -> None:
+    allocations = list(item.folder_allocations)
+    if not allocations:
+        item.folder_allocations.append(
+            CollectionItemFolder(folder_id=None, quantity=item.quantity)
+        )
+        return
+    if len(allocations) == 1:
+        allocations[0].quantity = item.quantity
+        return
+    current_total = sum(int(row.quantity) for row in allocations)
+    diff = item.quantity - current_total
+    if diff == 0:
+        return
+    no_folder = next((row for row in allocations if row.folder_id is None), None)
+    if no_folder:
+        no_folder.quantity = max(1, no_folder.quantity + diff)
+    elif diff > 0:
+        item.folder_allocations.append(
+            CollectionItemFolder(folder_id=None, quantity=diff)
+        )
+    else:
+        raise ValueError(
+            "Reduce folder allocations before lowering total quantity"
+        )
+
+
+def _ensure_default_allocations(item: CollectionItem) -> None:
+    if not item.folder_allocations:
+        item.folder_allocations.append(
+            CollectionItemFolder(folder_id=None, quantity=item.quantity)
+        )
+
 
 _COLLECTION_SORT_COLUMNS = {
     "set_code": CollectionItem.set_code,
     "card_name": CollectionItem.card_name,
-    "folder_name": CollectionItem.folder_name,
     "quantity": CollectionItem.quantity,
 }
 
@@ -557,29 +839,49 @@ def _collection_item_row(
     item: CollectionItem,
     *,
     set_code_fallback: dict[str, Card | None] | None = None,
+    folder_filter: str | None = None,
 ) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
     row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
     row["printing"] = row.pop("edition", None)
+    folders = _folder_allocations_for_row(item)
+    display_quantity = item.quantity
+    if folder_filter == NO_FOLDER:
+        alloc = next((f for f in folders if f["folder_id"] is None), None)
+        display_quantity = alloc["quantity"] if alloc else 0
+    elif folder_filter and folder_filter != NO_FOLDER:
+        folder_id = int(folder_filter)
+        alloc = next((f for f in folders if f["folder_id"] == folder_id), None)
+        display_quantity = alloc["quantity"] if alloc else 0
     return {
         **row,
+        "quantity": display_quantity,
         "card_id": card.id if card else None,
         "image_url_small": card.image_url_small if card else None,
         "rarity_display": rarity_display(item.rarity_code),
+        "folders": folders,
     }
 
 
 def _apply_collection_folder_filter(stmt, folder: str | None):
     if not folder:
         return stmt
-    if folder == UNASSIGNED_FOLDER:
+    if folder == NO_FOLDER:
         return stmt.where(
-            or_(
-                CollectionItem.folder_name.is_(None),
-                CollectionItem.folder_name == "",
+            CollectionItem.id.in_(
+                select(CollectionItemFolder.collection_item_id).where(
+                    CollectionItemFolder.folder_id.is_(None)
+                )
             )
         )
-    return stmt.where(CollectionItem.folder_name == folder)
+    folder_id = int(folder)
+    return stmt.where(
+        CollectionItem.id.in_(
+            select(CollectionItemFolder.collection_item_id).where(
+                CollectionItemFolder.folder_id == folder_id
+            )
+        )
+    )
 
 
 def list_collection(
@@ -611,11 +913,29 @@ def list_collection(
         select(func.count()).select_from(stmt.subquery())
     ).scalar() or 0
 
-    order_col = _COLLECTION_SORT_COLUMNS.get(sort, CollectionItem.set_code)
+    if sort == "folder_name":
+        primary_folder = (
+            select(CollectionFolder.name)
+            .join(
+                CollectionItemFolder,
+                CollectionItemFolder.folder_id == CollectionFolder.id,
+            )
+            .where(CollectionItemFolder.collection_item_id == CollectionItem.id)
+            .order_by(CollectionFolder.name)
+            .limit(1)
+            .scalar_subquery()
+        )
+        order_col = primary_folder
+    else:
+        order_col = _COLLECTION_SORT_COLUMNS.get(sort, CollectionItem.set_code)
+
     items = (
         session.execute(
             stmt.options(
-                joinedload(CollectionItem.linked_printing).joinedload(Printing.card)
+                joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+                joinedload(CollectionItem.folder_allocations).joinedload(
+                    CollectionItemFolder.folder
+                ),
             )
             .order_by(order_col)
             .offset(offset)
@@ -634,7 +954,10 @@ def list_collection(
     fallback_map = _cards_by_set_codes(session, missing_codes)
 
     results = [
-        _collection_item_row(item, set_code_fallback=fallback_map) for item in items
+        _collection_item_row(
+            item, set_code_fallback=fallback_map, folder_filter=folder
+        )
+        for item in items
     ]
     return results, int(total)
 
@@ -656,28 +979,24 @@ def collection_stats(session: Session, *, user_id: int) -> dict:
         ).scalar()
         or 0
     )
-    unassigned_count = (
+    no_folder_count = (
         session.execute(
-            select(func.count())
-            .select_from(CollectionItem)
+            select(func.count(func.distinct(CollectionItemFolder.collection_item_id)))
+            .join(CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id)
             .where(
                 CollectionItem.user_id == user_id,
-                or_(
-                    CollectionItem.folder_name.is_(None),
-                    CollectionItem.folder_name == "",
-                ),
+                CollectionItemFolder.folder_id.is_(None),
             )
         ).scalar()
         or 0
     )
-    unassigned_quantity = (
+    no_folder_quantity = (
         session.execute(
-            select(func.coalesce(func.sum(CollectionItem.quantity), 0)).where(
+            select(func.coalesce(func.sum(CollectionItemFolder.quantity), 0))
+            .join(CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id)
+            .where(
                 CollectionItem.user_id == user_id,
-                or_(
-                    CollectionItem.folder_name.is_(None),
-                    CollectionItem.folder_name == "",
-                ),
+                CollectionItemFolder.folder_id.is_(None),
             )
         ).scalar()
         or 0
@@ -685,57 +1004,37 @@ def collection_stats(session: Session, *, user_id: int) -> dict:
 
     folder_rows = session.execute(
         select(
-            CollectionItem.folder_name,
-            func.count(),
-            func.coalesce(func.sum(CollectionItem.quantity), 0),
+            CollectionFolder.id,
+            CollectionFolder.name,
+            func.count(func.distinct(CollectionItemFolder.collection_item_id)),
+            func.coalesce(func.sum(CollectionItemFolder.quantity), 0),
         )
-        .where(
-            CollectionItem.user_id == user_id,
-            CollectionItem.folder_name.isnot(None),
-            CollectionItem.folder_name != "",
+        .join(
+            CollectionItemFolder,
+            CollectionItemFolder.folder_id == CollectionFolder.id,
         )
-        .group_by(CollectionItem.folder_name)
-        .order_by(CollectionItem.folder_name)
+        .join(CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id)
+        .where(CollectionFolder.user_id == user_id)
+        .group_by(CollectionFolder.id, CollectionFolder.name)
+        .order_by(CollectionFolder.sort_order, CollectionFolder.name)
     ).all()
 
     return {
         "total_items": int(total_items),
         "total_quantity": int(total_quantity),
         "unique_printings": int(total_items),
-        "unassigned_count": int(unassigned_count),
-        "unassigned_quantity": int(unassigned_quantity),
+        "no_folder_count": int(no_folder_count),
+        "no_folder_quantity": int(no_folder_quantity),
         "folders": [
             {
+                "id": folder_id,
                 "name": name,
                 "item_count": int(item_count),
                 "quantity": int(qty),
             }
-            for name, item_count, qty in folder_rows
+            for folder_id, name, item_count, qty in folder_rows
         ],
     }
-
-
-def rename_collection_folder(
-    session: Session,
-    *,
-    user_id: int,
-    from_name: str,
-    to_name: str,
-) -> int:
-    from_clean = from_name.strip()
-    to_clean = to_name.strip()
-    if not from_clean or not to_clean:
-        raise ValueError("from_name and to_name are required")
-    rows = session.execute(
-        select(CollectionItem).where(
-            CollectionItem.user_id == user_id,
-            CollectionItem.folder_name == from_clean,
-        )
-    ).scalars().all()
-    for item in rows:
-        item.folder_name = to_clean
-    session.commit()
-    return len(rows)
 
 
 def deck_counts(session: Session, deck_id: int) -> dict[str, int]:
@@ -752,6 +1051,7 @@ def deck_counts(session: Session, deck_id: int) -> dict[str, int]:
 
 def add_collection_item(session: Session, user_id: int, data: dict) -> CollectionItem:
     rarity_code = normalize_rarity_code(data["rarity"])
+    quantity = data.get("quantity", 1)
     item = CollectionItem(
         user_id=user_id,
         set_code=data["set_code"].strip(),
@@ -759,12 +1059,11 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         card_name=data.get("card_name"),
         expansion_code=data.get("expansion_code"),
         set_name=data.get("set_name"),
-        quantity=data.get("quantity", 1),
+        quantity=quantity,
         trade_quantity=data.get("trade_quantity", 0),
         condition=data.get("condition"),
         edition=data.get("printing"),
         language=data.get("language"),
-        folder_name=data.get("folder_name"),
         price_bought=data.get("price_bought"),
         date_bought=data.get("date_bought"),
         notes=data.get("notes"),
@@ -776,6 +1075,64 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         ).scalar(),
     )
     session.add(item)
+    session.flush()
+
+    if data.get("folder_allocations"):
+        set_item_folder_allocations(
+            session,
+            user_id=user_id,
+            item=item,
+            allocations=data["folder_allocations"],
+        )
+    elif data.get("folder_id") is not None:
+        folder_id = data["folder_id"]
+        if folder_id is not None:
+            folder = session.get(CollectionFolder, folder_id)
+            if not folder or folder.user_id != user_id:
+                raise ValueError("Folder not found")
+        set_item_folder_allocations(
+            session,
+            user_id=user_id,
+            item=item,
+            allocations=[{"folder_id": folder_id, "quantity": quantity}],
+        )
+    else:
+        set_item_folder_allocations(
+            session,
+            user_id=user_id,
+            item=item,
+            allocations=_default_folder_allocations(quantity),
+        )
+
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+def update_collection_item(
+    session: Session,
+    *,
+    user_id: int,
+    item: CollectionItem,
+    data: dict,
+) -> CollectionItem:
+    folder_allocations = data.pop("folder_allocations", None)
+    if "printing" in data:
+        data["edition"] = data.pop("printing")
+    old_quantity = item.quantity
+    for field, value in data.items():
+        setattr(item, field, value)
+    if "quantity" in data and folder_allocations is None:
+        if item.quantity != old_quantity:
+            _reconcile_allocations_after_quantity_change(item)
+    if folder_allocations is not None:
+        set_item_folder_allocations(
+            session,
+            user_id=user_id,
+            item=item,
+            allocations=folder_allocations,
+        )
+    _ensure_default_allocations(item)
     session.commit()
     session.refresh(item)
     return item

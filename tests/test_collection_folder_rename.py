@@ -1,4 +1,4 @@
-"""Bulk folder rename for collection items."""
+"""Folder entity rename for collection."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import unittest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.models import Base, CollectionItem, User
-from ygo_app.services import rename_collection_folder
+from ygo_app.models import Base, CollectionFolder, CollectionItem, CollectionItemFolder, User
+from ygo_app.services import FolderConflictError, update_collection_folder
 
 
 def _sqlite_engine(path: str):
@@ -41,69 +41,74 @@ class TestCollectionFolderRename(unittest.TestCase):
         session.add_all([self.user, other])
         session.flush()
         self.user_id = self.user.id
-        self.other_user_id = other.id
 
-        session.add(
-            CollectionItem(
+        folder = CollectionFolder(
+            user_id=self.user_id, name="Old Box", name_key="old box"
+        )
+        session.add(folder)
+        session.flush()
+        self.folder_id = folder.id
+
+        for set_code in ("X-001", "X-002"):
+            item = CollectionItem(
                 user_id=self.user_id,
-                set_code="X-001",
+                set_code=set_code,
                 rarity_code="(C)",
-                folder_name="Old Box",
+                quantity=1,
             )
-        )
-        session.add(
-            CollectionItem(
-                user_id=self.user_id,
-                set_code="X-002",
-                rarity_code="(R)",
-                folder_name="Old Box",
+            session.add(item)
+            session.flush()
+            session.add(
+                CollectionItemFolder(
+                    collection_item_id=item.id,
+                    folder_id=folder.id,
+                    quantity=1,
+                )
             )
-        )
-        session.add(
-            CollectionItem(
-                user_id=self.other_user_id,
-                set_code="X-003",
-                rarity_code="(C)",
-                folder_name="Old Box",
-            )
-        )
         session.commit()
         session.close()
 
     def tearDown(self):
         self.engine.dispose()
 
-    def test_rename_updates_only_current_user(self):
+    def test_rename_updates_folder_entity(self):
         session = self.Session()
-        updated = rename_collection_folder(
+        folder = update_collection_folder(
             session,
             user_id=self.user_id,
-            from_name="Old Box",
-            to_name="New Box",
+            folder_id=self.folder_id,
+            name="New Box",
         )
-        folders = session.execute(
-            select(CollectionItem.folder_name, CollectionItem.user_id)
-        ).all()
+        names = session.execute(select(CollectionFolder.name)).scalars().all()
         session.close()
 
-        self.assertEqual(updated, 2)
-        self.assertEqual(
-            sorted(f for f, uid in folders if uid == self.user_id),
-            ["New Box", "New Box"],
-        )
-        self.assertEqual(
-            [f for f, uid in folders if uid == self.other_user_id],
-            ["Old Box"],
-        )
+        self.assertEqual(folder.name, "New Box")
+        self.assertEqual(folder.name_key, "new box")
+        self.assertEqual(names, ["New Box"])
 
-    def test_rename_rejects_empty_names(self):
+    def test_rename_rejects_empty_name(self):
         session = self.Session()
         with self.assertRaises(ValueError):
-            rename_collection_folder(
+            update_collection_folder(
                 session,
                 user_id=self.user_id,
-                from_name="  ",
-                to_name="New Box",
+                folder_id=self.folder_id,
+                name="  ",
+            )
+        session.close()
+
+    def test_rename_conflict(self):
+        session = self.Session()
+        session.add(
+            CollectionFolder(user_id=self.user_id, name="Taken", name_key="taken")
+        )
+        session.commit()
+        with self.assertRaises(FolderConflictError):
+            update_collection_folder(
+                session,
+                user_id=self.user_id,
+                folder_id=self.folder_id,
+                name="Taken",
             )
         session.close()
 

@@ -561,10 +561,87 @@ tr:hover td { background: var(--surface); }
   gap: 1rem;
   min-height: 400px;
 }
+.collection-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
 .collection-sidebar-title {
   margin: 0;
   font-size: 0.95rem;
   color: var(--accent);
+}
+.collection-new-folder-btn {
+  padding: 0.15rem 0.45rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+.collection-folder-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.collection-folder-delete {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.2rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+.collection-folder-delete:hover { color: #f87171; }
+.collection-folder-picker {
+  width: 100%;
+  min-width: 6rem;
+  max-width: 12rem;
+  text-align: left;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.folder-allocation-popover {
+  position: absolute;
+  z-index: 200;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.folder-allocation-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.folder-allocation-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.folder-allocation-option {
+  display: grid;
+  grid-template-columns: auto 1fr 4rem;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+.folder-allocation-qty {
+  width: 100%;
+  padding: 0.2rem 0.35rem;
+}
+.folder-allocation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 .collection-folder-list {
   list-style: none;

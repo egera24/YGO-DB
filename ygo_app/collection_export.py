@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from ygo_app.models import CollectionItem, Printing
+from ygo_app.models import CollectionItem, CollectionItemFolder, Printing
 from ygo_app.utils import rarity_display
 
 DRAGONSHIELD_HEADERS = [
@@ -68,7 +68,7 @@ def _format_price(value: float | None) -> str:
     return str(value)
 
 
-def _item_to_row(item: CollectionItem) -> ExportRow:
+def _item_base_row(item: CollectionItem) -> dict:
     card_name = item.card_name
     set_name = item.set_name
     printing = item.linked_printing
@@ -77,24 +77,43 @@ def _item_to_row(item: CollectionItem) -> ExportRow:
             set_name = printing.set_name
         if not card_name and printing.card:
             card_name = printing.card.name
-    return ExportRow(
-        folder_name=item.folder_name,
-        quantity=item.quantity,
-        trade_quantity=item.trade_quantity,
-        card_name=card_name,
-        expansion_code=item.expansion_code,
-        set_name=set_name,
-        set_code=item.set_code,
-        rarity_code=item.rarity_code,
-        condition=item.condition,
-        edition=item.edition or "Unlimited",
-        language=item.language,
-        price_bought=item.price_bought,
-        date_bought=item.date_bought,
-        avg_price=item.avg_price,
-        low_price=item.low_price,
-        trend_price=item.trend_price,
-    )
+    return {
+        "trade_quantity": item.trade_quantity,
+        "card_name": card_name,
+        "expansion_code": item.expansion_code,
+        "set_name": set_name,
+        "set_code": item.set_code,
+        "rarity_code": item.rarity_code,
+        "condition": item.condition,
+        "edition": item.edition or "Unlimited",
+        "language": item.language,
+        "price_bought": item.price_bought,
+        "date_bought": item.date_bought,
+        "avg_price": item.avg_price,
+        "low_price": item.low_price,
+        "trend_price": item.trend_price,
+    }
+
+
+def _item_to_rows(item: CollectionItem) -> list[ExportRow]:
+    base = _item_base_row(item)
+    allocations = item.folder_allocations
+    if not allocations:
+        return [
+            ExportRow(
+                folder_name=None,
+                quantity=item.quantity,
+                **base,
+            )
+        ]
+    return [
+        ExportRow(
+            folder_name=allocation.folder.name if allocation.folder else None,
+            quantity=int(allocation.quantity),
+            **base,
+        )
+        for allocation in allocations
+    ]
 
 
 def _write_dragonshield(rows: list[ExportRow]) -> str:
@@ -130,11 +149,19 @@ def load_collection_for_export(session: Session, user_id: int) -> list[ExportRow
     stmt = (
         select(CollectionItem)
         .where(CollectionItem.user_id == user_id)
-        .options(joinedload(CollectionItem.linked_printing).joinedload(Printing.card))
+        .options(
+            joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+            joinedload(CollectionItem.folder_allocations).joinedload(
+                CollectionItemFolder.folder
+            ),
+        )
         .order_by(CollectionItem.set_code)
     )
     items = session.execute(stmt).unique().scalars().all()
-    return [_item_to_row(item) for item in items]
+    rows: list[ExportRow] = []
+    for item in items:
+        rows.extend(_item_to_rows(item))
+    return rows
 
 
 FORMATS: dict[str, ExportFormat] = {

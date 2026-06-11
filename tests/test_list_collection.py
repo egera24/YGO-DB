@@ -8,8 +8,16 @@ import unittest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.models import Base, Card, CollectionItem, Printing, User
-from ygo_app.services import UNASSIGNED_FOLDER, list_collection
+from ygo_app.models import (
+    Base,
+    Card,
+    CollectionFolder,
+    CollectionItem,
+    CollectionItemFolder,
+    Printing,
+    User,
+)
+from ygo_app.services import NO_FOLDER, list_collection
 
 
 def _sqlite_engine(path: str):
@@ -25,6 +33,27 @@ def _sqlite_engine(path: str):
         cursor.close()
 
     return eng
+
+
+def _add_item(session, *, user_id, set_code, rarity_code, quantity=1, folder_id=None, printing_id=None):
+    item = CollectionItem(
+        user_id=user_id,
+        set_code=set_code,
+        rarity_code=rarity_code,
+        card_name="Blue-Eyes White Dragon",
+        quantity=quantity,
+        printing_id=printing_id,
+    )
+    session.add(item)
+    session.flush()
+    session.add(
+        CollectionItemFolder(
+            collection_item_id=item.id,
+            folder_id=folder_id,
+            quantity=quantity,
+        )
+    )
+    return item
 
 
 class TestListCollection(unittest.TestCase):
@@ -57,37 +86,37 @@ class TestListCollection(unittest.TestCase):
         session.flush()
         self.printing_id = printing.id
 
-        session.add(
-            CollectionItem(
-                user_id=self.user_id,
-                set_code="LOB-001",
-                rarity_code="(UR)",
-                card_name="Blue-Eyes White Dragon",
-                quantity=2,
-                folder_name="Binder A",
-                printing_id=self.printing_id,
-            )
+        binder = CollectionFolder(user_id=self.user_id, name="Binder A", name_key="binder a")
+        session.add(binder)
+        session.flush()
+        self.binder_id = binder.id
+
+        _add_item(
+            session,
+            user_id=self.user_id,
+            set_code="LOB-001",
+            rarity_code="(UR)",
+            quantity=2,
+            folder_id=self.binder_id,
+            printing_id=self.printing_id,
         )
-        session.add(
-            CollectionItem(
-                user_id=self.user_id,
-                set_code="LOB-001",
-                rarity_code="(SR)",
-                card_name="Blue-Eyes White Dragon",
-                quantity=1,
-                folder_name=None,
-            )
+        _add_item(
+            session,
+            user_id=self.user_id,
+            set_code="LOB-001",
+            rarity_code="(SR)",
+            quantity=1,
+            folder_id=None,
         )
         other_user = User(email="other@test.example", hashed_password="x")
         session.add(other_user)
         session.flush()
-        session.add(
-            CollectionItem(
-                user_id=other_user.id,
-                set_code="LOB-001",
-                rarity_code="(UR)",
-                quantity=99,
-            )
+        _add_item(
+            session,
+            user_id=other_user.id,
+            set_code="LOB-001",
+            rarity_code="(UR)",
+            quantity=99,
         )
         session.commit()
         session.close()
@@ -105,26 +134,29 @@ class TestListCollection(unittest.TestCase):
         self.assertEqual(ur["card_id"], 89631139)
         self.assertEqual(ur["image_url_small"], "https://example.com/bewd-small.png")
         self.assertEqual(ur["rarity_display"], "UR")
+        self.assertEqual(len(ur["folders"]), 1)
+        self.assertEqual(ur["folders"][0]["name"], "Binder A")
 
     def test_folder_filter(self):
         session = self.Session()
         items, total = list_collection(
-            session, user_id=self.user_id, folder="Binder A"
+            session, user_id=self.user_id, folder=str(self.binder_id)
         )
         session.close()
 
         self.assertEqual(total, 1)
-        self.assertEqual(items[0]["folder_name"], "Binder A")
+        self.assertEqual(items[0]["folders"][0]["name"], "Binder A")
+        self.assertEqual(items[0]["quantity"], 2)
 
-    def test_unassigned_folder_filter(self):
+    def test_no_folder_filter(self):
         session = self.Session()
         items, total = list_collection(
-            session, user_id=self.user_id, folder=UNASSIGNED_FOLDER
+            session, user_id=self.user_id, folder=NO_FOLDER
         )
         session.close()
 
         self.assertEqual(total, 1)
-        self.assertIsNone(items[0]["folder_name"])
+        self.assertIsNone(items[0]["folders"][0]["folder_id"])
 
     def test_pagination(self):
         session = self.Session()

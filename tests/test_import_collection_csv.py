@@ -12,7 +12,15 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from ygo_app.import_data import IMPORT_ERROR_COLUMN, import_collection_csv
-from ygo_app.models import Base, Card, CollectionItem, Printing, User
+from ygo_app.models import (
+    Base,
+    Card,
+    CollectionFolder,
+    CollectionItem,
+    CollectionItemFolder,
+    Printing,
+    User,
+)
 
 
 def _sqlite_engine(path: str):
@@ -185,6 +193,49 @@ class TestImportCollectionCsv(unittest.TestCase):
         session.close()
         self.assertEqual(printing.set_code, "LOB-001")
         self.assertEqual(printing.set_rarity_code, "(UR)")
+
+    def test_import_creates_folder_once(self):
+        csv_path = Path(self._tmp.name).with_suffix(".folders.csv")
+        fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity", "Folder Name"]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "A",
+                    "Quantity": "1",
+                    "Folder Name": "Binder A",
+                }
+            )
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(SR)",
+                    "Card Name": "B",
+                    "Quantity": "2",
+                    "Folder Name": "binder a",
+                }
+            )
+
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 2)
+
+        session = self.Session()
+        folders = session.execute(
+            select(CollectionFolder).where(CollectionFolder.user_id == self.user_id)
+        ).scalars().all()
+        allocations = session.execute(
+            select(CollectionItemFolder).join(
+                CollectionItem, CollectionItem.id == CollectionItemFolder.collection_item_id
+            ).where(CollectionItem.user_id == self.user_id)
+        ).scalars().all()
+        session.close()
+
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(folders[0].name, "Binder A")
+        self.assertEqual(len(allocations), 2)
 
 
 if __name__ == "__main__":

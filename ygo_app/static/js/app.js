@@ -26,12 +26,13 @@ const state = {
   collectionTotal: 0,
   collectionFolder: null,
   collectionStats: null,
+  collectionItemsById: {},
   activePresetId: null,
   searchPresets: [],
 };
 
 const COLLECTION_PAGE_SIZE = 100;
-const UNASSIGNED_FOLDER = "__unassigned__";
+const NO_FOLDER = "__no_folder__";
 
 async function api(path, options = {}) {
   const headers = { Accept: "application/json", ...(options.headers || {}) };
@@ -1088,8 +1089,138 @@ function renderCollectionStatsLine() {
   const el = $("#collection-stats-line");
   if (!el || !state.collectionStats) return;
   const s = state.collectionStats;
-  const folderLabel = s.folders.length + (s.unassigned_count > 0 ? 1 : 0);
+  const folderLabel = s.folders.length + (s.no_folder_count > 0 ? 1 : 0);
   el.textContent = `${s.unique_printings.toLocaleString()} printings · ${s.total_quantity.toLocaleString()} cards · ${folderLabel} folder${folderLabel === 1 ? "" : "s"}`;
+}
+
+function itemTotalQuantity(item) {
+  const folders = item.folders || [];
+  if (!folders.length) return item.quantity;
+  return folders.reduce((sum, row) => sum + row.quantity, 0);
+}
+
+function formatFolderAllocationsLabel(folders) {
+  if (!folders?.length) return "No Folder";
+  return folders
+    .map((row) => {
+      const name = row.name || "No Folder";
+      return folders.length > 1 || row.quantity > 1 ? `${name} (${row.quantity})` : name;
+    })
+    .join(", ");
+}
+
+function closeFolderAllocationPopover() {
+  document.querySelector(".folder-allocation-popover")?.remove();
+}
+
+function openFolderAllocationEditor(item, itemId) {
+  closeFolderAllocationPopover();
+  const totalQty = itemTotalQuantity(item);
+  const folders = state.collectionStats?.folders || [];
+  const current = new Map(
+    (item.folders || []).map((row) => [row.folder_id ?? "none", row.quantity])
+  );
+
+  const popover = document.createElement("div");
+  popover.className = "folder-allocation-popover";
+  popover.innerHTML = `
+    <p class="folder-allocation-title">Assign folders (total: ${totalQty})</p>
+    <div class="folder-allocation-options">
+      <label class="folder-allocation-option">
+        <input type="checkbox" data-folder-id="" ${current.has("none") ? "checked" : ""} />
+        <span>No Folder</span>
+        <input type="number" class="folder-allocation-qty" min="1" max="${totalQty}" value="${current.get("none") || 1}" ${current.has("none") ? "" : "disabled"} />
+      </label>
+      ${folders
+        .map(
+          (folder) => `
+        <label class="folder-allocation-option">
+          <input type="checkbox" data-folder-id="${folder.id}" ${current.has(folder.id) ? "checked" : ""} />
+          <span>${escapeHtml(folder.name)}</span>
+          <input type="number" class="folder-allocation-qty" min="1" max="${totalQty}" value="${current.get(folder.id) || 1}" ${current.has(folder.id) ? "" : "disabled"} />
+        </label>`
+        )
+        .join("")}
+    </div>
+    <div class="folder-allocation-actions">
+      <button type="button" class="secondary folder-allocation-cancel">Cancel</button>
+      <button type="button" class="folder-allocation-save">Save</button>
+    </div>`;
+
+  document.body.appendChild(popover);
+  const anchor = document.querySelector(`tr[data-id="${itemId}"] .collection-folder-picker`);
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    popover.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - popover.offsetWidth - 8)}px`;
+  }
+
+  popover.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const qtyInput = checkbox.closest(".folder-allocation-option")?.querySelector(".folder-allocation-qty");
+      if (qtyInput) qtyInput.disabled = !checkbox.checked;
+    });
+  });
+
+  popover.querySelector(".folder-allocation-cancel")?.addEventListener("click", closeFolderAllocationPopover);
+  popover.querySelector(".folder-allocation-save")?.addEventListener("click", async () => {
+    const selected = [];
+    popover.querySelectorAll(".folder-allocation-option").forEach((row) => {
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      if (!checkbox?.checked) return;
+      const qty = Math.max(1, Number(row.querySelector(".folder-allocation-qty")?.value) || 1);
+      const rawId = checkbox.dataset.folderId;
+      selected.push({
+        folder_id: rawId === "" ? null : Number(rawId),
+        quantity: qty,
+      });
+    });
+    if (!selected.length) {
+      alert("Select at least one folder.");
+      return;
+    }
+    const sum = selected.reduce((acc, row) => acc + row.quantity, 0);
+    if (sum !== totalQty) {
+      alert(`Quantities must sum to ${totalQty} (currently ${sum}).`);
+      return;
+    }
+    try {
+      await patchCollectionItem(itemId, { folder_allocations: selected });
+      closeFolderAllocationPopover();
+      await loadCollectionPage(state.collectionPage);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  setTimeout(() => {
+    document.addEventListener(
+      "click",
+      (e) => {
+        if (!popover.contains(e.target) && !e.target.closest(".collection-folder-picker")) {
+          closeFolderAllocationPopover();
+        }
+      },
+      { once: true }
+    );
+  }, 0);
+}
+
+async function createCollectionFolder() {
+  const name = prompt("New folder name:");
+  if (!name?.trim()) return;
+  try {
+    await api("/collection/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    await loadCollectionStats();
+    renderCollectionStatsLine();
+    renderCollectionSidebar();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function renderCollectionSidebar() {
@@ -1099,57 +1230,94 @@ function renderCollectionSidebar() {
   const active = state.collectionFolder;
 
   const entries = [
-    { key: null, label: "All", count: s.total_items, qty: s.total_quantity },
+    { key: null, label: "All", count: s.total_items, deletable: false },
   ];
-  if (s.unassigned_count > 0) {
+  if (s.no_folder_count > 0) {
     entries.push({
-      key: UNASSIGNED_FOLDER,
-      label: "Unassigned",
-      count: s.unassigned_count,
-      qty: s.unassigned_quantity,
+      key: NO_FOLDER,
+      label: "No Folder",
+      count: s.no_folder_count,
+      deletable: false,
     });
   }
   for (const f of s.folders) {
-    entries.push({ key: f.name, label: f.name, count: f.item_count, qty: f.quantity });
+    entries.push({
+      key: String(f.id),
+      label: f.name,
+      count: f.item_count,
+      deletable: true,
+      folderId: f.id,
+    });
   }
 
   list.innerHTML = entries
     .map(
       (e) => `
-    <li class="${active === e.key ? "active" : ""}" data-folder="${e.key === null ? "" : encodeURIComponent(e.key)}">
+    <li class="${active === e.key ? "active" : ""}" data-folder="${e.key === null ? "" : encodeURIComponent(e.key)}" data-folder-id="${e.folderId ?? ""}">
       <span class="collection-folder-label">${escapeHtml(e.label)}</span>
-      <span class="collection-folder-count muted">${e.count}</span>
+      <span class="collection-folder-actions">
+        <span class="collection-folder-count muted">${e.count}</span>
+        ${e.deletable ? '<button type="button" class="collection-folder-delete" title="Delete folder">×</button>' : ""}
+      </span>
     </li>`
     )
     .join("");
 
   list.querySelectorAll("li").forEach((li) => {
-    li.addEventListener("click", async () => {
+    li.addEventListener("click", async (e) => {
+      if (e.target.closest(".collection-folder-delete")) return;
       const raw = li.dataset.folder;
       state.collectionFolder = raw === "" ? null : decodeURIComponent(raw);
       state.collectionPage = 0;
       renderCollectionSidebar();
       await loadCollectionPage(0);
     });
-    if (li.dataset.folder && li.dataset.folder !== UNASSIGNED_FOLDER) {
+
+    li.querySelector(".collection-folder-delete")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const folderId = Number(li.dataset.folderId);
+      const folderName = li.querySelector(".collection-folder-label")?.textContent || "folder";
+      const folderStats = s.folders.find((row) => row.id === folderId);
+      const qty = folderStats?.quantity ?? 0;
+      const count = folderStats?.item_count ?? 0;
+      if (
+        !confirm(
+          `Delete "${folderName}"? ${count} card row(s) (${qty} copies) will move to No Folder.`
+        )
+      ) {
+        return;
+      }
+      try {
+        await api(`/collection/folders/${folderId}`, { method: "DELETE" });
+        if (state.collectionFolder === String(folderId)) {
+          state.collectionFolder = null;
+        }
+        await loadCollectionStats();
+        renderCollectionStatsLine();
+        renderCollectionSidebar();
+        await loadCollectionPage(state.collectionPage);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    if (li.dataset.folderId) {
       li.addEventListener("dblclick", async (e) => {
+        if (e.target.closest(".collection-folder-delete")) return;
         e.preventDefault();
-        const fromName = decodeURIComponent(li.dataset.folder);
+        const folderId = Number(li.dataset.folderId);
+        const fromName = li.querySelector(".collection-folder-label")?.textContent || "";
         const toName = prompt("Rename folder:", fromName);
         if (!toName?.trim() || toName.trim() === fromName) return;
         try {
-          const result = await api("/collection/folders/rename", {
+          await api(`/collection/folders/${folderId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ from_name: fromName, to_name: toName.trim() }),
+            body: JSON.stringify({ name: toName.trim() }),
           });
-          if (state.collectionFolder === fromName) {
-            state.collectionFolder = toName.trim();
-          }
           await loadCollectionStats();
           renderCollectionSidebar();
           await loadCollectionPage(state.collectionPage);
-          alert(`Renamed folder (${result.updated} items updated).`);
         } catch (err) {
           alert(err.message);
         }
@@ -1222,6 +1390,11 @@ function renderCollectionTable(items) {
   const tableWrap = $(".collection-table-wrap");
   if (!tbody) return;
 
+  state.collectionItemsById = {};
+  for (const item of items) {
+    state.collectionItemsById[item.id] = item;
+  }
+
   if (!items.length) {
     tbody.innerHTML = "";
     emptyEl?.classList.remove("hidden");
@@ -1236,7 +1409,7 @@ function renderCollectionTable(items) {
   tbody.innerHTML = items
     .map(
       (item) => `
-    <tr data-id="${item.id}" data-card-id="${item.card_id ?? ""}" class="collection-row">
+    <tr data-id="${item.id}" data-card-id="${item.card_id ?? ""}" data-total-qty="${itemTotalQuantity(item)}" class="collection-row">
       <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
@@ -1246,7 +1419,9 @@ function renderCollectionTable(items) {
       </td>
       <td>${escapeHtml(item.condition || "—")}</td>
       <td>
-        <input type="text" class="collection-folder-input" value="${escapeHtml(item.folder_name || "")}" placeholder="Unassigned" aria-label="Folder" />
+        <button type="button" class="secondary collection-folder-picker" aria-label="Folders">
+          ${escapeHtml(formatFolderAllocationsLabel(item.folders))}
+        </button>
       </td>
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
       <td>
@@ -1259,6 +1434,7 @@ function renderCollectionTable(items) {
   tbody.querySelectorAll(".collection-row").forEach((row) => {
     const itemId = Number(row.dataset.id);
     const cardId = row.dataset.cardId ? Number(row.dataset.cardId) : null;
+    const item = state.collectionItemsById[itemId];
 
     row.addEventListener("click", (e) => {
       if (
@@ -1273,29 +1449,43 @@ function renderCollectionTable(items) {
 
     const qtyInput = row.querySelector(".collection-qty-input");
     qtyInput?.addEventListener("change", async () => {
-      const qty = Math.max(0, Number(qtyInput.value) || 0);
-      qtyInput.value = String(qty);
+      const newQty = Math.max(0, Number(qtyInput.value) || 0);
+      qtyInput.value = String(newQty);
       try {
-        if (qty === 0) {
+        if (newQty === 0) {
           await removeCollectionItem(itemId);
-        } else {
-          await patchCollectionItem(itemId, { quantity: qty });
+          return;
         }
+        const folderFilter = state.collectionFolder;
+        if (!folderFilter) {
+          await patchCollectionItem(itemId, { quantity: newQty });
+        } else {
+          const folderId = folderFilter === NO_FOLDER ? null : Number(folderFilter);
+          const allocs = (item.folders || []).map((row) => ({
+            folder_id: row.folder_id,
+            quantity: row.quantity,
+          }));
+          const updated = allocs.map((row) =>
+            (row.folder_id === folderId || (row.folder_id == null && folderId == null))
+              ? { ...row, quantity: newQty }
+              : row
+          );
+          const newTotal = updated.reduce((sum, row) => sum + row.quantity, 0);
+          await patchCollectionItem(itemId, {
+            quantity: newTotal,
+            folder_allocations: updated,
+          });
+        }
+        await loadCollectionPage(state.collectionPage);
       } catch (err) {
         alert(err.message);
         await loadCollectionPage(state.collectionPage);
       }
     });
 
-    const folderInput = row.querySelector(".collection-folder-input");
-    folderInput?.addEventListener("change", async () => {
-      const folder = folderInput.value.trim() || null;
-      try {
-        await patchCollectionItem(itemId, { folder_name: folder });
-        await loadCollectionPage(state.collectionPage);
-      } catch (err) {
-        alert(err.message);
-      }
+    row.querySelector(".collection-folder-picker")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openFolderAllocationEditor(item, itemId);
     });
 
     row.querySelector(".collection-delete-btn")?.addEventListener("click", async (e) => {
@@ -1707,6 +1897,8 @@ function wireEvents() {
       e.target.value = "";
     }
   });
+
+  $("#collection-new-folder-btn")?.addEventListener("click", createCollectionFolder);
 
   $("#collection-filter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();

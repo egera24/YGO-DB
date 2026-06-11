@@ -302,6 +302,18 @@ def import_collection_csv(
             rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
             return
 
+        from ygo_app.models import CollectionItemFolder
+        from ygo_app.services import get_or_create_folder
+
+        quantity = int(row.get("Quantity") or 1)
+        folder_raw = (row.get("Folder Name") or "").strip()
+        folder = None
+        if folder_raw:
+            try:
+                folder = get_or_create_folder(session, user_id, folder_raw)
+            except ValueError:
+                folder = None
+
         item = CollectionItem(
             user_id=user_id,
             set_code=set_code,
@@ -309,12 +321,11 @@ def import_collection_csv(
             card_name=row.get("Card Name"),
             expansion_code=row.get("Set Code"),
             set_name=row.get("Set Name"),
-            quantity=int(row.get("Quantity") or 1),
+            quantity=quantity,
             trade_quantity=int(row.get("Trade Quantity") or 0),
             condition=row.get("Condition"),
             edition=row.get("Printing") or "Unlimited",
             language=row.get("Language"),
-            folder_name=row.get("Folder Name"),
             price_bought=_float_or_none(row.get("Price Bought")),
             date_bought=row.get("Date Bought"),
             avg_price=_float_or_none(row.get("AVG")),
@@ -323,6 +334,14 @@ def import_collection_csv(
             printing_id=printing_id,
         )
         session.add(item)
+        session.flush()
+        session.add(
+            CollectionItemFolder(
+                collection_item_id=item.id,
+                folder_id=folder.id if folder else None,
+                quantity=quantity,
+            )
+        )
         imported += 1
 
         if imported % 500 == 0:
@@ -330,8 +349,13 @@ def import_collection_csv(
 
     try:
         if replace:
+            from ygo_app.models import CollectionFolder
+
             session.query(CollectionItem).filter(
                 CollectionItem.user_id == user_id
+            ).delete()
+            session.query(CollectionFolder).filter(
+                CollectionFolder.user_id == user_id
             ).delete()
             session.commit()
 

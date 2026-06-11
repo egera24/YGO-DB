@@ -60,6 +60,12 @@ class CardDetail(CardSummary):
     tags: list[str] = []
 
 
+class FolderAllocationOut(BaseModel):
+    folder_id: int | None
+    name: str | None
+    quantity: int
+
+
 class CollectionItemOut(BaseModel):
     id: int
     set_code: str
@@ -73,7 +79,7 @@ class CollectionItemOut(BaseModel):
     condition: str | None
     printing: str | None
     language: str | None
-    folder_name: str | None
+    folders: list[FolderAllocationOut] = Field(default_factory=list)
     price_bought: float | None
     date_bought: str | None
     avg_price: float | None
@@ -94,6 +100,7 @@ class CollectionListOut(BaseModel):
 
 
 class CollectionFolderStats(BaseModel):
+    id: int
     name: str
     item_count: int
     quantity: int
@@ -103,18 +110,62 @@ class CollectionStatsOut(BaseModel):
     total_items: int
     total_quantity: int
     unique_printings: int
-    unassigned_count: int
-    unassigned_quantity: int
+    no_folder_count: int
+    no_folder_quantity: int
     folders: list[CollectionFolderStats]
 
 
-class FolderRenameRequest(BaseModel):
-    from_name: str
-    to_name: str
+class CollectionFolderOut(BaseModel):
+    id: int
+    name: str
+    sort_order: int
+    item_count: int = 0
+    quantity: int = 0
+
+    model_config = {"from_attributes": True}
 
 
-class FolderRenameResult(BaseModel):
-    updated: int
+class CollectionFolderCreate(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Folder name is required")
+        return name
+
+
+class CollectionFolderUpdate(BaseModel):
+    name: str | None = None
+    sort_order: int | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        if not name:
+            raise ValueError("Folder name is required")
+        return name
+
+    @model_validator(mode="after")
+    def require_field(self):
+        if self.name is None and self.sort_order is None:
+            raise ValueError("At least one of name or sort_order is required")
+        return self
+
+
+class FolderAllocation(BaseModel):
+    folder_id: int | None
+    quantity: int = Field(ge=1)
+
+
+class CollectionFolderDeleteResult(BaseModel):
+    moved_allocations: int
+    moved_quantity: int
 
 
 class CollectionItemCreate(BaseModel):
@@ -128,7 +179,8 @@ class CollectionItemCreate(BaseModel):
     condition: str | None = "NearMint"
     printing: str | None = "Unlimited"
     language: str | None = "English"
-    folder_name: str | None = None
+    folder_id: int | None = None
+    folder_allocations: list[FolderAllocation] | None = None
     price_bought: float | None = None
     date_bought: str | None = None
     notes: str | None = None
@@ -139,7 +191,7 @@ class CollectionItemUpdate(BaseModel):
     trade_quantity: int | None = None
     condition: str | None = None
     printing: str | None = None
-    folder_name: str | None = None
+    folder_allocations: list[FolderAllocation] | None = None
     notes: str | None = None
 
 

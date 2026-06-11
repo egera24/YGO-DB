@@ -33,6 +33,21 @@ const state = {
 
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
+const COLLECTION_CONDITIONS = [
+  { value: "Mint", label: "Mint (MT)" },
+  { value: "NearMint", label: "Near Mint (NM)" },
+  { value: "Excellent", label: "Excellent (EX)" },
+  { value: "Good", label: "Good (GD)" },
+  { value: "LightPlayed", label: "Light Played (LP)" },
+  { value: "Played", label: "Played (PL)" },
+  { value: "Poor", label: "Poor (PO)" },
+];
+
+function conditionLabel(value) {
+  if (!value) return "—";
+  const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
+  return match ? match.label : value;
+}
 
 async function api(path, options = {}) {
   const headers = { Accept: "application/json", ...(options.headers || {}) };
@@ -923,7 +938,8 @@ function syncModalOpenClass() {
   if (
     isModalVisible("#card-modal") ||
     isModalVisible("#search-help-modal") ||
-    isModalVisible("#export-collection-modal")
+    isModalVisible("#export-collection-modal") ||
+    isModalVisible("#collection-edit-modal")
   ) {
     document.body.classList.add("modal-open");
   } else {
@@ -1513,6 +1529,164 @@ async function removeCollectionItem(itemId, { confirm: askConfirm = true } = {})
   return true;
 }
 
+let collectionEditContext = null;
+
+function closeCollectionEditModal() {
+  const dlg = $("#collection-edit-modal");
+  if (!dlg || dlg.hidden) return;
+  dlg.hidden = true;
+  collectionEditContext = null;
+  syncModalOpenClass();
+}
+
+function populateCollectionEditRarity(printings, setCode, item) {
+  const raritySel = $("#collection-edit-rarity");
+  if (!raritySel) return;
+  const seen = new Set();
+  const parts = [];
+  for (const p of printings) {
+    if (p.set_code !== setCode || seen.has(p.set_rarity_code)) continue;
+    seen.add(p.set_rarity_code);
+    parts.push(
+      `<option value="${escapeHtml(p.set_rarity_code)}">${escapeHtml(p.set_rarity || p.set_rarity_code)}</option>`
+    );
+  }
+  if (setCode === item.set_code && !seen.has(item.rarity_code)) {
+    parts.unshift(
+      `<option value="${escapeHtml(item.rarity_code)}">${escapeHtml(item.rarity_display || item.rarity_code)}</option>`
+    );
+  }
+  raritySel.innerHTML = parts.join("");
+  if (setCode === item.set_code) raritySel.value = item.rarity_code;
+}
+
+async function openCollectionEditModal(item, itemId) {
+  const dlg = $("#collection-edit-modal");
+  if (!dlg) return;
+  collectionEditContext = { item, itemId, printings: [] };
+
+  $("#collection-edit-card-name").textContent = item.card_name || item.set_code;
+
+  const condSel = $("#collection-edit-condition");
+  const currentCondition = item.condition || "";
+  const isKnownCondition = COLLECTION_CONDITIONS.some(
+    (c) => c.value === currentCondition
+  );
+  condSel.innerHTML = [
+    ...(!currentCondition ? ['<option value="">(not set)</option>'] : []),
+    ...(currentCondition && !isKnownCondition
+      ? [
+          `<option value="${escapeHtml(currentCondition)}">${escapeHtml(currentCondition)}</option>`,
+        ]
+      : []),
+    ...COLLECTION_CONDITIONS.map(
+      (c) => `<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}</option>`
+    ),
+  ].join("");
+  condSel.value = currentCondition;
+
+  $("#collection-edit-quantity").value = String(item.quantity);
+
+  const setSel = $("#collection-edit-set");
+  const raritySel = $("#collection-edit-rarity");
+  const note = $("#collection-edit-note");
+  note.classList.add("hidden");
+  setSel.disabled = true;
+  raritySel.disabled = true;
+  setSel.innerHTML = `<option value="${escapeHtml(item.set_code)}">${escapeHtml(item.set_code)}</option>`;
+  raritySel.innerHTML = `<option value="${escapeHtml(item.rarity_code)}">${escapeHtml(item.rarity_display || item.rarity_code)}</option>`;
+
+  dlg.hidden = false;
+  syncModalOpenClass();
+  $("#collection-edit-close")?.focus();
+
+  if (!item.card_id) {
+    note.textContent =
+      "This row isn't matched to the catalog, so Set and Rarity can't be changed here.";
+    note.classList.remove("hidden");
+    return;
+  }
+  try {
+    const card = await api(`/cards/${item.card_id}`);
+    if (!collectionEditContext || collectionEditContext.itemId !== itemId) return;
+    const printings = card.printings || [];
+    collectionEditContext.printings = printings;
+    const setCodes = [...new Set(printings.map((p) => p.set_code))];
+    if (!setCodes.includes(item.set_code)) setCodes.unshift(item.set_code);
+    setSel.innerHTML = setCodes
+      .map((code) => `<option value="${escapeHtml(code)}">${escapeHtml(code)}</option>`)
+      .join("");
+    setSel.value = item.set_code;
+    populateCollectionEditRarity(printings, item.set_code, item);
+    setSel.disabled = false;
+    raritySel.disabled = false;
+  } catch (err) {
+    if (!collectionEditContext || collectionEditContext.itemId !== itemId) return;
+    note.textContent = `Could not load printings: ${err.message}`;
+    note.classList.remove("hidden");
+  }
+}
+
+async function saveCollectionEdit() {
+  if (!collectionEditContext) return;
+  const { item, itemId } = collectionEditContext;
+
+  const qty = Number($("#collection-edit-quantity").value);
+  if (!Number.isInteger(qty) || qty < 1) {
+    alert("Quantity must be a whole number of at least 1.");
+    return;
+  }
+
+  const body = {};
+
+  const setSel = $("#collection-edit-set");
+  const raritySel = $("#collection-edit-rarity");
+  if (!setSel.disabled && setSel.value && raritySel.value) {
+    if (setSel.value !== item.set_code || raritySel.value !== item.rarity_code) {
+      body.set_code = setSel.value;
+      body.rarity = raritySel.value;
+    }
+  }
+
+  const condVal = $("#collection-edit-condition").value;
+  const condCanonical = COLLECTION_CONDITIONS.some((c) => c.value === condVal);
+  if (condVal !== (item.condition || "") && condCanonical) {
+    body.condition = condVal;
+  }
+
+  if (qty !== item.quantity) {
+    const folderFilter = state.collectionFolder;
+    if (!folderFilter) {
+      body.quantity = qty;
+    } else {
+      const folderId = folderFilter === NO_FOLDER ? null : Number(folderFilter);
+      const allocs = (item.folders || []).map((row) => ({
+        folder_id: row.folder_id,
+        quantity: row.quantity,
+      }));
+      const updated = allocs.map((row) =>
+        (row.folder_id === folderId || (row.folder_id == null && folderId == null))
+          ? { ...row, quantity: qty }
+          : row
+      );
+      body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
+      body.folder_allocations = updated;
+    }
+  }
+
+  if (!Object.keys(body).length) {
+    closeCollectionEditModal();
+    return;
+  }
+  try {
+    await patchCollectionItem(itemId, body);
+    closeCollectionEditModal();
+    await loadCollectionPage(state.collectionPage);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function renderCollectionTable(items) {
   const tbody = $("#collection-tbody");
   const emptyEl = $("#collection-empty");
@@ -1546,10 +1720,8 @@ function renderCollectionTable(items) {
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
       <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
-      <td>
-        <input type="number" class="collection-qty-input" min="0" value="${item.quantity}" aria-label="Quantity" />
-      </td>
-      <td>${escapeHtml(item.condition || "—")}</td>
+      <td class="collection-qty-cell">${item.quantity}</td>
+      <td>${escapeHtml(conditionLabel(item.condition))}</td>
       <td>
         <button type="button" class="secondary collection-folder-picker" aria-label="Folders">
           ${escapeHtml(formatFolderAllocationsLabel(item.folders))}
@@ -1558,6 +1730,7 @@ function renderCollectionTable(items) {
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
       <td>
         <div class="collection-row-actions">
+          <button type="button" class="secondary collection-edit-btn" title="Edit set, rarity, quantity, condition">Edit</button>
           ${inFolder ? `
           <button type="button" class="secondary collection-move-btn" title="Move copies to another folder">Move</button>
           <button type="button" class="secondary collection-copy-btn" title="Copy to another folder">Copy</button>` : ""}
@@ -1584,40 +1757,9 @@ function renderCollectionTable(items) {
       openCardModal(cardId);
     });
 
-    const qtyInput = row.querySelector(".collection-qty-input");
-    qtyInput?.addEventListener("change", async () => {
-      const newQty = Math.max(0, Number(qtyInput.value) || 0);
-      qtyInput.value = String(newQty);
-      try {
-        if (newQty === 0) {
-          await removeCollectionItem(itemId);
-          return;
-        }
-        const folderFilter = state.collectionFolder;
-        if (!folderFilter) {
-          await patchCollectionItem(itemId, { quantity: newQty });
-        } else {
-          const folderId = folderFilter === NO_FOLDER ? null : Number(folderFilter);
-          const allocs = (item.folders || []).map((row) => ({
-            folder_id: row.folder_id,
-            quantity: row.quantity,
-          }));
-          const updated = allocs.map((row) =>
-            (row.folder_id === folderId || (row.folder_id == null && folderId == null))
-              ? { ...row, quantity: newQty }
-              : row
-          );
-          const newTotal = updated.reduce((sum, row) => sum + row.quantity, 0);
-          await patchCollectionItem(itemId, {
-            quantity: newTotal,
-            folder_allocations: updated,
-          });
-        }
-        await loadCollectionPage(state.collectionPage);
-      } catch (err) {
-        alert(err.message);
-        await loadCollectionPage(state.collectionPage);
-      }
+    row.querySelector(".collection-edit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openCollectionEditModal(item, itemId);
     });
 
     row.querySelector(".collection-folder-picker")?.addEventListener("click", (e) => {
@@ -1978,6 +2120,21 @@ function wireEvents() {
     if (e.target === $("#export-collection-modal")) closeExportCollectionModal();
   });
 
+  $("#collection-edit-cancel")?.addEventListener("click", closeCollectionEditModal);
+  $("#collection-edit-close")?.addEventListener("click", closeCollectionEditModal);
+  $("#collection-edit-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#collection-edit-modal")) closeCollectionEditModal();
+  });
+  $("#collection-edit-save")?.addEventListener("click", saveCollectionEdit);
+  $("#collection-edit-set")?.addEventListener("change", () => {
+    if (!collectionEditContext) return;
+    populateCollectionEditRarity(
+      collectionEditContext.printings,
+      $("#collection-edit-set").value,
+      collectionEditContext.item
+    );
+  });
+
   $("#export-collection-confirm")?.addEventListener("click", async () => {
     const selected = document.querySelector('input[name="export-format"]:checked');
     if (!selected) {
@@ -2066,7 +2223,8 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
+    if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
+    else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#search-help-modal")) closeSearchHelpModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });

@@ -186,13 +186,34 @@ class CollectionItemCreate(BaseModel):
     notes: str | None = None
 
 
+COLLECTION_CONDITIONS = (
+    "Mint",
+    "NearMint",
+    "Excellent",
+    "Good",
+    "LightPlayed",
+    "Played",
+    "Poor",
+)
+
+
 class CollectionItemUpdate(BaseModel):
     quantity: int | None = None
     trade_quantity: int | None = None
+    set_code: str | None = None
+    rarity: str | None = None
     condition: str | None = None
     printing: str | None = None
     folder_allocations: list[FolderAllocation] | None = None
     notes: str | None = None
+
+    @field_validator("condition")
+    @classmethod
+    def _validate_condition(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_CONDITIONS:
+            allowed = ", ".join(COLLECTION_CONDITIONS)
+            raise ValueError(f"Condition must be one of: {allowed}")
+        return value
 
 
 class DeckCardOut(BaseModel):

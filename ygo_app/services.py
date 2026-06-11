@@ -1109,6 +1109,50 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
     return item
 
 
+def _reassign_collection_item_printing(
+    session: Session,
+    *,
+    user_id: int,
+    item: CollectionItem,
+    set_code: str,
+    rarity_code: str,
+) -> None:
+    """Move a collection row to another catalog printing (set code + rarity)."""
+    printing = session.execute(
+        select(Printing)
+        .where(Printing.set_code == set_code)
+        .where(Printing.set_rarity_code == rarity_code)
+        .limit(1)
+    ).scalars().first()
+    if printing is None:
+        raise ValueError(
+            f"No catalog printing found for {set_code} ({rarity_display(rarity_code)})"
+        )
+    duplicate = session.execute(
+        select(CollectionItem.id)
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.set_code == set_code,
+            CollectionItem.rarity_code == rarity_code,
+            CollectionItem.id != item.id,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise ValueError(
+            f"You already have a collection row for {set_code} "
+            f"({rarity_display(rarity_code)}); edit that row instead."
+        )
+    item.set_code = set_code
+    item.rarity_code = rarity_code
+    item.printing_id = printing.id
+    item.set_name = printing.set_name
+    if "-" in set_code:
+        item.expansion_code = set_code.split("-", 1)[0]
+    if printing.card is not None:
+        item.card_name = printing.card.name
+
+
 def update_collection_item(
     session: Session,
     *,
@@ -1119,6 +1163,23 @@ def update_collection_item(
     folder_allocations = data.pop("folder_allocations", None)
     if "printing" in data:
         data["edition"] = data.pop("printing")
+    new_set_code = data.pop("set_code", None)
+    new_rarity = data.pop("rarity", None)
+    if new_set_code is not None or new_rarity is not None:
+        set_code = (new_set_code or item.set_code).strip()
+        rarity_code = (
+            normalize_rarity_code(new_rarity)
+            if new_rarity is not None
+            else item.rarity_code
+        )
+        if set_code != item.set_code or rarity_code != item.rarity_code:
+            _reassign_collection_item_printing(
+                session,
+                user_id=user_id,
+                item=item,
+                set_code=set_code,
+                rarity_code=rarity_code,
+            )
     old_quantity = item.quantity
     for field, value in data.items():
         setattr(item, field, value)

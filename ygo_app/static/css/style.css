@@ -406,6 +406,42 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   justify-content: flex-end;
   gap: 0.5rem;
 }
+.collection-edit-header {
+  margin: 0 2rem 1rem 0;
+}
+.collection-edit-header h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.25rem;
+}
+.collection-edit-header .muted {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.collection-edit-form {
+  margin-bottom: 1rem;
+}
+.collection-edit-field {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.9rem;
+}
+.collection-edit-field select,
+.collection-edit-field input {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+}
+.collection-edit-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+.collection-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
 .search-help-header {
   margin: 0 2rem 1rem 0;
 }
@@ -752,9 +788,9 @@ tr:hover td { background: var(--surface); }
   background: #000;
 }
 .collection-row { cursor: pointer; }
-.collection-qty-input {
-  width: 4rem;
-  padding: 0.25rem 0.35rem;
+.collection-qty-cell {
+  text-align: center;
+  white-space: nowrap;
 }
 .collection-folder-input {
   width: 100%;

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=29" />
+  <link rel="stylesheet" href="/static/css/style.css?v=30" />
 </head>
 <body>
   <header class="app-header">
@@ -244,7 +244,7 @@
                   <th scope="col">Card</th>
                   <th scope="col">Set</th>
                   <th scope="col">Rarity</th>
-                  <th scope="col">Qty</th>
+                  <th scope="col">Quantity</th>
                   <th scope="col">Condition</th>
                   <th scope="col">Folder</th>
                   <th scope="col">Notes</th>
@@ -342,6 +342,39 @@
     </article>
   </div>
 
+  <div id="collection-edit-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-edit-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="collection-edit-close" class="modal-close" aria-label="Close">&times;</button>
+      <header class="collection-edit-header">
+        <h2 id="collection-edit-title">Edit card</h2>
+        <p id="collection-edit-card-name" class="muted"></p>
+      </header>
+      <div class="collection-edit-form">
+        <label class="collection-edit-field">
+          <span>Set</span>
+          <select id="collection-edit-set"></select>
+        </label>
+        <label class="collection-edit-field">
+          <span>Rarity</span>
+          <select id="collection-edit-rarity"></select>
+        </label>
+        <label class="collection-edit-field">
+          <span>Quantity</span>
+          <input type="number" id="collection-edit-quantity" min="1" value="1" />
+        </label>
+        <label class="collection-edit-field">
+          <span>Condition</span>
+          <select id="collection-edit-condition"></select>
+        </label>
+        <p id="collection-edit-note" class="muted collection-edit-note hidden"></p>
+      </div>
+      <div class="collection-edit-actions">
+        <button type="button" id="collection-edit-cancel" class="secondary">Cancel</button>
+        <button type="button" id="collection-edit-save">Save</button>
+      </div>
+    </article>
+  </div>
+
   <div id="search-help-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-help-title" hidden>
     <article class="modal-card modal-card--narrow">
       <button type="button" id="search-help-close" class="modal-close" aria-label="Close">&times;</button>
@@ -396,6 +429,6 @@
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=33" type="module"></script>
+  <script src="/static/js/app.js?v=35" type="module"></script>
 </body>
 </html>

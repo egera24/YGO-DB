@@ -107,7 +107,25 @@ class TestSyncImages(unittest.TestCase):
         small = Image.open(io.BytesIO(s3.objects["cards/44444444-small.webp"]))
         self.assertEqual(full.format, "WEBP")
         self.assertEqual(small.format, "WEBP")
+        self.assertEqual(full.width, 300)
         self.assertLessEqual(small.width, sync_card_images.SMALL_WIDTH)
+        self.assertEqual(small.width, 300)
+
+    def test_small_thumb_downscales_large_source(self):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (600, 880), (10, 120, 200)).save(buf, "PNG")
+        entries = [{"id": "55555555", "image_url": "https://ms.yugipedia.com//g/h/Five.png"}]
+        s3 = FakeS3()
+        scraper = FakeScraper(buf.getvalue())
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            with mock.patch.object(sync_card_images, "create_scraper", return_value=scraper), \
+                    mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
+                sync_images(entries, s3, "bucket", manifest_path=manifest_path)
+        small = Image.open(io.BytesIO(s3.objects["cards/55555555-small.webp"]))
+        self.assertEqual(small.width, sync_card_images.SMALL_WIDTH)
 
 
 class TestManifestFromBucket(unittest.TestCase):

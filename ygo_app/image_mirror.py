@@ -4,7 +4,7 @@ Object keys are passcode-based so the bucket can be migrated to any other
 S3-compatible vendor (rclone sync + change IMAGE_BASE_URL) with no code change:
 
     cards/{passcode}.webp        full image
-    cards/{passcode}-small.webp  ~150px thumbnail
+    cards/{passcode}-small.webp  ~300px thumbnail
 
 The sync job (ygo_app.jobs.sync_card_images) writes a manifest JSON listing
 mirrored passcodes; the catalog import rewrites image URLs for those passcodes.

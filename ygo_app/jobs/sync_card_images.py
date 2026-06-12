@@ -1,7 +1,7 @@
 """Mirror card images from Yugipedia to an S3-compatible bucket (Cloudflare R2).
 
 Reads data/catalog/yugipedia_all_cards.json, downloads each card's full image
-once, converts to WebP (full + 150px thumbnail), and uploads with immutable
+once, converts to WebP (full + 300px thumbnail), and uploads with immutable
 cache headers. Incremental: passcodes whose objects already exist are skipped
 (use --force to re-mirror). Writes data/catalog/images_manifest.json listing
 mirrored passcodes, consumed by the catalog import to rewrite image URLs.
@@ -32,8 +32,9 @@ from ygo_app.yugipedia.http_client import RateLimiter, create_scraper
 from ygo_app.yugipedia.images import passcode_to_int
 from ygo_app.yugipedia.paths import ALL_CARDS_PATH, IMAGES_MANIFEST_PATH
 
-WEBP_QUALITY = 82
-SMALL_WIDTH = 150
+WEBP_QUALITY = 85
+WEBP_QUALITY_SMALL = 88
+SMALL_WIDTH = 300
 KEY_PREFIX = "cards/"
 CACHE_CONTROL = "public, max-age=31536000, immutable"
 PROGRESS_EVERY = 100
@@ -122,9 +123,9 @@ def convert_to_webp(data: bytes) -> tuple[bytes, bytes]:
         img.save(full_buf, "WEBP", quality=WEBP_QUALITY, method=6)
 
         small = img.copy()
-        small.thumbnail((SMALL_WIDTH, SMALL_WIDTH * 4))
+        small.thumbnail((SMALL_WIDTH, SMALL_WIDTH * 4), Image.Resampling.LANCZOS)
         small_buf = io.BytesIO()
-        small.save(small_buf, "WEBP", quality=WEBP_QUALITY, method=6)
+        small.save(small_buf, "WEBP", quality=WEBP_QUALITY_SMALL, method=6)
     return full_buf.getvalue(), small_buf.getvalue()
 
 

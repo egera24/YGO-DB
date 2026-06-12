@@ -82,7 +82,7 @@ jobs:
           echo "Force: true"
           echo "Card limit: ${CARD_LIMIT:-none}"
           echo "Catalog cards: ${CARD_COUNT}"
-          ARGS=(--force)
+          ARGS=(--force --workers 6)
           if [[ -n "$CARD_LIMIT" ]]; then
             ARGS+=(--limit "$CARD_LIMIT")
           fi

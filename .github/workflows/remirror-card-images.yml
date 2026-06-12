@@ -38,12 +38,25 @@ jobs:
           fi
 
       - name: Download latest catalog artifact
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          workflow: import-catalog-yugipedia.yml
-          name: catalog-state
-          branch: develop
-          workflow_conclusion: success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID="$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow=import-catalog-yugipedia.yml \
+            --branch=develop \
+            --status=success \
+            --limit=1 \
+            --json databaseId \
+            --jq '.[0].databaseId')"
+          if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
+            echo "::error::No successful Import Yugipedia catalog run found on develop."
+            exit 1
+          fi
+          echo "Using catalog artifact from run ${RUN_ID}"
+          mkdir -p data/catalog
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" -n catalog-state -D data/catalog
+          test -f data/catalog/yugipedia_all_cards.json
 
       - name: Force remirror card images
         if: steps.mirror.outputs.enabled == 'true'

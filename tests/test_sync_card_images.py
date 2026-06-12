@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,7 @@ from unittest import mock
 
 from ygo_app.image_mirror import load_images_manifest
 from ygo_app.jobs import sync_card_images
-from ygo_app.jobs.sync_card_images import manifest_from_bucket, sync_images
+from ygo_app.jobs.sync_card_images import FAILURES_FILENAME, manifest_from_bucket, sync_images
 
 
 class FakeS3:
@@ -126,6 +127,74 @@ class TestSyncImages(unittest.TestCase):
                 sync_images(entries, s3, "bucket", manifest_path=manifest_path)
         small = Image.open(io.BytesIO(s3.objects["cards/55555555-small.webp"]))
         self.assertEqual(small.width, sync_card_images.SMALL_WIDTH)
+
+    def test_progress_emits_multiple_times(self):
+        entries = [
+            {"id": f"{index:08d}", "image_url": f"https://ms.yugipedia.com//x/{index}.png"}
+            for index in range(120)
+        ]
+        s3 = FakeS3()
+        log_messages: list[str] = []
+
+        def capture_log(message: str) -> None:
+            log_messages.append(message)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            scraper = FakeScraper(_png_bytes())
+            with mock.patch.object(sync_card_images, "log_line", side_effect=capture_log), \
+                    mock.patch.object(sync_card_images, "create_scraper", return_value=scraper), \
+                    mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
+                sync_images(entries, s3, "bucket", manifest_path=manifest_path)
+
+        progress_msgs = [message for message in log_messages if message.startswith("[PROGRESS]")]
+        self.assertGreaterEqual(len(progress_msgs), 3)
+        self.assertTrue(any("/120" in message for message in progress_msgs))
+        self.assertTrue(any(message.startswith("[RESULT]") for message in log_messages))
+
+    def test_download_failure_writes_failures_json(self):
+        entries = [{"id": "66666666", "image_url": "https://ms.yugipedia.com//fail.png"}]
+        s3 = FakeS3()
+
+        def fail_fetch(_scraper, _url, **kwargs):
+            return None, "HTTPError: 404 Not Found"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            with mock.patch.object(sync_card_images, "fetch_image_bytes", side_effect=fail_fetch), \
+                    mock.patch.object(sync_card_images, "create_scraper"), \
+                    mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
+                counters = sync_images(entries, s3, "bucket", manifest_path=manifest_path)
+            failures_path = manifest_path.parent / FAILURES_FILENAME
+            self.assertEqual(counters["failed"], 1)
+            self.assertTrue(failures_path.exists())
+            failures = json.loads(failures_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["passcode"], 66666666)
+            self.assertEqual(failures[0]["stage"], "download")
+
+    def test_main_returns_1_when_sync_has_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            json_path = Path(tmp) / "cards.json"
+            json_path.write_text('[{"id": "12345678", "image_url": "https://example.com/x.png"}]', encoding="utf-8")
+            manifest_path = Path(tmp) / "manifest.json"
+            with mock.patch.object(sync_card_images, "build_s3_client", return_value=FakeS3()), \
+                    mock.patch(
+                        "ygo_app.jobs.import_catalog_yugipedia.load_yugipedia_cards",
+                        return_value=[{"id": "12345678", "image_url": "https://example.com/x.png"}],
+                    ), \
+                    mock.patch.object(
+                        sync_card_images,
+                        "sync_images",
+                        return_value={
+                            "skipped_existing": 0,
+                            "uploaded": 0,
+                            "no_image": 0,
+                            "failed": 1,
+                        },
+                    ):
+                rc = sync_card_images.main(["--json", str(json_path), "--manifest", str(manifest_path)])
+            self.assertEqual(rc, 1)
 
 
 class TestManifestFromBucket(unittest.TestCase):

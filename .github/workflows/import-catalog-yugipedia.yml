@@ -388,6 +388,7 @@ jobs:
           fi
 
       - name: Mirror card images to bucket
+        id: sync
         if: steps.mirror.outputs.enabled == 'true'
         env:
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
@@ -395,23 +396,76 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
-          ARGS=()
+          set -o pipefail
+          mkdir -p data/catalog
+          CARD_COUNT="$(jq 'length' data/catalog/yugipedia_all_cards.json)"
+          FORCE_REMIRROR="false"
+          CARD_LIMIT=""
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
-            ARGS+=(--limit "${{ inputs.card_limit }}")
+            CARD_LIMIT="${{ inputs.card_limit }}"
           fi
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_image_remirror }}" == "true" ]]; then
+            FORCE_REMIRROR="true"
+          fi
+          echo "=== Mirror card images ==="
+          echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Force: ${FORCE_REMIRROR}"
+          echo "Card limit: ${CARD_LIMIT:-none}"
+          echo "Catalog cards: ${CARD_COUNT}"
+          ARGS=()
+          if [[ -n "$CARD_LIMIT" ]]; then
+            ARGS+=(--limit "$CARD_LIMIT")
+          fi
+          if [[ "$FORCE_REMIRROR" == "true" ]]; then
             ARGS+=(--force)
           fi
-          python -m ygo_app.jobs.sync_card_images "${ARGS[@]}"
+          python -m ygo_app.jobs.sync_card_images "${ARGS[@]}" 2>&1 | tee data/catalog/images_sync.log
 
       - name: Upload images manifest
-        if: steps.mirror.outputs.enabled == 'true'
+        if: steps.mirror.outputs.enabled == 'true' && steps.sync.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: images-manifest
           path: data/catalog/images_manifest.json
           retention-days: 14
           if-no-files-found: warn
+
+      - name: Write job summary
+        if: always() && steps.mirror.outputs.enabled == 'true'
+        run: |
+          {
+            echo "## Mirror card images"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Run | [\`${{ github.run_id }}\`](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
+            echo "| Sync step | ${{ steps.sync.outcome || 'skipped' }} |"
+            echo ""
+            if [[ -f data/catalog/images_sync.log ]]; then
+              echo "### Last log lines"
+              echo '```'
+              tail -20 data/catalog/images_sync.log
+              echo '```'
+            else
+              echo "_No sync log produced._"
+            fi
+            if [[ -f data/catalog/images_sync_failures.json ]]; then
+              FAIL_COUNT="$(jq 'length' data/catalog/images_sync_failures.json)"
+              echo ""
+              echo "**Failures:** ${FAIL_COUNT} passcodes — see \`images-sync-log\` artifact."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sync log artifact
+        if: always() && steps.mirror.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-sync-log
+          path: |
+            data/catalog/images_sync.log
+            data/catalog/images_sync_failures.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   import:
     needs:

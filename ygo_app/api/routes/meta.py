@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -11,6 +13,58 @@ from ygo_app.models import Card, CollectionItem, Deck, Printing, User
 router = APIRouter(tags=["meta"])
 
 FILTER_ARCHETYPE_LIMIT = 500
+_FILTERS_CACHE_TTL_SECONDS = 600
+_catalog_filters_cache: dict | None = None
+_catalog_filters_cached_at: float = 0.0
+
+
+def invalidate_catalog_filters_cache() -> None:
+    """Clear cached catalog filter options (e.g. after catalog import)."""
+    global _catalog_filters_cache, _catalog_filters_cached_at
+    _catalog_filters_cache = None
+    _catalog_filters_cached_at = 0.0
+
+
+def _load_catalog_filters(db: Session) -> dict:
+    global _catalog_filters_cache, _catalog_filters_cached_at
+    now = time.monotonic()
+    if (
+        _catalog_filters_cache is not None
+        and now - _catalog_filters_cached_at < _FILTERS_CACHE_TTL_SECONDS
+    ):
+        return _catalog_filters_cache
+
+    categories = db.execute(
+        text(
+            "SELECT DISTINCT category FROM cards "
+            "WHERE category IS NOT NULL ORDER BY category"
+        )
+    ).scalars().all()
+    attributes = db.execute(
+        text("SELECT DISTINCT attribute FROM cards WHERE attribute IS NOT NULL ORDER BY attribute")
+    ).scalars().all()
+    mechanics = db.execute(
+        text("SELECT DISTINCT mechanic FROM cards WHERE mechanic IS NOT NULL ORDER BY mechanic")
+    ).scalars().all()
+    archetypes = db.execute(
+        text(
+            "SELECT DISTINCT archetype FROM cards "
+            "WHERE archetype IS NOT NULL AND archetype != '' "
+            "ORDER BY archetype LIMIT :lim"
+        ),
+        {"lim": FILTER_ARCHETYPE_LIMIT},
+    ).scalars().all()
+
+    payload = {
+        "categories": list(categories),
+        "types": _distinct_type_labels(db),
+        "mechanics": list(mechanics),
+        "attributes": list(attributes),
+        "archetypes": list(archetypes),
+    }
+    _catalog_filters_cache = payload
+    _catalog_filters_cached_at = now
+    return payload
 
 
 @router.get("/health")
@@ -92,32 +146,9 @@ def filters(
             .all()
         )
 
-    categories = db.execute(
-        text(
-            "SELECT DISTINCT category FROM cards "
-            "WHERE category IS NOT NULL ORDER BY category"
-        )
-    ).scalars().all()
-    attributes = db.execute(
-        text("SELECT DISTINCT attribute FROM cards WHERE attribute IS NOT NULL ORDER BY attribute")
-    ).scalars().all()
-    mechanics = db.execute(
-        text("SELECT DISTINCT mechanic FROM cards WHERE mechanic IS NOT NULL ORDER BY mechanic")
-    ).scalars().all()
-    archetypes = db.execute(
-        text(
-            "SELECT DISTINCT archetype FROM cards "
-            "WHERE archetype IS NOT NULL AND archetype != '' "
-            "ORDER BY archetype LIMIT :lim"
-        ),
-        {"lim": FILTER_ARCHETYPE_LIMIT},
-    ).scalars().all()
+    catalog = _load_catalog_filters(db)
 
     return {
         "folders": folders,
-        "categories": list(categories),
-        "types": _distinct_type_labels(db),
-        "mechanics": list(mechanics),
-        "attributes": list(attributes),
-        "archetypes": list(archetypes),
+        **catalog,
     }

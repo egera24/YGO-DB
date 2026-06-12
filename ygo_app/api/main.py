@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
 
 from ygo_app.api.routes import auth, cards, collection, decks, meta, search_presets
@@ -11,6 +12,7 @@ from ygo_app.import_data import init_db
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(title="YGO Collection & Deck Builder", version="2.0.0")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.on_event("startup")
@@ -28,8 +30,20 @@ class DevStaticFiles(StaticFiles):
         return response
 
 
+class CachedStaticFiles(StaticFiles):
+    """Long-lived cache for versioned static assets (?v= busting in HTML)."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if STATIC_DIR.exists():
-    static_handler = StaticFiles if IS_PRODUCTION else DevStaticFiles
+    if IS_PRODUCTION:
+        static_handler = CachedStaticFiles
+    else:
+        static_handler = DevStaticFiles
     app.mount("/static", static_handler(directory=STATIC_DIR), name="static")
 
 _CACHE_HEADERS = (

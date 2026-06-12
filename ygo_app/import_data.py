@@ -223,6 +223,14 @@ def import_cards_entries(
 
         _relink_collection_printing_links(session)
         session.commit()
+
+        try:
+            from ygo_app.api.routes.meta import invalidate_catalog_filters_cache
+
+            invalidate_catalog_filters_cache()
+        except Exception:
+            pass
+
         return cards_imported, printings_imported
     finally:
         session.close()

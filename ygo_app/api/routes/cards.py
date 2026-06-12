@@ -11,9 +11,7 @@ from ygo_app.schemas import CardDetail, CardSearchPage, CardSummary, PrintingOut
 from ygo_app.services import (
     add_user_tag,
     card_summaries_batch,
-    card_to_summary,
     get_card_detail,
-    get_user_tags,
     remove_user_tag,
     search_cards,
     summoning_condition_suggestions,
@@ -157,24 +155,25 @@ def get_card(
     return _build_card_detail(db, card_id, user)
 
 
+def _summary_extra_from_card(card: Card) -> dict:
+    owned_qty = sum(getattr(p, "owned_quantity", 0) for p in card.printings)
+    return {
+        "is_favorite": getattr(card, "_is_favorite", False),
+        "owned": owned_qty > 0,
+        "owned_quantity": owned_qty,
+    }
+
+
 def _build_card_detail(db: Session, card_id: int, user: User | None) -> CardDetail:
     card = get_card_detail(db, card_id, user.id if user else None)
     if not card:
         raise HTTPException(404, "Card not found")
 
-    extra = card_to_summary(db, card, user.id if user else None)
-    yugi = card_response_extras(card)
+    extra = _summary_extra_from_card(card)
     printings = sorted(card.printings, key=lambda p: p.set_code)
-    tags = getattr(card, "_user_tags", get_user_tags(db, user.id if user else None, card_id))
+    tags = getattr(card, "_user_tags", [])
 
-    summary = _card_summary(
-        card,
-        {
-            "is_favorite": getattr(card, "_is_favorite", extra["is_favorite"]),
-            "owned": extra["owned"],
-            "owned_quantity": extra["owned_quantity"],
-        },
-    )
+    summary = _card_summary(card, extra)
     return CardDetail(
         **summary.model_dump(),
         human_readable_type=card.human_readable_type,

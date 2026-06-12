@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-11
+> **Last updated:** 2026-06-13
 
 ---
 
@@ -346,6 +346,10 @@ git checkout main && git merge develop && git push   # promote app to prod
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
+**2026-06-13**
+- **Instant card modal open** — modal overlay opens immediately on click with seeded name/meta/thumbnail from search results or collection row; skeleton shimmer for description/printings until `GET /api/cards/{id}` hydrates; action buttons disabled until loaded. Card detail route reuses `get_card_detail` owned/favorite data instead of duplicate `card_to_summary` queries. Static `app.js?v=39`, `style.css?v=32`.
+- **Webapp speed improvements** — GZip middleware + production `Cache-Control: immutable` on `/static/*` ([`api/main.py`](ygo_app/api/main.py)). In-process TTL cache (10 min) for catalog portion of `GET /api/filters` ([`meta.py`](ygo_app/api/routes/meta.py)); invalidated after catalog import. Alembic `006`: `pg_trgm` GIN indexes on `cards.name`/`desc`/`archetype` + `collection_items.rarity_code`/`printing_id` (Postgres only). `search_cards` uses `load_only()` to skip `desc` and other unused columns. Frontend: search page size 500→100; parallel init (`status`/`filters`/`presets`); event delegation on search grid + collection table; stale-response guards; decks/collection tab memory cache + background refresh; modal favorite/tag local updates + `refreshModalCard()` (no full re-open); decks list cache for modal select; `preconnect` to `ms.yugipedia.com`. Static `app.js?v=38`, `style.css?v=31`.
+
 **2026-06-12**
 - **Cloudflare R2 card image mirror** — stop hotlinking `ms.yugipedia.com`: new [`jobs/sync_card_images.py`](ygo_app/jobs/sync_card_images.py) downloads art once, converts to WebP (full + 150px, Pillow), uploads to an S3-compatible bucket (boto3; keys `cards/{pid}.webp` / `cards/{pid}-small.webp`, immutable cache) and writes `data/catalog/images_manifest.json`. [`image_mirror.py`](ygo_app/image_mirror.py) holds vendor-neutral helpers; `adapter._resolve_images` rewrites import URLs for mirrored passcodes when `IMAGE_BASE_URL` is set (Yugipedia fallback otherwise). GHA workflow gains an `images` job (between batches and import; skips without `S3_BUCKET` secret; `import_only` rebuilds the manifest from the bucket via `--manifest-only`). New env/secrets: `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `IMAGE_BASE_URL`. Deps: boto3, Pillow. Tests: `test_image_mirror.py`, `test_sync_card_images.py`. See [§5](#5-card-images).
 
@@ -469,4 +473,4 @@ data/catalog/                  # gitignored scrape JSON
 | `folder=__no_folder__` on list | Returns items with No Folder allocation |
 | CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |
 | Logged in: Search **preset** toolbar | `#search-presets-bar` visible; Save/Load/Rename/Delete; `GET /api/search-presets` returns list |
-| `alembic current` (Neon dev in `.env`) | `005 (head)` after collection-folders migration |
+| `alembic current` (Neon dev in `.env`) | `006 (head)` after performance-index migration |

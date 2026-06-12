@@ -6,7 +6,7 @@ Working list of upcoming topics. Companion to [`future_must_have_features.md`](f
 
 ---
 
-## 1. Better-quality card images
+## 1. Better-quality card images (DONE)
 
 **Current state:** scrape picks the largest card art `<img>` on the Yugipedia card page (`parsing.extract_card_image`), mirrors it to Cloudflare R2 as WebP (full = quality 82, small = 150px) via `jobs/sync_card_images.py`.
 
@@ -42,16 +42,9 @@ Working list of upcoming topics. Companion to [`future_must_have_features.md`](f
 - [ ] Nice-to-have later: encode search params or selected folder in the URL (e.g. `#/collection?folder=12`), and card modal deep links (`#/card/85087012`).
 - [ ] If we prefer clean paths (`/collection`) instead of hashes, FastAPI needs a catch-all route returning `index.html` + History API in JS — more work, decide if worth it.
 
-## 4. Webapp speed improvements
+## 4. Webapp speed improvements (DONE)
 
-**Ideas to evaluate (measure first — browser devtools network tab + server timings):**
-
-- [ ] **HTTP caching/compression:** add GZip middleware (FastAPI `GZipMiddleware`) for JSON/JS/CSS; long-lived cache headers on `/static/*` (the `?v=` busting already exists).
-- [ ] **DB indexes:** check `EXPLAIN` on the hottest queries — `cards.name ILIKE` can use a `pg_trgm` GIN index on Neon; indexes on `printings(set_code, rarity_code)`, `collection_items(user_id)` if missing.
-- [ ] **Search payload:** `limit=500` per page is heavy — consider smaller default page + infinite scroll, and trim unused fields from `card_summaries_batch`.
-- [ ] **Cold starts:** Render free tier spins down — keep-alive ping or accept it; Neon pooled connections already use `pool_pre_ping`.
-- [ ] **Frontend:** lazy-load card images (`loading="lazy"` on thumbnails), debounce search input, avoid re-rendering the whole table on small updates.
-- [ ] **Static caching of `/api/filters`** response (rarely changes between imports) — in-memory cache with TTL or ETag.
+Implemented 2026-06-13 — see changelog in [`agent_handoff.md`](agent_handoff.md). Remaining ideas if still slow: Render keep-alive ping, virtualized lists, bundler/minifier.
 
 ## 5. Security review
 

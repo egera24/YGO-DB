@@ -1,5 +1,5 @@
 from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 import json
 from datetime import datetime
@@ -275,7 +275,31 @@ def search_cards(
     limit: int = 60,
     offset: int = 0,
 ) -> tuple[list[Card], int]:
-    stmt = select(Card)
+    search_columns = (
+        Card.id,
+        Card.name,
+        Card.type,
+        Card.frame_type,
+        Card.atk,
+        Card.def_,
+        Card.level,
+        Card.race,
+        Card.attribute,
+        Card.archetype,
+        Card.category,
+        Card.types,
+        Card.mechanic,
+        Card.rank,
+        Card.link_rating,
+        Card.pendulum_scale,
+        Card.link_markers,
+        Card.summoning_condition,
+        Card.image_url_small,
+        Card.image_url,
+        Card.linkval,
+        Card.scale,
+    )
+    stmt = select(Card).options(load_only(*search_columns))
     count_stmt = select(func.count()).select_from(Card)
 
     if set_code:

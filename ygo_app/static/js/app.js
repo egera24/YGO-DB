@@ -14,6 +14,7 @@ function cardImgTag(url, attrs = "") {
 const state = {
   activeView: "search",
   currentCardId: null,
+  currentCard: null,
   activeDeckId: null,
   filters: {},
   token: localStorage.getItem("ygo_token") || null,
@@ -27,9 +28,16 @@ const state = {
   collectionFolder: null,
   collectionStats: null,
   collectionItemsById: {},
+  collectionLastItems: [],
+  collectionViewCache: null,
+  decksListCache: null,
   activePresetId: null,
   searchPresets: [],
+  searchResultsById: {},
 };
+
+let searchRequestSeq = 0;
+let collectionRequestSeq = 0;
 
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
@@ -473,11 +481,11 @@ function switchView(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   $(`#view-${name}`).classList.add("active");
   document.querySelector(`.tab[data-view="${name}"]`).classList.add("active");
-  if (name === "decks") loadDecks();
-  if (name === "collection") loadCollectionView();
+  if (name === "decks") loadDecks({ background: true });
+  if (name === "collection") loadCollectionView({ background: true });
 }
 
-const SEARCH_PAGE_SIZE = 500;
+const SEARCH_PAGE_SIZE = 100;
 
 async function fetchSearchPage(baseParams, offset = 0) {
   const pageParams = new URLSearchParams(baseParams);
@@ -850,7 +858,12 @@ function renderSearchResults(cards) {
   if (!cards.length) {
     grid.innerHTML = '<p class="empty-msg">No cards found.</p>';
     $("#search-pagination")?.classList.add("hidden");
+    state.searchResultsById = {};
     return;
+  }
+  state.searchResultsById = {};
+  for (const c of cards) {
+    state.searchResultsById[c.id] = c;
   }
   grid.innerHTML = cards
       .map(
@@ -865,12 +878,21 @@ function renderSearchResults(cards) {
       </article>`
       )
       .join("");
-  grid.querySelectorAll(".card-tile").forEach((el) => {
-    el.addEventListener("click", () => openCardModal(Number(el.dataset.id)));
+}
+
+function setupSearchResultsDelegation() {
+  const grid = $("#search-results");
+  if (!grid || grid.dataset.delegationBound) return;
+  grid.dataset.delegationBound = "1";
+  grid.addEventListener("click", (e) => {
+    const tile = e.target.closest(".card-tile");
+    if (!tile?.dataset.id) return;
+    openCardModal(Number(tile.dataset.id));
   });
 }
 
 async function loadSearchPage(pageIndex) {
+  const seq = ++searchRequestSeq;
   state.searchPage = pageIndex;
   const offset = pageIndex * SEARCH_PAGE_SIZE;
   const grid = $("#search-results");
@@ -879,11 +901,13 @@ async function loadSearchPage(pageIndex) {
 
   try {
     const page = await fetchSearchPage(state.searchParams, offset);
+    if (seq !== searchRequestSeq) return;
     state.searchTotal = page.total;
     renderSearchResults(page.items);
     renderSearchPagination();
     $("#search-pagination")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
+    if (seq !== searchRequestSeq) return;
     grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;
   }
 }
@@ -1024,15 +1048,8 @@ function setModalImage(url, alt, token) {
   }
 }
 
-async function openCardModal(cardId) {
-  state.currentCardId = cardId;
-  const imageToken = beginModalImagePending();
-  const card = await api(`/cards/${cardId}`);
-  if (state.currentCardId !== cardId) return;
-
-  $("#modal-name").textContent = card.name;
-  setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
-  const stats = [
+function formatModalStats(card) {
+  return [
     card.category,
     (card.types || []).join(" / "),
     card.mechanic,
@@ -1046,11 +1063,84 @@ async function openCardModal(cardId) {
     card.summoning_condition,
     card.atk != null ? `ATK ${card.atk}` : null,
     card.def != null ? `DEF ${card.def}` : null,
+    card.type,
   ]
     .filter(Boolean)
     .join(" · ");
-  $("#modal-meta").textContent = stats;
+}
+
+function findModalSeed(cardId) {
+  const summary = state.searchResultsById[cardId];
+  if (summary) return summary;
+  const collectionItem = Object.values(state.collectionItemsById).find(
+    (item) => item.card_id === cardId
+  );
+  if (collectionItem) {
+    return {
+      id: cardId,
+      name: collectionItem.card_name || "Loading…",
+      image_url_small: collectionItem.image_url_small,
+      type: null,
+    };
+  }
+  return null;
+}
+
+function renderModalSkeleton() {
+  $("#modal-desc").innerHTML = `
+    <div class="skeleton skeleton-line"></div>
+    <div class="skeleton skeleton-line"></div>
+    <div class="skeleton skeleton-line skeleton-line--short"></div>`;
+  $("#modal-tags").innerHTML = "";
+  $("#modal-printings").innerHTML = `
+    <div class="skeleton skeleton-row"></div>
+    <div class="skeleton skeleton-row"></div>
+    <div class="skeleton skeleton-row"></div>`;
+  const printingSel = $("#owned-printing");
+  if (printingSel) {
+    printingSel.innerHTML = '<option value="">Loading…</option>';
+    printingSel.disabled = true;
+  }
+}
+
+function setModalLoadingState(loading) {
+  const card = $("#card-modal")?.querySelector(".modal-card");
+  card?.classList.toggle("modal-loading", loading);
+  const controls = [
+    "#modal-favorite",
+    "#tag-input",
+    "#tag-add-btn",
+    "#owned-printing",
+    "#owned-qty",
+    "#owned-add-btn",
+    "#deck-target",
+    "#deck-zone",
+    "#deck-add-card-btn",
+  ];
+  for (const sel of controls) {
+    const el = $(sel);
+    if (el) el.disabled = loading;
+  }
+}
+
+function seedModalPreview(seed, imageToken) {
+  $("#modal-name").textContent = seed.name || "Loading…";
+  $("#modal-meta").textContent = formatModalStats(seed);
+  if (seed.is_favorite != null) {
+    $("#modal-favorite").textContent = seed.is_favorite ? "★ Favorited" : "☆ Favorite";
+  } else {
+    $("#modal-favorite").textContent = "☆ Favorite";
+  }
+  if (seed.image_url_small) {
+    setModalImage(seed.image_url_small, seed.name, imageToken);
+  }
+}
+
+function renderModalCard(card) {
+  $("#modal-name").textContent = card.name;
+  $("#modal-meta").textContent = formatModalStats(card);
   $("#modal-desc").textContent = card.desc || "";
+  $("#modal-desc").classList.remove("modal-load-error");
   $("#modal-favorite").textContent = card.is_favorite ? "★ Favorited" : "☆ Favorite";
 
   $("#modal-tags").innerHTML = (card.tags || [])
@@ -1066,6 +1156,7 @@ async function openCardModal(cardId) {
         </option>`
     )
     .join("");
+  printingSel.disabled = false;
 
   $("#modal-printings").innerHTML = (card.printings || [])
     .map(
@@ -1076,10 +1167,55 @@ async function openCardModal(cardId) {
       </div>`
     )
     .join("");
+}
 
-  await populateDeckSelect();
+async function refreshModalCard() {
+  if (!state.currentCardId) return;
+  const cardId = state.currentCardId;
+  const card = await api(`/cards/${cardId}`);
+  if (state.currentCardId !== cardId) return;
+  state.currentCard = card;
+  renderModalCard(card);
+  setModalLoadingState(false);
+}
 
+async function openCardModal(cardId) {
+  state.currentCardId = cardId;
+  state.currentCard = null;
+
+  const imageToken = beginModalImagePending();
+  const seed = findModalSeed(cardId);
+
+  if (seed) {
+    seedModalPreview(seed, imageToken);
+  } else {
+    $("#modal-name").textContent = "Loading…";
+    $("#modal-meta").textContent = "";
+    $("#modal-favorite").textContent = "☆ Favorite";
+  }
+
+  renderModalSkeleton();
+  setModalLoadingState(true);
   openCardModalOverlay();
+  populateDeckSelect();
+
+  try {
+    const card = await api(`/cards/${cardId}`);
+    if (state.currentCardId !== cardId) return;
+
+    state.currentCard = card;
+    renderModalCard(card);
+    setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
+    setModalLoadingState(false);
+    applyModalReadableColors();
+  } catch (err) {
+    if (state.currentCardId !== cardId) return;
+    $("#modal-desc").textContent = err.message || "Failed to load card details.";
+    $("#modal-desc").classList.add("modal-load-error");
+    $("#modal-printings").innerHTML = "";
+    finishModalImage(imageToken);
+    setModalLoadingState(false);
+  }
 }
 
 async function refreshOwnedSearchState() {
@@ -1741,50 +1877,54 @@ function renderCollectionTable(items) {
     )
     .join("");
 
-  tbody.querySelectorAll(".collection-row").forEach((row) => {
+  state.collectionLastItems = items;
+}
+
+function setupCollectionTableDelegation() {
+  const tbody = $("#collection-tbody");
+  if (!tbody || tbody.dataset.delegationBound) return;
+  tbody.dataset.delegationBound = "1";
+  tbody.addEventListener("click", async (e) => {
+    const row = e.target.closest(".collection-row");
+    if (!row) return;
     const itemId = Number(row.dataset.id);
     const cardId = row.dataset.cardId ? Number(row.dataset.cardId) : null;
     const item = state.collectionItemsById[itemId];
+    if (!item) return;
 
-    row.addEventListener("click", (e) => {
-      if (
-        e.target.closest("input") ||
-        e.target.closest("button") ||
-        !cardId
-      ) {
-        return;
-      }
-      openCardModal(cardId);
-    });
-
-    row.querySelector(".collection-edit-btn")?.addEventListener("click", (e) => {
+    if (e.target.closest(".collection-edit-btn")) {
       e.stopPropagation();
       openCollectionEditModal(item, itemId);
-    });
-
-    row.querySelector(".collection-folder-picker")?.addEventListener("click", (e) => {
+      return;
+    }
+    if (e.target.closest(".collection-folder-picker")) {
       e.stopPropagation();
       openFolderAllocationEditor(item, itemId);
-    });
-
-    row.querySelector(".collection-move-btn")?.addEventListener("click", (e) => {
+      return;
+    }
+    if (e.target.closest(".collection-move-btn")) {
       e.stopPropagation();
-      openMoveCopyPopover(item, itemId, "move", e.currentTarget);
-    });
-
-    row.querySelector(".collection-copy-btn")?.addEventListener("click", (e) => {
+      openMoveCopyPopover(item, itemId, "move", e.target.closest(".collection-move-btn"));
+      return;
+    }
+    if (e.target.closest(".collection-copy-btn")) {
       e.stopPropagation();
-      openMoveCopyPopover(item, itemId, "copy", e.currentTarget);
-    });
-
-    row.querySelector(".collection-delete-btn")?.addEventListener("click", async (e) => {
+      openMoveCopyPopover(item, itemId, "copy", e.target.closest(".collection-copy-btn"));
+      return;
+    }
+    if (e.target.closest(".collection-delete-btn")) {
       e.stopPropagation();
       try {
         await removeCollectionItem(itemId);
       } catch (err) {
         alert(err.message);
       }
-    });
+      return;
+    }
+    if (e.target.closest("input") || e.target.closest("button") || !cardId) {
+      return;
+    }
+    openCardModal(cardId);
   });
 }
 
@@ -1793,6 +1933,7 @@ async function loadCollectionStats() {
 }
 
 async function loadCollectionPage(pageIndex) {
+  const seq = ++collectionRequestSeq;
   state.collectionPage = pageIndex;
   const tbody = $("#collection-tbody");
   if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">Loading…</td></tr>';
@@ -1801,33 +1942,68 @@ async function loadCollectionPage(pageIndex) {
   try {
     const offset = pageIndex * COLLECTION_PAGE_SIZE;
     const page = await api(`/collection?${buildCollectionParams(offset)}`);
+    if (seq !== collectionRequestSeq) return;
     state.collectionTotal = page.total;
     renderCollectionTable(page.items);
     renderCollectionPagination();
+    state.collectionViewCache = {
+      folder: state.collectionFolder,
+      stats: state.collectionStats,
+      items: state.collectionLastItems,
+      total: state.collectionTotal,
+      page: state.collectionPage,
+    };
   } catch (err) {
+    if (seq !== collectionRequestSeq) return;
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
 
-async function loadCollectionView() {
+function applyCollectionViewCache(cache) {
+  if (!cache || cache.folder !== state.collectionFolder) return false;
+  state.collectionStats = cache.stats;
+  state.collectionTotal = cache.total;
+  state.collectionPage = cache.page;
+  renderCollectionStatsLine();
+  renderCollectionSidebar();
+  renderCollectionTable(cache.items);
+  renderCollectionPagination();
+  return true;
+}
+
+async function loadCollectionView({ background = false } = {}) {
   const loggedIn = Boolean(state.token && state.user);
   $("#collection-login-prompt")?.classList.toggle("hidden", loggedIn);
   $("#collection-main")?.classList.toggle("hidden", !loggedIn);
   if (!loggedIn) return;
 
+  if (background && applyCollectionViewCache(state.collectionViewCache)) {
+    loadCollectionViewFresh().catch((err) => {
+      const tbody = $("#collection-tbody");
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      }
+    });
+    return;
+  }
+
   try {
-    await loadCollectionStats();
-    renderCollectionStatsLine();
-    renderCollectionSidebar();
-    await loadCollectionPage(state.collectionPage);
+    await loadCollectionViewFresh();
   } catch (err) {
     const tbody = $("#collection-tbody");
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
+}
+
+async function loadCollectionViewFresh() {
+  await loadCollectionStats();
+  renderCollectionStatsLine();
+  renderCollectionSidebar();
+  await loadCollectionPage(state.collectionPage);
 }
 
 async function refreshCollectionIfActive() {
@@ -1922,6 +2098,18 @@ async function downloadCollectionExport(formatId) {
   downloadCsvBlob(body, filename);
 }
 
+async function fetchDecksList(force = false) {
+  if (!state.token) return [];
+  if (state.decksListCache && !force) return state.decksListCache;
+  const decks = await api("/decks");
+  state.decksListCache = decks;
+  return decks;
+}
+
+function invalidateDecksCache() {
+  state.decksListCache = null;
+}
+
 async function populateDeckSelect() {
   const sel = $("#deck-target");
   if (!sel) return;
@@ -1929,7 +2117,7 @@ async function populateDeckSelect() {
     sel.innerHTML = "";
     return;
   }
-  const decks = await api("/decks");
+  const decks = await fetchDecksList();
   if (!decks.length) {
     sel.innerHTML =
       '<option value="" disabled selected>No decks — create one in Decks tab</option>';
@@ -1948,14 +2136,9 @@ async function populateDeckSelect() {
   sel.value = String(preferred);
 }
 
-async function loadDecks() {
-  if (!state.token) {
-    $("#deck-list").innerHTML =
-      '<li class="empty-msg">Log in to manage decks.</li>';
-    return;
-  }
-  const decks = await api("/decks");
+function renderDecksList(decks) {
   const list = $("#deck-list");
+  if (!list) return;
   list.innerHTML = decks
     .map(
       (d) => `
@@ -1969,7 +2152,29 @@ async function loadDecks() {
   list.querySelectorAll("li").forEach((li) => {
     li.addEventListener("click", () => selectDeck(Number(li.dataset.id)));
   });
+}
 
+async function loadDecks({ background = false } = {}) {
+  if (!state.token) {
+    $("#deck-list").innerHTML =
+      '<li class="empty-msg">Log in to manage decks.</li>';
+    return;
+  }
+
+  if (background && state.decksListCache) {
+    renderDecksList(state.decksListCache);
+    await populateDeckSelect();
+    fetchDecksList(true)
+      .then((decks) => {
+        renderDecksList(decks);
+        return populateDeckSelect();
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const decks = await fetchDecksList(true);
+  renderDecksList(decks);
   await populateDeckSelect();
 }
 
@@ -2028,10 +2233,21 @@ async function selectDeck(deckId) {
     chip.addEventListener("click", () => openCardModal(Number(chip.dataset.card)));
   });
 
-  loadDecks();
+  if (state.decksListCache) {
+    const entry = state.decksListCache.find((d) => d.id === deckId);
+    if (entry) {
+      entry.main_count = deck.main_count;
+      entry.extra_count = deck.extra_count;
+      entry.side_count = deck.side_count;
+      renderDecksList(state.decksListCache);
+    }
+  }
 }
 
 function wireEvents() {
+  setupSearchResultsDelegation();
+  setupCollectionTableDelegation();
+
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => switchView(tab.dataset.view));
   });
@@ -2235,7 +2451,12 @@ function wireEvents() {
       return;
     }
     await api(`/cards/${state.currentCardId}/favorite`, { method: "POST" });
-    openCardModal(state.currentCardId);
+    if (state.currentCard) {
+      state.currentCard.is_favorite = !state.currentCard.is_favorite;
+      $("#modal-favorite").textContent = state.currentCard.is_favorite
+        ? "★ Favorited"
+        : "☆ Favorite";
+    }
   });
 
   $("#tag-add-btn").addEventListener("click", async () => {
@@ -2251,7 +2472,15 @@ function wireEvents() {
       body: JSON.stringify({ tag }),
     });
     $("#tag-input").value = "";
-    openCardModal(state.currentCardId);
+    if (state.currentCard) {
+      const tags = state.currentCard.tags || [];
+      if (!tags.includes(tag)) {
+        state.currentCard.tags = [...tags, tag];
+        $("#modal-tags").innerHTML = state.currentCard.tags
+          .map((t) => `<span class="tag">${escapeHtml(t)}</span>`)
+          .join("");
+      }
+    }
   });
 
   $("#owned-add-btn").addEventListener("click", async () => {
@@ -2268,7 +2497,8 @@ function wireEvents() {
       body: JSON.stringify({ set_code, rarity, quantity: qty }),
     });
     alert(`Added ${qty}× ${set_code}`);
-    openCardModal(state.currentCardId);
+    state.collectionViewCache = null;
+    await refreshModalCard();
     await loadStatus();
     await refreshOwnedSearchState();
     await refreshCollectionIfActive();
@@ -2304,6 +2534,7 @@ function wireEvents() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() }),
     });
+    invalidateDecksCache();
     state.activeDeckId = deck.id;
     await loadDecks();
     selectDeck(deck.id);
@@ -2324,13 +2555,15 @@ async function init() {
       }
     }
     updateAuthUI();
-    await loadStatus();
     initFilterMultiWidgets();
     initStatRangeSelects();
-    await loadFilters();
     setupLinkMarkerGrid();
     setupSummoningSuggestions();
-    if (state.token) await loadSearchPresets();
+
+    const parallel = [loadStatus(), loadFilters()];
+    if (state.token) parallel.push(loadSearchPresets());
+    await Promise.all(parallel);
+
     await runSearch();
   } catch (err) {
     $("#status-line").textContent = err.message;

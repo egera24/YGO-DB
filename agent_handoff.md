@@ -132,7 +132,7 @@ Scrape finds Yugipedia art URLs; a GHA `images` job mirrors them as WebP to a **
 |-------|------|
 | [`parsing.extract_card_image`](ygo_app/yugipedia/parsing.py) | Picks largest card-art `<img>` on `ms.yugipedia.com` from the same page fetch as metadata; skips `noviewer`, `.svg`, UI/attribute icons |
 | [`images.py`](ygo_app/yugipedia/images.py) | Thumb → full URL normalization; 150px small thumb. `image_urls_for_passcode()` is **only** for the YGOProDeck API fallback |
-| [`jobs/sync_card_images.py`](ygo_app/jobs/sync_card_images.py) | Mirror job: lists bucket, downloads missing art (rate-limited cloudscraper), WebP via Pillow, uploads via boto3, writes manifest. Flags: `--limit`, `--force`, `--manifest-only` (rebuild manifest from bucket listing, used by `import_only`). **Incremental** — safe to re-run; first backfill ~hours |
+| [`jobs/sync_card_images.py`](ygo_app/jobs/sync_card_images.py) | Mirror job: lists bucket, downloads missing art (rate-limited cloudscraper, 3 req/s), WebP via Pillow, uploads via boto3, writes manifest. Flags: `--limit`, `--force`, `--workers` (default 6), `--manifest-only` (rebuild manifest from bucket listing, used by `import_only`). **Incremental** — safe to re-run; full `--force` remirror ~1.5–2h with 6 workers |
 | [`image_mirror.py`](ygo_app/image_mirror.py) | Vendor-neutral keys/URLs, manifest load/save, `rewrite_image_urls()` (mirrored pid + `IMAGE_BASE_URL` set → bucket URLs, else original) |
 | [`adapter._resolve_images`](ygo_app/yugipedia/adapter.py) | Maps scrape JSON → `card_images`, then applies `rewrite_image_urls`; **no** YGOProDeck CDN fallback (null if scrape found no art) |
 | Browser ([`app.js`](ygo_app/static/js/app.js)) | Loads `image_url`/`image_url_small`; shows `IMG_PLACEHOLDER` when null |

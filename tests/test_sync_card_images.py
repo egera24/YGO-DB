@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,21 +21,24 @@ class FakeS3:
     def __init__(self, keys: set[str] | None = None):
         self.objects: dict[str, bytes] = {key: b"" for key in (keys or set())}
         self.put_calls: list[str] = []
+        self._lock = threading.Lock()
 
     def get_paginator(self, name):
         assert name == "list_objects_v2"
-        objects = self.objects
+        outer = self
 
         class Paginator:
             def paginate(self, Bucket, Prefix=""):
-                contents = [{"Key": k} for k in sorted(objects) if k.startswith(Prefix)]
+                with outer._lock:
+                    contents = [{"Key": k} for k in sorted(outer.objects) if k.startswith(Prefix)]
                 yield {"Contents": contents}
 
         return Paginator()
 
     def put_object(self, Bucket, Key, Body, ContentType, CacheControl):
-        self.objects[Key] = Body
-        self.put_calls.append(Key)
+        with self._lock:
+            self.objects[Key] = Body
+            self.put_calls.append(Key)
 
 
 def _png_bytes() -> bytes:
@@ -64,14 +68,19 @@ class FakeScraper:
 
 
 class TestSyncImages(unittest.TestCase):
-    def _run(self, entries, s3, *, force=False):
+    def _run(self, entries, s3, *, force=False, workers=1):
         with tempfile.TemporaryDirectory() as tmp:
             manifest_path = Path(tmp) / "manifest.json"
             scraper = FakeScraper(_png_bytes())
             with mock.patch.object(sync_card_images, "create_scraper", return_value=scraper), \
                     mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
                 counters = sync_images(
-                    entries, s3, "bucket", force=force, manifest_path=manifest_path
+                    entries,
+                    s3,
+                    "bucket",
+                    force=force,
+                    manifest_path=manifest_path,
+                    workers=workers,
                 )
             return counters, scraper, load_images_manifest(manifest_path)
 
@@ -124,7 +133,7 @@ class TestSyncImages(unittest.TestCase):
             manifest_path = Path(tmp) / "manifest.json"
             with mock.patch.object(sync_card_images, "create_scraper", return_value=scraper), \
                     mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
-                sync_images(entries, s3, "bucket", manifest_path=manifest_path)
+                sync_images(entries, s3, "bucket", manifest_path=manifest_path, workers=1)
         small = Image.open(io.BytesIO(s3.objects["cards/55555555-small.webp"]))
         self.assertEqual(small.width, sync_card_images.SMALL_WIDTH)
 
@@ -145,7 +154,7 @@ class TestSyncImages(unittest.TestCase):
             with mock.patch.object(sync_card_images, "log_line", side_effect=capture_log), \
                     mock.patch.object(sync_card_images, "create_scraper", return_value=scraper), \
                     mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
-                sync_images(entries, s3, "bucket", manifest_path=manifest_path)
+                sync_images(entries, s3, "bucket", manifest_path=manifest_path, workers=1)
 
         progress_msgs = [message for message in log_messages if message.startswith("[PROGRESS]")]
         self.assertGreaterEqual(len(progress_msgs), 3)
@@ -164,7 +173,9 @@ class TestSyncImages(unittest.TestCase):
             with mock.patch.object(sync_card_images, "fetch_image_bytes", side_effect=fail_fetch), \
                     mock.patch.object(sync_card_images, "create_scraper"), \
                     mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
-                counters = sync_images(entries, s3, "bucket", manifest_path=manifest_path)
+                counters = sync_images(
+                    entries, s3, "bucket", manifest_path=manifest_path, workers=1
+                )
             failures_path = manifest_path.parent / FAILURES_FILENAME
             self.assertEqual(counters["failed"], 1)
             self.assertTrue(failures_path.exists())
@@ -172,6 +183,74 @@ class TestSyncImages(unittest.TestCase):
             self.assertEqual(len(failures), 1)
             self.assertEqual(failures[0]["passcode"], 66666666)
             self.assertEqual(failures[0]["stage"], "download")
+
+    def test_parallel_workers_upload_all_cards(self):
+        base = 10000001
+        entries = [
+            {"id": f"{base + index:08d}", "image_url": f"https://ms.yugipedia.com//x/{index}.png"}
+            for index in range(20)
+        ]
+        s3 = FakeS3()
+        payload = _png_bytes()
+
+        def make_scraper():
+            return FakeScraper(payload)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            with mock.patch.object(sync_card_images, "create_scraper", side_effect=make_scraper), \
+                    mock.patch.object(sync_card_images, "build_s3_client", return_value=s3), \
+                    mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
+                counters = sync_images(
+                    entries,
+                    s3,
+                    "bucket",
+                    manifest_path=manifest_path,
+                    workers=4,
+                )
+            manifest = load_images_manifest(manifest_path)
+
+        self.assertEqual(counters["uploaded"], 20)
+        self.assertEqual(counters["failed"], 0)
+        self.assertEqual(len(manifest), 20)
+        for index in range(20):
+            pid = f"{base + index:08d}"
+            self.assertIn(f"cards/{pid}.webp", s3.objects)
+            self.assertIn(f"cards/{pid}-small.webp", s3.objects)
+
+    def test_parallel_failure_counted_once(self):
+        entries = [
+            {"id": "77777777", "image_url": "https://ms.yugipedia.com//fail.png"},
+            {"id": "88888888", "image_url": "https://ms.yugipedia.com//ok.png"},
+        ]
+        s3 = FakeS3()
+        payload = _png_bytes()
+
+        def fetch_side_effect(scraper, url, **kwargs):
+            if "fail" in url:
+                return None, "HTTPError: 404 Not Found"
+            return payload, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            with mock.patch.object(sync_card_images, "fetch_image_bytes", side_effect=fetch_side_effect), \
+                    mock.patch.object(sync_card_images, "create_scraper", return_value=FakeScraper(payload)), \
+                    mock.patch.object(sync_card_images, "build_s3_client", return_value=s3), \
+                    mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
+                counters = sync_images(
+                    entries,
+                    s3,
+                    "bucket",
+                    manifest_path=manifest_path,
+                    workers=2,
+                )
+            failures_path = manifest_path.parent / FAILURES_FILENAME
+            failures = json.loads(failures_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(counters["failed"], 1)
+        self.assertEqual(counters["uploaded"], 1)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["passcode"], 77777777)
 
     def test_main_returns_1_when_sync_has_failures(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -18,7 +18,10 @@ import json
 import random
 import re
 import sys
+import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 
 from ygo_app import config
@@ -29,7 +32,7 @@ from ygo_app.image_mirror import (
     small_image_key,
 )
 from ygo_app.import_progress import ProgressThrottle, eta_seconds
-from ygo_app.yugipedia.constants import MAX_RETRIES, RETRY_DELAYS
+from ygo_app.yugipedia.constants import MAX_RETRIES, MIN_REQUEST_INTERVAL, RETRY_DELAYS
 from ygo_app.yugipedia.http_client import RateLimiter, create_scraper
 from ygo_app.yugipedia.images import passcode_to_int
 from ygo_app.yugipedia.paths import ALL_CARDS_PATH, IMAGES_MANIFEST_PATH
@@ -37,16 +40,17 @@ from ygo_app.yugipedia.scrape_progress import log_line
 
 WEBP_QUALITY = 85
 WEBP_QUALITY_SMALL = 88
+WEBP_METHOD = 4
 SMALL_WIDTH = 300
 KEY_PREFIX = "cards/"
 CACHE_CONTROL = "public, max-age=31536000, immutable"
 PROGRESS_EVERY_ROWS = 50
 PROGRESS_EVERY_SECONDS = 60.0
 FAILURES_FILENAME = "images_sync_failures.json"
-# Image CDN is lighter-weight than wiki pages; still be polite.
-DOWNLOAD_MIN_INTERVAL = 0.4
+DEFAULT_WORKERS = 6
 
-_rate_limiter = RateLimiter(DOWNLOAD_MIN_INTERVAL)
+_rate_limiter = RateLimiter(MIN_REQUEST_INTERVAL)
+_thread_local = threading.local()
 
 
 def build_s3_client():
@@ -71,6 +75,15 @@ def build_s3_client():
         aws_secret_access_key=config.S3_SECRET_ACCESS_KEY,
         region_name="auto",
     )
+
+
+def _get_thread_s3():
+    """Return a per-thread boto3 client (one per worker thread)."""
+    client = getattr(_thread_local, "s3", None)
+    if client is None:
+        client = build_s3_client()
+        _thread_local.s3 = client
+    return client
 
 
 def list_existing_keys(s3, bucket: str, *, prefix: str = KEY_PREFIX) -> set[str]:
@@ -132,12 +145,12 @@ def convert_to_webp(data: bytes) -> tuple[bytes, bytes]:
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGBA" if "transparency" in img.info or img.mode == "P" else "RGB")
         full_buf = io.BytesIO()
-        img.save(full_buf, "WEBP", quality=WEBP_QUALITY, method=6)
+        img.save(full_buf, "WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
 
         small = img.copy()
         small.thumbnail((SMALL_WIDTH, SMALL_WIDTH * 4), Image.Resampling.LANCZOS)
         small_buf = io.BytesIO()
-        small.save(small_buf, "WEBP", quality=WEBP_QUALITY_SMALL, method=6)
+        small.save(small_buf, "WEBP", quality=WEBP_QUALITY_SMALL, method=WEBP_METHOD)
     return full_buf.getvalue(), small_buf.getvalue()
 
 
@@ -149,6 +162,166 @@ def upload_webp(s3, bucket: str, key: str, data: bytes) -> None:
         ContentType="image/webp",
         CacheControl=CACHE_CONTROL,
     )
+
+
+def _upload_pair(s3, bucket: str, full_key: str, full_webp: bytes, small_key: str, small_webp: bytes) -> None:
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(upload_webp, s3, bucket, full_key, full_webp),
+            executor.submit(upload_webp, s3, bucket, small_key, small_webp),
+        ]
+        for fut in futures:
+            fut.result()
+
+
+@dataclass
+class MirrorResult:
+    pid: int
+    status: str  # skipped_existing | no_image | uploaded | failed
+    mirrored: bool = False
+    failure: dict | None = None
+
+
+def _mirror_one_card(
+    pid: int,
+    source_url: str | None,
+    *,
+    scraper,
+    s3,
+    bucket: str,
+    existing: set[str],
+    force: bool,
+    thread_local_s3: bool = False,
+) -> MirrorResult:
+    full_key = full_image_key(pid)
+    small_key = small_image_key(pid)
+    already = full_key in existing and small_key in existing
+
+    if already and not force:
+        return MirrorResult(pid=pid, status="skipped_existing", mirrored=True)
+
+    if not source_url:
+        return MirrorResult(pid=pid, status="no_image", mirrored=already)
+
+    data, download_error = fetch_image_bytes(scraper, source_url)
+    if data is None:
+        return MirrorResult(
+            pid=pid,
+            status="failed",
+            mirrored=already,
+            failure={
+                "passcode": pid,
+                "stage": "download",
+                "reason": download_error or "download failed",
+                "url": source_url[:200],
+            },
+        )
+
+    try:
+        full_webp, small_webp = convert_to_webp(data)
+    except Exception as e:
+        reason = f"{type(e).__name__}: {str(e)[:120]}"
+        log_line(f"[FAIL] convert pid={pid} ({reason})")
+        return MirrorResult(
+            pid=pid,
+            status="failed",
+            mirrored=already,
+            failure={"passcode": pid, "stage": "convert", "reason": reason},
+        )
+
+    upload_s3 = _get_thread_s3() if thread_local_s3 else s3
+    _upload_pair(upload_s3, bucket, full_key, full_webp, small_key, small_webp)
+    return MirrorResult(pid=pid, status="uploaded", mirrored=True)
+
+
+def _apply_result(
+    result: MirrorResult,
+    *,
+    mirrored: set[int],
+    counters: dict[str, int],
+    failed_items: list[dict],
+) -> None:
+    if result.mirrored:
+        mirrored.add(result.pid)
+    if result.status == "skipped_existing":
+        counters["skipped_existing"] += 1
+    elif result.status == "no_image":
+        counters["no_image"] += 1
+    elif result.status == "uploaded":
+        counters["uploaded"] += 1
+    elif result.status == "failed":
+        counters["failed"] += 1
+        if result.failure:
+            failed_items.append(result.failure)
+
+
+def _sync_images_parallel(
+    candidates: list[tuple[int, str | None]],
+    s3,
+    bucket: str,
+    *,
+    existing: set[str],
+    force: bool,
+    workers: int,
+    progress: ProgressThrottle,
+    total: int,
+    started: float,
+    mirrored: set[int],
+    counters: dict[str, int],
+    failed_items: list[dict],
+) -> None:
+    scrapers = [create_scraper() for _ in range(workers)]
+    lock = threading.Lock()
+    completed = 0
+    work_index = 0
+
+    def worker_task(worker_id: int, pid: int, source_url: str | None) -> MirrorResult:
+        return _mirror_one_card(
+            pid,
+            source_url,
+            scraper=scrapers[worker_id % len(scrapers)],
+            s3=s3,
+            bucket=bucket,
+            existing=existing,
+            force=force,
+            thread_local_s3=True,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        in_flight: dict[Future, int] = {}
+
+        def submit_next() -> None:
+            nonlocal work_index
+            while work_index < total and len(in_flight) < workers:
+                pid, source_url = candidates[work_index]
+                fut = executor.submit(worker_task, work_index, pid, source_url)
+                in_flight[fut] = work_index
+                work_index += 1
+
+        submit_next()
+        while in_flight:
+            done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for fut in done:
+                in_flight.pop(fut)
+                result = fut.result()
+                with lock:
+                    _apply_result(
+                        result,
+                        mirrored=mirrored,
+                        counters=counters,
+                        failed_items=failed_items,
+                    )
+                    completed += 1
+                    index = completed
+                    if progress.should_emit(index) or index == total:
+                        eta = eta_seconds(index, total, started)
+                        eta_suffix = f" eta={eta:.0f}s" if eta is not None else ""
+                        log_line(
+                            f"[PROGRESS] {index}/{total} "
+                            f"uploaded={counters['uploaded']} existing={counters['skipped_existing']} "
+                            f"no_image={counters['no_image']} failed={counters['failed']}{eta_suffix}"
+                        )
+            submit_next()
 
 
 def _write_failures(failed_items: list[dict], manifest_path: Path) -> Path | None:
@@ -168,10 +341,9 @@ def sync_images(
     force: bool = False,
     limit: int | None = None,
     manifest_path: Path = IMAGES_MANIFEST_PATH,
+    workers: int = DEFAULT_WORKERS,
 ) -> dict[str, int]:
     """Mirror images for entries; returns counters and writes the manifest."""
-    scraper = create_scraper()
-
     log_line(f"Listing existing objects in bucket '{bucket}' ...")
     existing = list_existing_keys(s3, bucket)
     log_line(f"Found {len(existing)} existing objects")
@@ -189,60 +361,48 @@ def sync_images(
         candidates = candidates[:limit]
 
     total = len(candidates)
-    log_line(f"[START] bucket={bucket} total={total} force={force}")
+    worker_count = max(1, workers)
+    log_line(f"[START] bucket={bucket} total={total} force={force} workers={worker_count}")
     progress = ProgressThrottle(every_rows=PROGRESS_EVERY_ROWS, every_seconds=PROGRESS_EVERY_SECONDS)
     started = time.monotonic()
 
-    for index, (pid, source_url) in enumerate(candidates, start=1):
-        full_key = full_image_key(pid)
-        small_key = small_image_key(pid)
-        already = full_key in existing and small_key in existing
-
-        if already and not force:
-            mirrored.add(pid)
-            counters["skipped_existing"] += 1
-        elif not source_url:
-            if already:
-                # Keep serving the previously mirrored art even if the latest
-                # scrape found no image for this card.
-                mirrored.add(pid)
-            counters["no_image"] += 1
-        else:
-            data, download_error = fetch_image_bytes(scraper, source_url)
-            if data is None:
-                if already:
-                    mirrored.add(pid)
-                counters["failed"] += 1
-                failed_items.append(
-                    {
-                        "passcode": pid,
-                        "stage": "download",
-                        "reason": download_error or "download failed",
-                        "url": source_url[:200],
-                    }
-                )
-            else:
-                try:
-                    full_webp, small_webp = convert_to_webp(data)
-                except Exception as e:
-                    reason = f"{type(e).__name__}: {str(e)[:120]}"
-                    log_line(f"[FAIL] convert pid={pid} ({reason})")
-                    counters["failed"] += 1
-                    failed_items.append({"passcode": pid, "stage": "convert", "reason": reason})
-                else:
-                    upload_webp(s3, bucket, full_key, full_webp)
-                    upload_webp(s3, bucket, small_key, small_webp)
-                    mirrored.add(pid)
-                    counters["uploaded"] += 1
-
-        if progress.should_emit(index) or index == total:
-            eta = eta_seconds(index, total, started)
-            eta_suffix = f" eta={eta:.0f}s" if eta is not None else ""
-            log_line(
-                f"[PROGRESS] {index}/{total} "
-                f"uploaded={counters['uploaded']} existing={counters['skipped_existing']} "
-                f"no_image={counters['no_image']} failed={counters['failed']}{eta_suffix}"
+    if worker_count == 1:
+        scraper = create_scraper()
+        for index, (pid, source_url) in enumerate(candidates, start=1):
+            result = _mirror_one_card(
+                pid,
+                source_url,
+                scraper=scraper,
+                s3=s3,
+                bucket=bucket,
+                existing=existing,
+                force=force,
             )
+            _apply_result(result, mirrored=mirrored, counters=counters, failed_items=failed_items)
+
+            if progress.should_emit(index) or index == total:
+                eta = eta_seconds(index, total, started)
+                eta_suffix = f" eta={eta:.0f}s" if eta is not None else ""
+                log_line(
+                    f"[PROGRESS] {index}/{total} "
+                    f"uploaded={counters['uploaded']} existing={counters['skipped_existing']} "
+                    f"no_image={counters['no_image']} failed={counters['failed']}{eta_suffix}"
+                )
+    else:
+        _sync_images_parallel(
+            candidates,
+            s3,
+            bucket,
+            existing=existing,
+            force=force,
+            workers=worker_count,
+            progress=progress,
+            total=total,
+            started=started,
+            mirrored=mirrored,
+            counters=counters,
+            failed_items=failed_items,
+        )
 
     # Preserve previously mirrored passcodes not present in this JSON slice
     # (e.g. test/limit runs) so the manifest never shrinks accidentally.
@@ -267,6 +427,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, default=IMAGES_MANIFEST_PATH, help="Manifest output path")
     parser.add_argument("--limit", type=int, default=None, help="Only process first N cards (testing)")
     parser.add_argument("--force", action="store_true", help="Re-download and re-upload existing objects")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"Parallel download/upload workers (default {DEFAULT_WORKERS})",
+    )
     parser.add_argument(
         "--manifest-only",
         action="store_true",
@@ -298,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         limit=args.limit,
         manifest_path=args.manifest,
+        workers=args.workers,
     )
     if counters["failed"] > 0:
         return 1

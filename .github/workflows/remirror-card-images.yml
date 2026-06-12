@@ -1,0 +1,69 @@
+# Re-encode and re-upload card images (--force) without re-scraping Yugipedia.
+# Uses the latest successful catalog-state artifact from Import Yugipedia catalog.
+name: Remirror card images
+
+on:
+  workflow_dispatch:
+    inputs:
+      card_limit:
+        description: Optional cap on cards processed (testing)
+        required: false
+        type: number
+
+jobs:
+  remirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check image mirror secrets
+        id: mirror
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          if [[ -n "$S3_BUCKET" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::error::S3_BUCKET secret not set."
+            exit 1
+          fi
+
+      - name: Download latest catalog artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: import-catalog-yugipedia.yml
+          name: catalog-state
+          branch: develop
+          workflow_conclusion: success
+
+      - name: Force remirror card images
+        if: steps.mirror.outputs.enabled == 'true'
+        env:
+          S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ARGS=(--force)
+          if [[ -n "${{ inputs.card_limit }}" ]]; then
+            ARGS+=(--limit "${{ inputs.card_limit }}")
+          fi
+          python -m ygo_app.jobs.sync_card_images "${ARGS[@]}"
+
+      - name: Upload images manifest
+        if: steps.mirror.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-manifest
+          path: data/catalog/images_manifest.json
+          retention-days: 14
+          if-no-files-found: warn

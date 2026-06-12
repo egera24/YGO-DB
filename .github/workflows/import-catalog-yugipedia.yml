@@ -30,6 +30,11 @@ on:
         required: false
         default: 500
         type: number
+      force_image_remirror:
+        description: Re-download and re-encode all card images (--force on image mirror job)
+        required: false
+        default: false
+        type: boolean
   schedule:
     # 1st and 15th of each month, 03:00 UTC — production only
     - cron: "0 3 1,15 * *"
@@ -393,6 +398,9 @@ jobs:
           ARGS=()
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
             ARGS+=(--limit "${{ inputs.card_limit }}")
+          fi
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_image_remirror }}" == "true" ]]; then
+            ARGS+=(--force)
           fi
           python -m ygo_app.jobs.sync_card_images "${ARGS[@]}"
 

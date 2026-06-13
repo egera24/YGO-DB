@@ -6,7 +6,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-from ygo_app.cardmarket.constants import BASE_URL, DISCOVERY_MAX_RETRIES
+from ygo_app.cardmarket.constants import BASE_URL, DISCOVERY_MAX_RETRIES, FetchBackend
 from ygo_app.cardmarket.http_client import RateLimiter, fetch_url
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -130,14 +130,23 @@ def probe_expansion_code(
     expansion_name: str,
     *,
     rate_limiter: RateLimiter,
+    backend: FetchBackend = "cloudscraper",
 ) -> str | None:
-    html, _error = fetch_url(
+    html, error = fetch_url(
         scraper,
         _search_url(expansion_id, 1),
+        backend=backend,
         rate_limiter=rate_limiter,
         retries=DISCOVERY_MAX_RETRIES,
     )
-    if not html or _is_empty_first_page(html):
+    if not html:
+        if error:
+            log_line(
+                f"[DISCOVER] probe expansion_id={expansion_id} "
+                f"({expansion_name[:40]}) failed: {error}"
+            )
+        return None
+    if _is_empty_first_page(html):
         return None
     _cards, exp_code = extract_cards_from_html(
         html,
@@ -154,6 +163,7 @@ def scrape_expansion_products(
     *,
     rate_limiter: RateLimiter,
     expansion_code: str | None = None,
+    backend: FetchBackend = "cloudscraper",
 ) -> list[dict]:
     all_cards: list[dict] = []
     page = 1
@@ -163,6 +173,7 @@ def scrape_expansion_products(
         html, error = fetch_url(
             scraper,
             _search_url(expansion_id, page),
+            backend=backend,
             rate_limiter=rate_limiter,
             retries=DISCOVERY_MAX_RETRIES,
         )

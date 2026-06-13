@@ -17,6 +17,7 @@ data/
 
 # Large exports, scraper outputs, and personal collection data
 *.json
+!ygo_app/cardmarket/expansion_seed.json
 *.csv
 
 # Downloaded card images (regenerate with scrapers locally)

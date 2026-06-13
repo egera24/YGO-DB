@@ -11,7 +11,7 @@ from ygo_app.cardmarket.constants import (
     DISCOVERY_ERROR,
     DISCOVERY_MATCHED,
     DISCOVERY_UNMATCHED,
-    DISCOVERY_REQUESTS_PER_SECOND,
+    FetchBackend,
 )
 from ygo_app.cardmarket.matching import build_cardmarket_index, printing_match_key
 from ygo_app.models import CardmarketExpansion, Printing, PrintingMarketPrice
@@ -121,6 +121,8 @@ def discover_printings(
     full: bool = False,
     limit: int | None = None,
     catalog: list[tuple[str, str, str | None]] | None = None,
+    backend: FetchBackend = "cloudscraper",
+    discovery_rps: float = 3.0,
 ) -> dict[str, int]:
     from ygo_app.cardmarket.expansions import refresh_expansion_cache, resolve_expansion_ids
     from ygo_app.cardmarket.http_client import RateLimiter, create_scraper
@@ -158,11 +160,17 @@ def discover_printings(
     if not pending:
         return stats
 
-    refresh_expansion_cache(session, force=full)
-    code_to_id = resolve_expansion_ids(session, expansion_codes, force_refresh=full)
+    refresh_expansion_cache(session, force=full, backend=backend, discovery_rps=discovery_rps)
+    code_to_id = resolve_expansion_ids(
+        session,
+        expansion_codes,
+        force_refresh=full,
+        backend=backend,
+        discovery_rps=discovery_rps,
+    )
 
-    scraper = create_scraper()
-    rate_limiter = RateLimiter(DISCOVERY_REQUESTS_PER_SECOND)
+    scraper = None if backend == "playwright" else create_scraper()
+    rate_limiter = RateLimiter(discovery_rps)
 
     for exp_code, expansion_id in code_to_id.items():
         db_row = session.get(CardmarketExpansion, expansion_id)
@@ -173,6 +181,7 @@ def discover_printings(
             expansion_name,
             rate_limiter=rate_limiter,
             expansion_code=exp_code,
+            backend=backend,
         )
         if products and db_row and not db_row.expansion_code:
             db_row.expansion_code = (products[0].get("expansion_code") or exp_code).upper()
@@ -227,11 +236,13 @@ def sync_prices(
     max_age_days: int = 7,
     limit: int | None = None,
     workers: int = 8,
+    backend: FetchBackend = "cloudscraper",
+    price_rps: float = 4.0,
 ) -> dict[str, int]:
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    from ygo_app.cardmarket.constants import DEFAULT_REQUESTS_PER_SECOND, RANDOM_JITTER
+    from ygo_app.cardmarket.constants import RANDOM_JITTER
     from ygo_app.cardmarket.http_client import RateLimiter, SessionPool, fetch_url
     from ygo_app.cardmarket.parsing import extract_price_data
 
@@ -240,16 +251,20 @@ def sync_prices(
     if not rows:
         return stats
 
-    rate_limiter = RateLimiter(DEFAULT_REQUESTS_PER_SECOND)
-    session_pool = SessionPool(workers)
+    rate_limiter = RateLimiter(price_rps)
+    session_pool = SessionPool(workers) if backend == "cloudscraper" else None
     lock = threading.Lock()
 
     def process_row(row: PrintingMarketPrice) -> tuple[str, str, dict[str, float | None] | None]:
         worker_id = threading.get_ident() % max(workers, 1)
-        scraper, _ = session_pool.get_session(worker_id)
+        scraper = None
+        if backend == "cloudscraper":
+            assert session_pool is not None
+            scraper, _ = session_pool.get_session(worker_id)
         html, _error = fetch_url(
             scraper,
             row.cardmarket_url or "",
+            backend=backend,
             rate_limiter=rate_limiter,
             jitter=RANDOM_JITTER,
             session_pool=session_pool,
@@ -285,10 +300,6 @@ def sync_prices(
 
     session.commit()
     return stats
-
-
-def all_market_price_rows(session: Session) -> list[PrintingMarketPrice]:
-    return list(session.scalars(select(PrintingMarketPrice)))
 
 
 def all_market_price_rows(session: Session) -> list[PrintingMarketPrice]:

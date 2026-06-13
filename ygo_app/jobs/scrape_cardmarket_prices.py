@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel workers")
     parser.add_argument("--limit", type=int, default=None, help="Cap printings processed (testing)")
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Use Playwright Chromium instead of cloudscraper (slower, fewer 403/429 issues)",
+    )
     args = parser.parse_args(argv)
 
     if args.discover_only and args.prices_only:
@@ -58,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         max_age_days=args.max_age_days,
         workers=args.workers,
         limit=args.limit,
+        use_browser=args.browser,
     )
 
 

@@ -314,13 +314,17 @@ python -m ygo_app.jobs.import_catalog
 
 ### Cardmarket prices (local scrape → R2 → GHA import)
 
-Cardmarket blocks cloud/datacenter IPs (HTTP 403). **Scrape only on your PC**; import via R2 + GHA or direct local import.
+Cardmarket blocks cloud/datacenter IPs (HTTP 403/429). **Scrape only on your PC**; import via R2 + GHA or direct local import.
+
+One-time Playwright setup (for `--browser` when rate-limited): `pip install -r requirements.txt` then `python -m playwright install chromium`.
 
 ```powershell
 # 1. Local scrape → JSON (needs data/catalog/yugipedia_all_cards.json; no DATABASE_URL)
-python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500          # test
-python -m ygo_app.jobs.scrape_cardmarket_prices                       # incremental
-python -m ygo_app.jobs.scrape_cardmarket_prices --full                # rediscover all
+python -m ygo_app.jobs.scrape_cardmarket_prices --browser --limit 500 --workers 1   # test (Playwright)
+python -m ygo_app.jobs.scrape_cardmarket_prices --browser --workers 1             # incremental
+python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500                         # test (cloudscraper)
+python -m ygo_app.jobs.scrape_cardmarket_prices                                     # incremental
+python -m ygo_app.jobs.scrape_cardmarket_prices --full                              # rediscover all
 
 # 2a. Upload to R2 (S3_* in .env), then GHA "Import Cardmarket prices"
 python -m ygo_app.jobs.upload_cardmarket_prices
@@ -329,7 +333,7 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
 ```
 
-Local incremental state: `data/catalog/cardmarket_cache.db`. Export: `data/catalog/cardmarket_prices.json`. R2 key: `catalog/cardmarket_prices.json` (private).
+Local incremental state: `data/catalog/cardmarket_cache.db`. Export: `data/catalog/cardmarket_prices.json`. Expansion codes: `ygo_app/cardmarket/expansion_seed.json`. R2 key: `catalog/cardmarket_prices.json` (private).
 
 ### GHA from CLI
 ```powershell
@@ -368,7 +372,8 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-13**
-- **Cardmarket export/import pipeline** — scrape runs **locally only** (`scrape_cardmarket_prices` → `data/catalog/cardmarket_prices.json`, local SQLite cache `cardmarket_cache.db`). Upload: `upload_cardmarket_prices` → R2 `catalog/cardmarket_prices.json`. Import: `import_cardmarket_prices` (local `--file` or GHA `--from-r2`). Replaced `sync-cardmarket-prices.yml` with `import-cardmarket-prices.yml` (no cloud scrape). Tests: `test_import_cardmarket_prices.py`.
+- **Cardmarket Playwright scrape** — optional `--browser` on `scrape_cardmarket_prices` uses headless Chromium (Playwright) with conservative 1 worker / ~1 req/s; bundled `expansion_seed.json` seeds expansion codes to cut discovery HTTP; improved 429 backoff (`Retry-After`, circuit breaker). `playwright install chromium` after pip install.
+- **Cardmarket export/import pipeline** — scrape runs **locally only** (`scrape_cardmarket_prices` → `data/catalog/cardmarket_prices.json`, local SQLite cache `cardmarket_cache.db`). Upload: `upload_cardmarket_prices` → R2 `catalog/cardmarket_prices.json`. Import: `import_cardmarket_prices` (local `--file` or GHA `--from-r2`). Replaced `sync-cardmarket-prices.yml` with `import-cardmarket-prices.yml` (no cloud scrape). Tests: `test_import_cardmarket_prices.py`, `test_cardmarket_discover.py`.
 - **Cardmarket printing prices** — `printing_market_prices` + `cardmarket_expansions` tables (Alembic `007`); card modal printings show LOW/AVG/TREND (EUR). Static `app.js?v=40`, `style.css?v=33`.
 - **Instant card modal open** — modal overlay opens immediately on click with seeded name/meta/thumbnail from search results or collection row; skeleton shimmer for description/printings until `GET /api/cards/{id}` hydrates; action buttons disabled until loaded. Card detail route reuses `get_card_detail` owned/favorite data instead of duplicate `card_to_summary` queries. Static `app.js?v=39`, `style.css?v=32`.
 - **Webapp speed improvements** — GZip middleware + production `Cache-Control: immutable` on `/static/*` ([`api/main.py`](ygo_app/api/main.py)). In-process TTL cache (10 min) for catalog portion of `GET /api/filters` ([`meta.py`](ygo_app/api/routes/meta.py)); invalidated after catalog import. Alembic `006`: `pg_trgm` GIN indexes on `cards.name`/`desc`/`archetype` + `collection_items.rarity_code`/`printing_id` (Postgres only). `search_cards` uses `load_only()` to skip `desc` and other unused columns. Frontend: search page size 500→100; parallel init (`status`/`filters`/`presets`); event delegation on search grid + collection table; stale-response guards; decks/collection tab memory cache + background refresh; modal favorite/tag local updates + `refreshModalCard()` (no full re-open); decks list cache for modal select; `preconnect` to `ms.yugipedia.com`. Static `app.js?v=38`, `style.css?v=31`.

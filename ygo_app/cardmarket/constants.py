@@ -1,5 +1,9 @@
 """Cardmarket scrape configuration."""
 
+from typing import Literal
+
+FetchBackend = Literal["cloudscraper", "playwright"]
+
 BASE_URL = "https://www.cardmarket.com"
 SEARCH_URL = (
     f"{BASE_URL}/en/YuGiOh/Products/Search?"
@@ -20,7 +24,17 @@ REQUEST_TIMEOUT = 20
 
 # Discovery (expansion list pages)
 DISCOVERY_REQUESTS_PER_SECOND = 3.0
-DISCOVERY_MAX_RETRIES = 2
+DISCOVERY_MAX_RETRIES = 5
+
+# Browser (Playwright) mode — conservative rates
+BROWSER_DEFAULT_WORKERS = 1
+BROWSER_DISCOVERY_REQUESTS_PER_SECOND = 0.75
+BROWSER_DEFAULT_REQUESTS_PER_SECOND = 1.0
+
+# 429 / rate-limit handling
+RATE_LIMIT_429_BASE_SECONDS = 60
+CIRCUIT_BREAKER_429_THRESHOLD = 5
+CIRCUIT_BREAKER_429_COOLDOWN_SECONDS = 900
 
 # Incremental TTL
 DEFAULT_MAX_AGE_DAYS = 7

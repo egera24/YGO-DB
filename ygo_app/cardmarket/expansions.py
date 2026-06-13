@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from ygo_app.cardmarket.constants import (
     BASE_URL,
-    DISCOVERY_REQUESTS_PER_SECOND,
     EXPANSION_CACHE_MAX_AGE_DAYS,
+    FetchBackend,
     SEARCH_URL,
 )
+from ygo_app.cardmarket.expansion_seed import apply_seed_to_cache
 from ygo_app.cardmarket.http_client import RateLimiter, create_scraper, fetch_url
 from ygo_app.models import CardmarketExpansion
 from ygo_app.yugipedia.scrape_progress import log_line
@@ -67,11 +68,20 @@ def load_expansions_from_db(session: Session) -> list[CardmarketExpansion]:
     return list(session.scalars(select(CardmarketExpansion).order_by(CardmarketExpansion.expansion_id)))
 
 
-def refresh_expansion_cache(session: Session, *, force: bool = False) -> int:
+def refresh_expansion_cache(
+    session: Session,
+    *,
+    force: bool = False,
+    backend: FetchBackend = "cloudscraper",
+    discovery_rps: float = 3.0,
+) -> int:
+    apply_seed_to_cache(session)
+
     cache_fresh = expansion_cache_is_fresh(session)
     db_count = session.scalar(select(func.count()).select_from(CardmarketExpansion)) or 0
     if not force and cache_fresh:
         log_line(f"[EXPANSIONS] cache fresh ({db_count} rows)")
+        apply_seed_to_cache(session)
         return int(db_count)
 
     existing_codes = {
@@ -80,15 +90,21 @@ def refresh_expansion_cache(session: Session, *, force: bool = False) -> int:
         if row.expansion_code
     }
 
-    scraper = create_scraper()
-    try:
-        scraper.get(f"{BASE_URL}/en/YuGiOh", timeout=15)
-    except Exception:
-        pass
-    time.sleep(2)
+    scraper = None if backend == "playwright" else create_scraper()
+    if backend == "cloudscraper" and scraper is not None:
+        try:
+            scraper.get(f"{BASE_URL}/en/YuGiOh", timeout=15)
+        except Exception:
+            pass
+        time.sleep(2)
 
-    rate_limiter = RateLimiter(DISCOVERY_REQUESTS_PER_SECOND)
-    html, error = fetch_url(scraper, SEARCH_URL, rate_limiter=rate_limiter)
+    rate_limiter = RateLimiter(discovery_rps)
+    html, error = fetch_url(
+        scraper,
+        SEARCH_URL,
+        backend=backend,
+        rate_limiter=rate_limiter,
+    )
     if not html:
         raise RuntimeError(f"Failed to fetch expansion list: {error}")
 
@@ -106,6 +122,7 @@ def refresh_expansion_cache(session: Session, *, force: bool = False) -> int:
             )
         )
     session.commit()
+    apply_seed_to_cache(session)
     log_line(f"[EXPANSIONS] cached {len(expansions)} TCG expansions")
     return len(expansions)
 
@@ -115,13 +132,21 @@ def resolve_expansion_ids(
     expansion_codes: set[str],
     *,
     force_refresh: bool = False,
+    backend: FetchBackend = "cloudscraper",
+    discovery_rps: float = 3.0,
 ) -> dict[str, int]:
     """
     Map Yugipedia expansion prefix → Cardmarket expansion_id.
-    Uses expansion_code on cached rows when set; otherwise scrapes each expansion's
-    first product list page to learn the code from product rows.
+    Uses expansion_code on cached rows when set; otherwise scrapes expansion product
+    list pages to learn codes (only while needed codes remain unresolved).
     """
-    refresh_expansion_cache(session, force=force_refresh)
+    refresh_expansion_cache(
+        session,
+        force=force_refresh,
+        backend=backend,
+        discovery_rps=discovery_rps,
+    )
+    apply_seed_to_cache(session)
     rows = load_expansions_from_db(session)
 
     by_code: dict[str, int] = {}
@@ -134,18 +159,21 @@ def resolve_expansion_ids(
         log_line(f"[EXPANSIONS] resolving {len(missing)} codes via product list probe")
         from ygo_app.cardmarket.product_list import probe_expansion_code
 
-        rate_limiter = RateLimiter(DISCOVERY_REQUESTS_PER_SECOND)
-        scraper = create_scraper()
+        rate_limiter = RateLimiter(discovery_rps)
+        scraper = None if backend == "playwright" else create_scraper()
+        probes = 0
         for row in rows:
             if not missing:
                 break
             if row.expansion_code:
                 continue
+            probes += 1
             code = probe_expansion_code(
                 scraper,
                 row.expansion_id,
                 row.expansion_name,
                 rate_limiter=rate_limiter,
+                backend=backend,
             )
             if not code:
                 continue
@@ -157,5 +185,6 @@ def resolve_expansion_ids(
                 by_code[code_upper] = row.expansion_id
                 missing.discard(code_upper)
         session.commit()
+        log_line(f"[EXPANSIONS] probe requests={probes} remaining_missing={len(missing)}")
 
     return {code: by_code[code] for code in expansion_codes if code.upper() in by_code}

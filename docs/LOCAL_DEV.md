@@ -156,12 +156,22 @@ See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [D
 
 ## Cardmarket prices (local scrape)
 
-Cardmarket returns HTTP 403 from cloud IPs (including GitHub Actions). Scrape on your machine, then import to Neon.
+Cardmarket returns HTTP 403/429 from cloud IPs and aggressive scraping. Scrape on your machine, then import to Neon.
 
 **Prerequisite:** `data/catalog/yugipedia_all_cards.json` (from Yugipedia scrape or GHA catalog artifact).
 
+**Playwright (recommended if you hit HTTP 429):** one-time browser install after `pip install -r requirements.txt`:
+
+```powershell
+python -m playwright install chromium
+```
+
 ```powershell
 # Scrape locally → JSON (no DATABASE_URL required)
+python -m ygo_app.jobs.scrape_cardmarket_prices --browser --limit 500 --workers 1
+python -m ygo_app.jobs.scrape_cardmarket_prices --browser --workers 1   # incremental
+
+# cloudscraper (faster when not rate-limited)
 python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500
 python -m ygo_app.jobs.scrape_cardmarket_prices
 
@@ -173,10 +183,13 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
 ```
 
+If you are already rate-limited (HTTP 429), wait several hours before retrying. Use `--prices-only` when discovery is already in `cardmarket_cache.db`. Avoid `--full` until expansion codes are seeded.
+
 | File | Role |
 |------|------|
 | `data/catalog/cardmarket_prices.json` | Export snapshot (upload to R2) |
 | `data/catalog/cardmarket_cache.db` | Local incremental scrape state |
+| `ygo_app/cardmarket/expansion_seed.json` | Bundled expansion_id → code map (reduces probe HTTP) |
 | R2 `catalog/cardmarket_prices.json` | Private handoff for GHA import |
 
 Requires `S3_*` in `.env` for upload (same as image mirror). GHA import uses repo secrets.

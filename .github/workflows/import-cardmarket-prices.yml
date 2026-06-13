@@ -1,0 +1,106 @@
+name: Import Cardmarket prices
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - production
+        default: dev
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  import-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve database URL
+        id: db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+          ENV_INPUT: ${{ github.event.inputs.environment }}
+        run: |
+          if [[ "$ENV_INPUT" == "production" ]]; then
+            echo "url=${DATABASE_URL}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${DATABASE_URL_DEV}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check R2 secrets
+        id: r2
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          if [[ -n "$S3_BUCKET" ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::S3_BUCKET secret not set — upload cardmarket_prices.json from local first"
+            exit 1
+          fi
+
+      - name: Alembic upgrade
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+          ENV: production
+        run: alembic upgrade head
+
+      - name: Import Cardmarket prices from R2
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+          ENV: production
+          S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          set -o pipefail
+          mkdir -p data/catalog
+          echo "=== Import Cardmarket prices from R2 ==="
+          echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          python -m ygo_app.jobs.import_cardmarket_prices --from-r2 2>&1 | tee data/catalog/cardmarket_import.log
+
+      - name: Upload import log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-import-log-${{ github.event.inputs.environment }}
+          path: data/catalog/cardmarket_import.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Import Cardmarket prices"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Environment | ${{ github.event.inputs.environment }} |"
+            echo "| Source | R2 \`catalog/cardmarket_prices.json\` |"
+            if [[ -f data/catalog/cardmarket_import.log ]]; then
+              echo ""
+              echo "### Last log lines"
+              echo '```'
+              tail -20 data/catalog/cardmarket_import.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

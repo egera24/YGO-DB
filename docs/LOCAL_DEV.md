@@ -153,3 +153,30 @@ This does **not** match Render behavior (different DB engine, search limits, and
 | Port in use | `python run.py --port 8001 --no-browser` |
 
 See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [DEPLOY_FREE.md](DEPLOY_FREE.md) for Render and GitHub Actions setup.
+
+## Cardmarket prices (local scrape)
+
+Cardmarket returns HTTP 403 from cloud IPs (including GitHub Actions). Scrape on your machine, then import to Neon.
+
+**Prerequisite:** `data/catalog/yugipedia_all_cards.json` (from Yugipedia scrape or GHA catalog artifact).
+
+```powershell
+# Scrape locally → JSON (no DATABASE_URL required)
+python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500
+python -m ygo_app.jobs.scrape_cardmarket_prices
+
+# Option A — promote via R2 + GitHub Actions
+python -m ygo_app.jobs.upload_cardmarket_prices
+# Actions → "Import Cardmarket prices" → environment dev or production
+
+# Option B — import directly to Neon dev (.env DATABASE_URL)
+python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
+```
+
+| File | Role |
+|------|------|
+| `data/catalog/cardmarket_prices.json` | Export snapshot (upload to R2) |
+| `data/catalog/cardmarket_cache.db` | Local incremental scrape state |
+| R2 `catalog/cardmarket_prices.json` | Private handoff for GHA import |
+
+Requires `S3_*` in `.env` for upload (same as image mirror). GHA import uses repo secrets.

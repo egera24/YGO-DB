@@ -256,6 +256,7 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 |----------|---------|-------|
 | [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → images → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck fallback) | Manual emergency only |
+| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — downloads `catalog/cardmarket_prices.json` from R2, upserts `printing_market_prices`. Scrape runs **locally** (Cardmarket blocks datacenter IPs). `workflow_dispatch` + `environment` `dev`\|`production` |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Both secrets |
 
 - Workflows only appear in the Actions UI when present on the **default branch (`main`)**. Running with branch `develop` uses **code from `develop`** (must include `ygo_app/yugipedia/`).
@@ -311,10 +312,30 @@ python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
 python -m ygo_app.jobs.import_catalog
 ```
 
+### Cardmarket prices (local scrape → R2 → GHA import)
+
+Cardmarket blocks cloud/datacenter IPs (HTTP 403). **Scrape only on your PC**; import via R2 + GHA or direct local import.
+
+```powershell
+# 1. Local scrape → JSON (needs data/catalog/yugipedia_all_cards.json; no DATABASE_URL)
+python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500          # test
+python -m ygo_app.jobs.scrape_cardmarket_prices                       # incremental
+python -m ygo_app.jobs.scrape_cardmarket_prices --full                # rediscover all
+
+# 2a. Upload to R2 (S3_* in .env), then GHA "Import Cardmarket prices"
+python -m ygo_app.jobs.upload_cardmarket_prices
+
+# 2b. Dev shortcut — import directly (DATABASE_URL = Neon dev)
+python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
+```
+
+Local incremental state: `data/catalog/cardmarket_cache.db`. Export: `data/catalog/cardmarket_prices.json`. R2 key: `catalog/cardmarket_prices.json` (private).
+
 ### GHA from CLI
 ```powershell
 gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev
 gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev -f test_mode=true -f card_limit=500
+gh workflow run "Import Cardmarket prices" --ref develop -f environment=dev
 ```
 > Test on dev without touching prod: **Run workflow** (not Re-run) → branch `develop` → `environment=dev`. After a test run, do a full import to restore ~14k cards on dev.
 
@@ -347,7 +368,8 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-13**
-- **Cardmarket printing prices** — `printing_market_prices` + `cardmarket_expansions` tables (Alembic `007`); `ygo_app/cardmarket/` scraper package; `python -m ygo_app.jobs.scrape_cardmarket_prices` (`--full`, `--discover-only`, `--prices-only`, `--limit`). Catalog-scoped discovery + incremental price TTL (7 days). Card modal printings show LOW/AVG/TREND (EUR) and owned `(Nx)`. GHA `sync-cardmarket-prices.yml`. Static `app.js?v=40`, `style.css?v=33`.
+- **Cardmarket export/import pipeline** — scrape runs **locally only** (`scrape_cardmarket_prices` → `data/catalog/cardmarket_prices.json`, local SQLite cache `cardmarket_cache.db`). Upload: `upload_cardmarket_prices` → R2 `catalog/cardmarket_prices.json`. Import: `import_cardmarket_prices` (local `--file` or GHA `--from-r2`). Replaced `sync-cardmarket-prices.yml` with `import-cardmarket-prices.yml` (no cloud scrape). Tests: `test_import_cardmarket_prices.py`.
+- **Cardmarket printing prices** — `printing_market_prices` + `cardmarket_expansions` tables (Alembic `007`); card modal printings show LOW/AVG/TREND (EUR). Static `app.js?v=40`, `style.css?v=33`.
 - **Instant card modal open** — modal overlay opens immediately on click with seeded name/meta/thumbnail from search results or collection row; skeleton shimmer for description/printings until `GET /api/cards/{id}` hydrates; action buttons disabled until loaded. Card detail route reuses `get_card_detail` owned/favorite data instead of duplicate `card_to_summary` queries. Static `app.js?v=39`, `style.css?v=32`.
 - **Webapp speed improvements** — GZip middleware + production `Cache-Control: immutable` on `/static/*` ([`api/main.py`](ygo_app/api/main.py)). In-process TTL cache (10 min) for catalog portion of `GET /api/filters` ([`meta.py`](ygo_app/api/routes/meta.py)); invalidated after catalog import. Alembic `006`: `pg_trgm` GIN indexes on `cards.name`/`desc`/`archetype` + `collection_items.rarity_code`/`printing_id` (Postgres only). `search_cards` uses `load_only()` to skip `desc` and other unused columns. Frontend: search page size 500→100; parallel init (`status`/`filters`/`presets`); event delegation on search grid + collection table; stale-response guards; decks/collection tab memory cache + background refresh; modal favorite/tag local updates + `refreshModalCard()` (no full re-open); decks list cache for modal select; `preconnect` to `ms.yugipedia.com`. Static `app.js?v=38`, `style.css?v=31`.
 
@@ -432,6 +454,10 @@ ygo_app/
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
     sync_card_images.py        # mirror card art to S3-compatible bucket (R2)
+    scrape_cardmarket_prices.py   # local scrape → JSON export
+    import_cardmarket_prices.py   # JSON or R2 → printing_market_prices
+    upload_cardmarket_prices.py   # JSON → R2
+  cardmarket/                  # scrape, export schema, R2 handoff, matching
   image_mirror.py              # mirrored image keys/URLs + manifest + import rewrite
   import_data.py               # catalog replace + import_collection_csv (CollectionImportResult)
   collection_export.py         # DragonShield CSV export
@@ -441,7 +467,7 @@ ygo_app/
   static/                      # index.html, css/style.css, js/app.js
 alembic/versions/  001 … 004_search_presets.py
 tests/                         # 23 unittest modules (search, presets, scrape, collection list/stats/rename, import/export CSV, …)
-.github/workflows/             # import-catalog-yugipedia.yml, import-catalog-ygoprodeck.yml, db-keepalive.yml
+.github/workflows/             # import-catalog-yugipedia.yml, import-cardmarket-prices.yml, …
 .cursor/rules/                 # github-actions-yugipedia-workflow-sync.mdc
 docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md
 yugipedia/                     # legacy standalone scrapers (NOT ygo_app/yugipedia)

@@ -120,6 +120,7 @@ def discover_printings(
     *,
     full: bool = False,
     limit: int | None = None,
+    catalog: list[tuple[str, str, str | None]] | None = None,
 ) -> dict[str, int]:
     from ygo_app.cardmarket.expansions import refresh_expansion_cache, resolve_expansion_ids
     from ygo_app.cardmarket.http_client import RateLimiter, create_scraper
@@ -127,7 +128,8 @@ def discover_printings(
 
     stats = {"matched": 0, "unmatched": 0, "expansions": 0}
 
-    catalog = distinct_catalog_printings(session)
+    if catalog is None:
+        catalog = distinct_catalog_printings(session)
     if limit is not None:
         catalog = catalog[:limit]
 
@@ -283,3 +285,11 @@ def sync_prices(
 
     session.commit()
     return stats
+
+
+def all_market_price_rows(session: Session) -> list[PrintingMarketPrice]:
+    return list(session.scalars(select(PrintingMarketPrice)))
+
+
+def all_market_price_rows(session: Session) -> list[PrintingMarketPrice]:
+    return list(session.scalars(select(PrintingMarketPrice)))

@@ -1,60 +1,38 @@
-"""Scrape Cardmarket LOW/AVG/TREND prices for catalog printings."""
+"""Scrape Cardmarket LOW/AVG/TREND prices locally and write JSON export.
+
+Local-only (residential IP). Does not connect to Neon.
+Import into Postgres: python -m ygo_app.jobs.import_cardmarket_prices
+Upload to R2: python -m ygo_app.jobs.upload_cardmarket_prices
+"""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from ygo_app.cardmarket.constants import DEFAULT_MAX_AGE_DAYS, DEFAULT_WORKERS
-from ygo_app.cardmarket.market_prices import discover_printings, sync_prices
-from ygo_app.database import SessionLocal
-from ygo_app.import_data import init_db
-from ygo_app.yugipedia.scrape_progress import log_line
-
-
-def run(
-    *,
-    full: bool = False,
-    discover_only: bool = False,
-    prices_only: bool = False,
-    max_age_days: int = DEFAULT_MAX_AGE_DAYS,
-    workers: int = DEFAULT_WORKERS,
-    limit: int | None = None,
-) -> int:
-    init_db()
-    session = SessionLocal()
-    try:
-        if not prices_only:
-            log_line("[PHASE] discovery")
-            disc_stats = discover_printings(session, full=full, limit=limit)
-            log_line(
-                f"[DISCOVER] matched={disc_stats['matched']} "
-                f"unmatched={disc_stats['unmatched']} expansions={disc_stats['expansions']}"
-            )
-
-        if not discover_only:
-            log_line("[PHASE] price sync")
-            if full:
-                max_age_days = 0
-            price_stats = sync_prices(
-                session,
-                full=full or max_age_days == 0,
-                max_age_days=max_age_days,
-                limit=limit,
-                workers=workers,
-            )
-            log_line(
-                f"[PRICES] total={price_stats['total']} "
-                f"updated={price_stats['updated']} failed={price_stats['failed']}"
-            )
-
-        return 0
-    finally:
-        session.close()
+from ygo_app.cardmarket.export_scrape import run_export_scrape
+from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH, DEFAULT_CATALOG_PATH
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Scrape Cardmarket printing prices")
+    parser = argparse.ArgumentParser(
+        description="Scrape Cardmarket prices locally and export JSON (no database)"
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        default=CARDMARKET_PRICES_PATH,
+        help="Output JSON path (default: data/catalog/cardmarket_prices.json)",
+    )
+    parser.add_argument(
+        "--catalog",
+        type=Path,
+        default=DEFAULT_CATALOG_PATH,
+        help="Yugipedia catalog JSON for printing list (default: yugipedia_all_cards.json)",
+    )
     parser.add_argument("--full", action="store_true", help="Re-discover and refresh all prices")
     parser.add_argument("--discover-only", action="store_true", help="Only run discovery phase")
     parser.add_argument("--prices-only", action="store_true", help="Only refresh prices")
@@ -71,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.discover_only and args.prices_only:
         parser.error("Cannot use --discover-only and --prices-only together")
 
-    return run(
+    return run_export_scrape(
+        output=args.output,
+        catalog_path=args.catalog,
         full=args.full,
         discover_only=args.discover_only,
         prices_only=args.prices_only,

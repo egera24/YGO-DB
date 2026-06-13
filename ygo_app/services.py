@@ -527,6 +527,10 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
         printing.owned_quantity = owned_map.get(
             (printing.set_code, printing.set_rarity_code), 0
         )
+
+    from ygo_app.cardmarket.market_prices import attach_market_prices_to_printings
+
+    attach_market_prices_to_printings(session, list(card.printings))
     card._user_tags = get_user_tags(session, user_id, card_id)  # type: ignore[attr-defined]
     card._is_favorite = is_favorite(session, user_id, card_id)  # type: ignore[attr-defined]
     return card

@@ -11,6 +11,11 @@ class PrintingOut(BaseModel):
     set_rarity_code: str
     set_price: str | None
     owned_quantity: int = 0
+    low_price: float | None = None
+    avg_price: float | None = None
+    trend_price: float | None = None
+    price_currency: str | None = None
+    prices_updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

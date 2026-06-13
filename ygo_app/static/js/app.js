@@ -1136,6 +1136,15 @@ function seedModalPreview(seed, imageToken) {
   }
 }
 
+function formatMarketPrice(value) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toFixed(2).replace(".", ",")} €`;
+}
+
+function formatMarketPrices(p) {
+  return `${formatMarketPrice(p.low_price)} / ${formatMarketPrice(p.avg_price)} / ${formatMarketPrice(p.trend_price)}`;
+}
+
 function renderModalCard(card) {
   $("#modal-name").textContent = card.name;
   $("#modal-meta").textContent = formatModalStats(card);
@@ -1152,7 +1161,7 @@ function renderModalCard(card) {
     .map(
       (p) =>
         `<option value="${escapeHtml(p.set_code)}|${escapeHtml(p.set_rarity_code)}">
-          ${escapeHtml(p.set_code)} ${escapeHtml(p.set_rarity)} ${p.owned_quantity ? `(owned ${p.owned_quantity})` : ""}
+          ${escapeHtml(p.set_code)} ${escapeHtml(p.set_rarity)} ${p.owned_quantity ? `(${p.owned_quantity}x)` : ""}
         </option>`
     )
     .join("");
@@ -1162,8 +1171,12 @@ function renderModalCard(card) {
     .map(
       (p) => `
       <div class="printing-row ${p.owned_quantity ? "owned" : ""}">
-        <span class="set-code">${escapeHtml(p.set_code)}</span>
-        <span>${escapeHtml(p.set_rarity)} ${p.owned_quantity ? `· owned ×${p.owned_quantity}` : ""}</span>
+        <span class="printing-main">
+          <span class="set-code">${escapeHtml(p.set_code)}</span>
+          <span class="rarity">${escapeHtml(p.set_rarity)}</span>
+          ${p.owned_quantity ? `<span class="owned-qty">(${p.owned_quantity}x)</span>` : ""}
+        </span>
+        <span class="printing-prices muted">${formatMarketPrices(p)}</span>
       </div>`
     )
     .join("");

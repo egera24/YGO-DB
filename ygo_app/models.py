@@ -230,6 +230,32 @@ class DeckCard(Base):
     card: Mapped["Card"] = relationship(back_populates="deck_entries")
 
 
+class PrintingMarketPrice(Base):
+    """Cardmarket LOW/AVG/TREND keyed by set code + rarity (survives catalog re-import)."""
+
+    __tablename__ = "printing_market_prices"
+
+    set_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    rarity_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    cardmarket_product_id: Mapped[int | None] = mapped_column(Integer)
+    cardmarket_url: Mapped[str | None] = mapped_column(String(512))
+    low_price: Mapped[float | None] = mapped_column(Float)
+    avg_price: Mapped[float | None] = mapped_column(Float)
+    trend_price: Mapped[float | None] = mapped_column(Float)
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
+    discovery_status: Mapped[str | None] = mapped_column(String(16))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class CardmarketExpansion(Base):
+    __tablename__ = "cardmarket_expansions"
+
+    expansion_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    expansion_code: Mapped[str | None] = mapped_column(String(32), index=True)
+    expansion_name: Mapped[str] = mapped_column(String(256))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class SearchPreset(Base):
     __tablename__ = "search_presets"
     __table_args__ = (

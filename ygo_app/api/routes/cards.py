@@ -22,6 +22,23 @@ from ygo_app.yugipedia.images import resolve_display_image_url_small
 router = APIRouter(prefix="/cards", tags=["cards"])
 
 
+def _printing_out(p: Printing) -> PrintingOut:
+    return PrintingOut(
+        id=p.id,
+        set_name=p.set_name,
+        set_code=p.set_code,
+        set_rarity=p.set_rarity,
+        set_rarity_code=p.set_rarity_code,
+        set_price=p.set_price,
+        owned_quantity=getattr(p, "owned_quantity", 0),
+        low_price=getattr(p, "low_price", None),
+        avg_price=getattr(p, "avg_price", None),
+        trend_price=getattr(p, "trend_price", None),
+        price_currency=getattr(p, "price_currency", None),
+        prices_updated_at=getattr(p, "prices_updated_at", None),
+    )
+
+
 def _card_summary(card: Card, extra: dict) -> CardSummary:
     yugi = card_response_extras(card)
     return CardSummary(
@@ -182,18 +199,7 @@ def _build_card_detail(db: Session, card_id: int, user: User | None) -> CardDeta
         scale=card.scale,
         ygoprodeck_url=card.ygoprodeck_url,
         image_url=card.image_url,
-        printings=[
-            PrintingOut(
-                id=p.id,
-                set_name=p.set_name,
-                set_code=p.set_code,
-                set_rarity=p.set_rarity,
-                set_rarity_code=p.set_rarity_code,
-                set_price=p.set_price,
-                owned_quantity=getattr(p, "owned_quantity", 0),
-            )
-            for p in printings
-        ],
+        printings=[_printing_out(p) for p in printings],
         tags=tags,
     )
 
@@ -220,18 +226,7 @@ def list_printings(
     card = get_card_detail(db, card_id, user.id if user else None)
     if not card:
         raise HTTPException(404, "Card not found")
-    return [
-        PrintingOut(
-            id=p.id,
-            set_name=p.set_name,
-            set_code=p.set_code,
-            set_rarity=p.set_rarity,
-            set_rarity_code=p.set_rarity_code,
-            set_price=p.set_price,
-            owned_quantity=getattr(p, "owned_quantity", 0),
-        )
-        for p in sorted(card.printings, key=lambda x: x.set_code)
-    ]
+    return [_printing_out(p) for p in sorted(card.printings, key=lambda x: x.set_code)]
 
 
 @router.post("/{card_id}/tags")

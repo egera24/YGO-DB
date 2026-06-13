@@ -1019,8 +1019,24 @@ tr:hover td { background: var(--surface); }
 .printing-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--border);
+}
+.printing-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.printing-main .rarity { color: var(--text); }
+.printing-main .owned-qty { color: var(--owned); font-size: 0.85em; }
+.printing-prices {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .printing-row.owned .set-code { color: var(--owned); }
 .tag-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }

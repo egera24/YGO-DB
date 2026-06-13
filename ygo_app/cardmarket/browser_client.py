@@ -356,11 +356,11 @@ def run_cf_login(
             else:
                 log_line(
                     "[WARN] No cf_clearance cookie saved. If curl_cffi still returns HTTP 403, use: "
-                    "python -m ygo_app.jobs.scrape_cardmarket_prices --browser --headed --workers 1"
+                    "python -m ygo_app.jobs.scrape_cardmarket_card_details --browser --headed --workers 1"
                 )
             log_line(
                 "[CF-LOGIN] You can now scrape with: "
-                "python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500"
+                "python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5"
             )
             return 0
     finally:

@@ -156,40 +156,49 @@ See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [D
 
 ## Cardmarket prices (local scrape)
 
-Cardmarket returns HTTP 403/429 from cloud IPs and aggressive scraping. Scrape on your machine, then import to Neon.
+Cardmarket returns HTTP 403/429 from cloud IPs and aggressive scraping. Scrape on your machine in **four steps**, then import to Neon.
 
-**Prerequisite:** `data/catalog/yugipedia_all_cards.json` (from Yugipedia scrape or GHA catalog artifact).
+**Prerequisites:**
+- `data/catalog/yugipedia_all_cards.json` (for step 4 export only)
+- Optional one-time Cloudflare cookies via `--cf-login` on job 1
 
-**Playwright (recommended if you hit HTTP 429):** one-time browser install after `pip install -r requirements.txt`:
+**Playwright (if you hit HTTP 429):** after `pip install -r requirements.txt`:
 
 ```powershell
 python -m playwright install chromium
 ```
 
 ```powershell
-# Scrape locally → JSON (no DATABASE_URL required)
-python -m ygo_app.jobs.scrape_cardmarket_prices --browser --limit 500 --workers 1
-python -m ygo_app.jobs.scrape_cardmarket_prices --browser --workers 1   # incremental
+# Step 1 — expansion list (one-time CF login when needed)
+python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login
+python -m ygo_app.jobs.scrape_cardmarket_expansions
 
-# cloudscraper (faster when not rate-limited)
-python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500
-python -m ygo_app.jobs.scrape_cardmarket_prices
+# Step 2 — all TCG card list rows (resumable)
+python -m ygo_app.jobs.scrape_cardmarket_card_list --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5   # dev test
 
-# Option A — promote via R2 + GitHub Actions
+# Step 3 — detail pages / prices (resumable)
+python -m ygo_app.jobs.scrape_cardmarket_card_details --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_details --backend playwright --browser --workers 1
+
+# Step 4 — join with Yugipedia catalog → cardmarket_prices.json
+python -m ygo_app.jobs.export_cardmarket_prices
+
+# Promote via R2 + GHA, or import directly to Neon dev
 python -m ygo_app.jobs.upload_cardmarket_prices
-# Actions → "Import Cardmarket prices" → environment dev or production
-
-# Option B — import directly to Neon dev (.env DATABASE_URL)
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
 ```
 
-If you are already rate-limited (HTTP 429), wait several hours before retrying. Use `--prices-only` when discovery is already in `cardmarket_cache.db`. Avoid `--full` until expansion codes are seeded.
+If you are already rate-limited (HTTP 429), wait several hours before retrying. Use `--resume` on jobs 2–3. Override throttle with `--rps` / `--discovery-rps`. Job 3 `--fast` matches legacy 20 workers / 8 rps (risky).
 
 | File | Role |
 |------|------|
-| `data/catalog/cardmarket_prices.json` | Export snapshot (upload to R2) |
-| `data/catalog/cardmarket_cache.db` | Local incremental scrape state |
-| `ygo_app/cardmarket/expansion_seed.json` | Bundled expansion_id → code map (reduces probe HTTP) |
+| `data/catalog/cardmarket_expansion_list.json` | Job 1 output |
+| `data/catalog/cardmarket_card_list.json` | Job 2 output |
+| `data/catalog/cardmarket_card_details.json` | Job 3 output |
+| `data/catalog/cardmarket_prices.json` | Job 4 export (upload to R2) |
+| `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 |
+| `ygo_app/cardmarket/expansion_seed.json` | Auto-regenerated after job 2 |
 | R2 `catalog/cardmarket_prices.json` | Private handoff for GHA import |
 
 Requires `S3_*` in `.env` for upload (same as image mirror). GHA import uses repo secrets.

@@ -314,23 +314,28 @@ python -m ygo_app.jobs.import_catalog
 
 ### Cardmarket prices (local scrape → R2 → GHA import)
 
-Cardmarket blocks cloud/datacenter IPs (HTTP 403/429). **Scrape only on your PC**; import via R2 + GHA or direct local import.
+Cardmarket blocks cloud/datacenter IPs (HTTP 403/429). **Scrape only on your PC** in four steps; import via R2 + GHA or direct local import.
 
 Default HTTP backend is **`curl_cffi`** (Chrome TLS impersonation) when installed; falls back to `cloudscraper`. Optional `CARDMARKET_HTTP_PROXY` in `.env` for a residential proxy (`http://user:pass@host:port`).
 
 One-time Playwright setup (for `--backend playwright` when rate-limited): `pip install -r requirements.txt` then `python -m playwright install chromium`.
 
 ```powershell
-# 1. Local scrape → JSON (needs data/catalog/yugipedia_all_cards.json; no DATABASE_URL)
-# First-time / HTTP 403: pass Cloudflare in real Chrome and save cookies (one-time):
-python -m ygo_app.jobs.scrape_cardmarket_prices --cf-login
-python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500                    # uses saved cookies (curl_cffi)
-python -m ygo_app.jobs.scrape_cardmarket_prices --backend cloudscraper         # legacy cloudscraper
-python -m ygo_app.jobs.scrape_cardmarket_prices --backend curl_cffi            # explicit TLS impersonation
-python -m ygo_app.jobs.scrape_cardmarket_prices --backend playwright --browser-channel chrome --headed --workers 1
-python -m ygo_app.jobs.scrape_cardmarket_prices                                # incremental
-python -m ygo_app.jobs.scrape_cardmarket_prices --full                         # rediscover all
-python -m ygo_app.jobs.scrape_cardmarket_prices --rps 2 --discovery-rps 1.5    # override throttle
+# 1. Scrape Cardmarket (full TCG catalog; step 4 needs yugipedia_all_cards.json)
+python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login   # one-time Cloudflare
+python -m ygo_app.jobs.scrape_cardmarket_expansions
+python -m ygo_app.jobs.scrape_cardmarket_card_list --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_details --resume
+python -m ygo_app.jobs.export_cardmarket_prices
+
+# Dev test: --limit 5 on jobs 2–3, --limit 500 on export
+python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5
+python -m ygo_app.jobs.scrape_cardmarket_card_details --limit 5
+python -m ygo_app.jobs.export_cardmarket_prices --limit 500
+
+# Backends / throttle overrides (jobs 1–3)
+python -m ygo_app.jobs.scrape_cardmarket_card_details --backend playwright --browser-channel chrome --headed --workers 1
+python -m ygo_app.jobs.scrape_cardmarket_card_details --rps 2 --discovery-rps 1.5
 
 # 2a. Upload to R2 (S3_* in .env), then GHA "Import Cardmarket prices"
 python -m ygo_app.jobs.upload_cardmarket_prices
@@ -339,7 +344,7 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
 ```
 
-Local incremental state: `data/catalog/cardmarket_cache.db`. Export: `data/catalog/cardmarket_prices.json`. Expansion codes: `ygo_app/cardmarket/expansion_seed.json`. R2 key: `catalog/cardmarket_prices.json` (private).
+Artifacts under `data/catalog/`: `cardmarket_expansion_list.json`, `cardmarket_card_list.json`, `cardmarket_card_details.json`, checkpoints, export `cardmarket_prices.json`. R2 key: `catalog/cardmarket_prices.json` (private). `expansion_seed.json` auto-regenerates after job 2.
 
 ### GHA from CLI
 ```powershell
@@ -379,6 +384,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-13**
+- **Cardmarket 3-step scrape refactor** — replaced monolithic `scrape_cardmarket_prices` with four jobs: `scrape_cardmarket_expansions` → `scrape_cardmarket_card_list` → `scrape_cardmarket_card_details` → `export_cardmarket_prices`. Full TCG catalog scrape (legacy 3-step parity), resumable checkpoints, phase-2 recovery, shared `http_client` adaptive throttle/429/CF handling. Job 4 joins details with Yugipedia catalog → existing `cardmarket_prices.json` import schema. `expansion_seed.json` auto-regenerates after job 2.
 - **Cardmarket Cloudflare bypass** — `curl_cffi` default backend; adaptive throttle; UA rotation; `--cf-login` opens **Google Chrome** (not Playwright Chromium) to pass Cloudflare and saves `cf_clearance` to `data/catalog/cardmarket_browser_state.json` for reuse by curl_cffi/cloudscraper; `--browser-channel chrome|msedge`; optional `CARDMARKET_HTTP_PROXY`.
 - **Cardmarket Playwright scrape** — optional `--browser` on `scrape_cardmarket_prices` uses headless Chromium (Playwright) with conservative 1 worker / ~1 req/s; bundled `expansion_seed.json` seeds expansion codes to cut discovery HTTP; improved 429 backoff (`Retry-After`, circuit breaker). `playwright install chromium` after pip install.
 - **Cardmarket export/import pipeline** — scrape runs **locally only** (`scrape_cardmarket_prices` → `data/catalog/cardmarket_prices.json`, local SQLite cache `cardmarket_cache.db`). Upload: `upload_cardmarket_prices` → R2 `catalog/cardmarket_prices.json`. Import: `import_cardmarket_prices` (local `--file` or GHA `--from-r2`). Replaced `sync-cardmarket-prices.yml` with `import-cardmarket-prices.yml` (no cloud scrape). Tests: `test_import_cardmarket_prices.py`, `test_cardmarket_discover.py`.
@@ -467,7 +473,11 @@ ygo_app/
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
     sync_card_images.py        # mirror card art to S3-compatible bucket (R2)
-    scrape_cardmarket_prices.py   # local scrape → JSON export
+    scrape_cardmarket_expansions.py   # job 1: expansion list
+    scrape_cardmarket_card_list.py    # job 2: product lists
+    scrape_cardmarket_card_details.py # job 3: detail prices
+    export_cardmarket_prices.py       # job 4: Yugipedia join → JSON
+    scrape_cardmarket_prices.py       # deprecated (migration message)
     import_cardmarket_prices.py   # JSON or R2 → printing_market_prices
     upload_cardmarket_prices.py   # JSON → R2
   cardmarket/                  # scrape, export schema, R2 handoff, matching

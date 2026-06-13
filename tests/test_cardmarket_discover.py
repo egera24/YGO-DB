@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+import json
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -75,6 +77,26 @@ class TestExpansionSeed(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(load_seed_codes(path), {1: "LOB"})
+
+    def test_regenerate_expansion_seed(self):
+        from ygo_app.cardmarket.expansion_seed import regenerate_expansion_seed
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "expansions.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {"expansion_id": 1, "expansion_name": "LOB", "expansion_code": "LOB"},
+                        {"expansion_id": 2, "expansion_name": "No Code"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            seed_path = Path(tmp) / "seed.json"
+            out = regenerate_expansion_seed(path, seed_path=seed_path)
+            self.assertEqual(out, seed_path)
+            data = json.loads(seed_path.read_text(encoding="utf-8"))
+            self.assertEqual(data, [{"expansion_id": 1, "expansion_code": "LOB"}])
 
 
 class TestResolveExpansionIds(unittest.TestCase):

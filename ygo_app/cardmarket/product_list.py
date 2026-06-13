@@ -28,6 +28,31 @@ def _is_empty_first_page(html: str) -> bool:
     return False
 
 
+def is_product_page_redirect(html: str) -> bool:
+    """True when HTML is a product detail page (redirect from search)."""
+    if not html:
+        return False
+    soup = BeautifulSoup(html, "html.parser")
+    for dt in soup.find_all("dt"):
+        if "Available items" in dt.get_text():
+            return True
+    return False
+
+
+def is_only_sealed_products(html: str) -> bool:
+    """True when page has product rows but no Singles links."""
+    if not html:
+        return False
+    soup = BeautifulSoup(html, "html.parser")
+    product_rows = soup.find_all("div", id=re.compile(r"^productRow\d+"))
+    if not product_rows:
+        return False
+    for row in product_rows:
+        if row.find("a", href=re.compile(r"/en/YuGiOh/Products/Singles/")):
+            return False
+    return True
+
+
 def _extract_card_number(row, card_name: str, row_text: str, parts: list[str]) -> str:
     card_number = ""
     for part in parts:

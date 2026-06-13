@@ -74,3 +74,55 @@ def extract_price_data(html: str) -> dict[str, float | None]:
             break
 
     return prices
+
+
+_FULL_PRICE_LABELS = {
+    "from": "low_price",
+    "price trend": "trend_price",
+    "30-day": "avg_30_price",
+    "7-day": "avg_7_price",
+    "1-day": "avg_1_price",
+}
+
+
+def extract_full_price_data(html: str) -> tuple[dict[str, float] | None, bool]:
+    """
+    Strict legacy extraction: all 5 price fields required.
+    Returns (prices_dict, has_na). has_na=True when any field is explicitly N/A.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    prices: dict[str, float | None] = {
+        "low_price": None,
+        "trend_price": None,
+        "avg_30_price": None,
+        "avg_7_price": None,
+        "avg_1_price": None,
+    }
+
+    na_count = 0
+    found_count = 0
+    valid_count = 0
+
+    for dt in soup.find_all("dt"):
+        dt_text = dt.get_text(strip=True).lower()
+        for label, price_key in _FULL_PRICE_LABELS.items():
+            if label not in dt_text:
+                continue
+            dd = dt.find_next_sibling("dd")
+            if not dd:
+                break
+            price_value, is_na = parse_price(dd.get_text(strip=True))
+            found_count += 1
+            if is_na:
+                na_count += 1
+            elif price_value is not None:
+                prices[price_key] = price_value
+                valid_count += 1
+            break
+
+    if na_count > 0:
+        return None, True
+    if found_count < 5 or valid_count < 5:
+        return None, False
+
+    return prices, False  # type: ignore[return-value]

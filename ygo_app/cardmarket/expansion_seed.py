@@ -54,3 +54,33 @@ def apply_seed_to_cache(
         session.commit()
         log_line(f"[EXPANSIONS] applied seed codes to {updated} cached rows")
     return updated
+
+
+def regenerate_expansion_seed(
+    expansion_list_path: Path,
+    *,
+    seed_path: Path | None = None,
+) -> Path:
+    """Write bundled expansion_id → expansion_code seed from a scraped expansion list."""
+    out_path = seed_path or DEFAULT_SEED_PATH
+    if not expansion_list_path.is_file():
+        raise FileNotFoundError(f"Expansion list not found: {expansion_list_path}")
+
+    raw = json.loads(expansion_list_path.read_text(encoding="utf-8"))
+    rows: list[dict[str, object]] = []
+    seen: set[int] = set()
+    for item in raw:
+        eid = item.get("expansion_id")
+        code = (item.get("expansion_code") or "").strip()
+        if eid is None or not code:
+            continue
+        eid_int = int(eid)
+        if eid_int in seen:
+            continue
+        seen.add(eid_int)
+        rows.append({"expansion_id": eid_int, "expansion_code": code.upper()})
+
+    rows.sort(key=lambda r: int(r["expansion_id"]))  # type: ignore[arg-type]
+    out_path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    log_line(f"[EXPANSIONS] regenerated seed with {len(rows)} codes -> {out_path}")
+    return out_path

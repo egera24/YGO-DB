@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 _consecutive_429_lock = threading.Lock()
 _consecutive_429_count = 0
 
-_CF_LOGIN_HINT = "python -m ygo_app.jobs.scrape_cardmarket_prices --cf-login"
+_CF_LOGIN_HINT = "python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login"
 
 _CF_CHALLENGE_MARKERS = (
     "_cf_chl_opt",

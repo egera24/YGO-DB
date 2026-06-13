@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
 from bs4 import BeautifulSoup
@@ -67,10 +68,11 @@ def load_expansions_from_db(session: Session) -> list[CardmarketExpansion]:
 
 
 def refresh_expansion_cache(session: Session, *, force: bool = False) -> int:
-    if not force and expansion_cache_is_fresh(session):
-        count = session.scalar(select(func.count()).select_from(CardmarketExpansion)) or 0
-        log_line(f"[EXPANSIONS] cache fresh ({count} rows)")
-        return int(count)
+    cache_fresh = expansion_cache_is_fresh(session)
+    db_count = session.scalar(select(func.count()).select_from(CardmarketExpansion)) or 0
+    if not force and cache_fresh:
+        log_line(f"[EXPANSIONS] cache fresh ({db_count} rows)")
+        return int(db_count)
 
     existing_codes = {
         row.expansion_id: row.expansion_code
@@ -83,6 +85,7 @@ def refresh_expansion_cache(session: Session, *, force: bool = False) -> int:
         scraper.get(f"{BASE_URL}/en/YuGiOh", timeout=15)
     except Exception:
         pass
+    time.sleep(2)
 
     rate_limiter = RateLimiter(DISCOVERY_REQUESTS_PER_SECOND)
     html, error = fetch_url(scraper, SEARCH_URL, rate_limiter=rate_limiter)

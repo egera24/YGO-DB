@@ -7,7 +7,8 @@ import sys
 
 from ygo_app.cardmarket.constants import DEFAULT_MAX_AGE_DAYS, DEFAULT_WORKERS
 from ygo_app.cardmarket.market_prices import discover_printings, sync_prices
-from ygo_app.database import SessionLocal, init_db
+from ygo_app.database import SessionLocal
+from ygo_app.import_data import init_db
 from ygo_app.yugipedia.scrape_progress import log_line
 
 

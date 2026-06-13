@@ -127,4 +127,7 @@ SEARCH_MAX_LIMIT = int(
 DEFAULT_CARDS_JSON = ROOT_DIR / "all_cards.json"
 DEFAULT_COLLECTION_CSV = ROOT_DIR / "my_collection.csv"
 
+# Optional residential proxy for local Cardmarket scrape (http://user:pass@host:port).
+CARDMARKET_HTTP_PROXY = (os.getenv("CARDMARKET_HTTP_PROXY") or "").strip() or None
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -2,17 +2,63 @@
 
 from __future__ import annotations
 
+import os
 import queue
+import socket
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
-from ygo_app.cardmarket.constants import BASE_URL, REQUEST_TIMEOUT, USER_AGENT
+from ygo_app import config
+from ygo_app.cardmarket.constants import BASE_URL, REQUEST_TIMEOUT, SEARCH_URL
+from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, user_agent_for_worker
+from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
 from ygo_app.yugipedia.scrape_progress import log_line
 
 _STOP = object()
 _INSTALL_HINT = "python -m playwright install chromium"
+_WARMUP_URL = f"{BASE_URL}/en/YuGiOh"
+_WARMUP_SELECTOR = 'select[name="idExpansion"]'
+_CF_WAIT_SELECTOR = f'{_WARMUP_SELECTOR}, a[href*="/YuGiOh/Products"]'
+
+BrowserChannel = Literal["chrome", "msedge", "chromium"]
+
+_headed = False
+_storage_path: Path = CARDMARKET_BROWSER_STATE_PATH
+_browser_channel: BrowserChannel | None = "chrome"
+_cf_wait_seconds = 180
+
+_STEALTH_INIT_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+window.chrome = window.chrome || { runtime: {} };
+"""
+
+_CF_INCOMPATIBLE_MARKERS = (
+    "incompatible browser extension",
+    "challenges.cloudflare.com",
+    "security verification",
+)
+
+
+def configure_browser_session(
+    *,
+    headed: bool = False,
+    storage_path: Path | None = None,
+    browser_channel: BrowserChannel | None = None,
+    cf_wait_seconds: int = 180,
+) -> None:
+    global _headed, _storage_path, _browser_channel, _cf_wait_seconds
+    _headed = headed
+    if storage_path is not None:
+        _storage_path = storage_path
+    if browser_channel is not None:
+        _browser_channel = browser_channel
+    elif headed:
+        _browser_channel = "chrome"
+    _cf_wait_seconds = cf_wait_seconds
 
 
 def format_fetch_error(exc: BaseException) -> str:
@@ -28,6 +74,297 @@ def format_fetch_error(exc: BaseException) -> str:
     if "executable doesn't exist" in msg.lower() or "playwright install" in msg.lower():
         text = f"{text} — run: {_INSTALL_HINT}"
     return text
+
+
+def is_cf_incompatible_page(html: str | None) -> bool:
+    if not html:
+        return False
+    lower = html.lower()
+    return any(marker in lower for marker in _CF_INCOMPATIBLE_MARKERS)
+
+
+def _log_cf_incompatible_help() -> None:
+    log_line(
+        "[HINT] Cloudflare challenge failed to load. If you see "
+        "'Incompatible browser extension', disable ad blockers / privacy extensions "
+        "for cardmarket.com and challenges.cloudflare.com, or try a different network."
+    )
+
+
+def _launch_channels_to_try(requested: BrowserChannel | None, *, headed: bool) -> list[str | None]:
+    if requested == "chromium":
+        return [None]
+    if requested in ("chrome", "msedge"):
+        return [requested, "msedge" if requested == "chrome" else "chrome", None]
+    if headed:
+        return ["chrome", "msedge", None]
+    return [None]
+
+
+def _launch_browser(playwright: Any, *, headed: bool, channel: BrowserChannel | None):
+    launch_base: dict[str, Any] = {
+        "headless": not headed,
+        "args": ["--disable-blink-features=AutomationControlled"],
+        "ignore_default_args": ["--enable-automation"],
+    }
+    proxy = config.CARDMARKET_HTTP_PROXY
+    if proxy:
+        launch_base["proxy"] = {"server": proxy}
+
+    last_error: Exception | None = None
+    for ch in _launch_channels_to_try(channel, headed=headed):
+        kwargs = dict(launch_base)
+        if ch:
+            kwargs["channel"] = ch
+        try:
+            browser = playwright.chromium.launch(**kwargs)
+            label = ch or "chromium"
+            log_line(f"[BROWSER] launched {label} ({'headed' if headed else 'headless'})")
+            return browser
+        except Exception as exc:
+            last_error = exc
+            continue
+    raise RuntimeError(
+        f"Could not launch browser (tried channels: chrome/msedge/chromium): {last_error}"
+    )
+
+
+def _new_context(browser: Any, *, storage_path: Path):
+    ua = user_agent_for_worker(0)
+    context_kwargs: dict[str, Any] = {
+        "viewport": {"width": 1920, "height": 1080},
+        "locale": "en-US",
+        "timezone_id": "Europe/Berlin",
+        "user_agent": ua,
+        "extra_http_headers": {
+            k: v for k, v in browser_headers(ua).items() if k.lower() != "user-agent"
+        },
+    }
+    if storage_path.is_file():
+        context_kwargs["storage_state"] = str(storage_path)
+    context = browser.new_context(**context_kwargs)
+    context.add_init_script(_STEALTH_INIT_SCRIPT)
+    return context
+
+
+_CDP_PROFILE_DIR_NAME = "cardmarket_chrome_profile"
+
+
+def _browser_executable(channel: BrowserChannel | None) -> str | None:
+    if channel == "msedge":
+        candidates = [
+            Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
+            / "Microsoft/Edge/Application/msedge.exe",
+            Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+            / "Microsoft/Edge/Application/msedge.exe",
+        ]
+    else:
+        candidates = [
+            Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+            / "Google/Chrome/Application/chrome.exe",
+            Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
+            / "Google/Chrome/Application/chrome.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
+        ]
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _terminate_process(proc: subprocess.Popen[Any]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _connect_cdp_browser(playwright: Any, port: int, *, timeout_seconds: float = 30):
+    deadline = time.time() + timeout_seconds
+    last_error: Exception | None = None
+    while time.time() < deadline:
+        try:
+            return playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.5)
+    raise RuntimeError(f"CDP connect failed on port {port}: {last_error}")
+
+
+def _cardmarket_page_for_context(context: Any, *, target_url: str):
+    for page in context.pages:
+        if "cardmarket.com" in page.url:
+            return page
+    if context.pages:
+        return context.pages[0]
+    page = context.new_page()
+    page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
+    return page
+
+
+def _cardmarket_page_ready(page, html: str | None) -> bool:
+    """True when Cloudflare is cleared and Cardmarket content is visible."""
+    cookies = page.context.cookies()
+    if any(c.get("name") == "cf_clearance" for c in cookies):
+        return True
+    if html is None:
+        return False
+    if is_cloudflare_challenge(html) or is_cf_incompatible_page(html):
+        try:
+            title = page.title().lower()
+            if "just a moment" not in title and "cardmarket" in title:
+                return True
+        except Exception:
+            pass
+        return False
+    try:
+        if page.locator(_WARMUP_SELECTOR).count() > 0:
+            return True
+        if page.locator('a[href*="/YuGiOh/Products"]').count() > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _cookies_have_cf_clearance(page) -> bool:
+    try:
+        return any(c.get("name") == "cf_clearance" for c in page.context.cookies())
+    except Exception:
+        return False
+
+
+def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
+    log_line(
+        f"[CF-WAIT] Complete Cloudflare verification in the browser "
+        f"(up to {timeout_seconds}s)..."
+    )
+    deadline = time.time() + timeout_seconds
+    last_hint_at = 0.0
+    while time.time() < deadline:
+        if _cookies_have_cf_clearance(page):
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=15_000)
+            except Exception:
+                pass
+            return True
+
+        html: str | None = None
+        try:
+            html = page.content()
+        except Exception as exc:
+            detail = str(exc).lower()
+            if type(exc).__name__ == "TargetClosedError" or (
+                "closed" in detail and "navigating" not in detail
+            ):
+                return False
+            if "navigating" in detail or "unable to retrieve content" in detail:
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                except Exception:
+                    pass
+                time.sleep(1)
+                continue
+            time.sleep(1)
+            continue
+
+        if is_cf_incompatible_page(html):
+            if time.time() - last_hint_at >= 30:
+                _log_cf_incompatible_help()
+                last_hint_at = time.time()
+        ready = _cardmarket_page_ready(page, html)
+        if ready:
+            return True
+        time.sleep(2)
+    return False
+
+
+def run_cf_login(
+    *,
+    storage_path: Path = CARDMARKET_BROWSER_STATE_PATH,
+    browser_channel: BrowserChannel | None = "chrome",
+    timeout_seconds: int = 300,
+) -> int:
+    """Launch real Chrome/Edge (CDP), wait for manual Cloudflare solve, save cookies."""
+    from playwright.sync_api import sync_playwright
+
+    exe = _browser_executable(browser_channel)
+    if not exe:
+        label = browser_channel or "chrome"
+        log_line(f"[ERROR] Could not find {label} executable on this machine.")
+        return 1
+
+    profile_dir = storage_path.parent / _CDP_PROFILE_DIR_NAME
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    port = _pick_free_port()
+    browser_label = browser_channel or "chrome"
+
+    log_line(
+        f"[CF-LOGIN] Launching real {browser_label} (not Playwright-controlled) "
+        f"on the product search page..."
+    )
+    log_line(
+        "[CF-LOGIN] Complete any Cloudflare check in the browser window. "
+        "The script saves cookies and closes the browser when done."
+    )
+
+    proc = subprocess.Popen(
+        [
+            exe,
+            f"--user-data-dir={profile_dir}",
+            f"--remote-debugging-port={port}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            SEARCH_URL,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = _connect_cdp_browser(playwright, port)
+            except RuntimeError as exc:
+                log_line(f"[ERROR] {exc}")
+                return 1
+
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = _cardmarket_page_for_context(context, target_url=SEARCH_URL)
+
+            if not _wait_for_cf_clearance(page, timeout_seconds=timeout_seconds):
+                log_line("[ERROR] Timed out waiting for Cloudflare verification.")
+                _log_cf_incompatible_help()
+                return 1
+
+            storage_path.parent.mkdir(parents=True, exist_ok=True)
+            context.storage_state(path=str(storage_path))
+            saved_names = [c.get("name") for c in context.cookies() if c.get("name")]
+            has_cf = "cf_clearance" in saved_names
+            log_line(f"[CF-LOGIN] Saved session to {storage_path}")
+            if has_cf:
+                log_line("[CF-LOGIN] cf_clearance cookie captured — curl_cffi scrape should work.")
+            else:
+                log_line(
+                    "[WARN] No cf_clearance cookie saved. If curl_cffi still returns HTTP 403, use: "
+                    "python -m ygo_app.jobs.scrape_cardmarket_prices --browser --headed --workers 1"
+                )
+            log_line(
+                "[CF-LOGIN] You can now scrape with: "
+                "python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500"
+            )
+            return 0
+    finally:
+        _terminate_process(proc)
 
 
 @dataclass
@@ -80,7 +417,7 @@ class BrowserSession:
                 self._worker.start()
                 self._worker_started = True
 
-        if not self._ready_event.wait(timeout=120):
+        if not self._ready_event.wait(timeout=180):
             raise BrowserStartupError(
                 f"Playwright worker timed out during startup — try: {_INSTALL_HINT}"
             )
@@ -95,68 +432,102 @@ class BrowserSession:
         log_line(f"[ERROR] browser startup failed: {detail}")
         self._ready_event.set()
 
+    def _save_storage_state(self, context) -> None:
+        try:
+            _storage_path.parent.mkdir(parents=True, exist_ok=True)
+            context.storage_state(path=str(_storage_path))
+        except Exception as exc:
+            log_line(f"[WARN] failed to save browser state: {format_fetch_error(exc)}")
+
+    def _navigate_page(self, page, url: str) -> _FetchResult:
+        try:
+            response = page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=REQUEST_TIMEOUT * 1000,
+            )
+            status = response.status if response is not None else None
+            html = page.content()
+            headers: dict[str, str] = {}
+            if response is not None:
+                headers = dict(response.headers)
+
+            if is_cf_incompatible_page(html):
+                _log_cf_incompatible_help()
+                if _headed and _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds):
+                    html = page.content()
+                    status = 200
+                else:
+                    return _FetchResult(None, 403, headers, "Cloudflare incompatible browser page")
+
+            if status == 200 and is_cloudflare_challenge(html):
+                if _headed and _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds):
+                    html = page.content()
+                else:
+                    return _FetchResult(None, 403, headers, "Cloudflare challenge page")
+
+            if status == 200 and is_cloudflare_challenge(html):
+                return _FetchResult(None, 403, headers, "Cloudflare challenge page")
+            if status == 200:
+                return _FetchResult(html, status, headers, None)
+            return _FetchResult(None, status, headers, f"HTTP {status}")
+        except Exception as exc:
+            return _FetchResult(None, None, {}, format_fetch_error(exc))
+
     def _worker_loop(self) -> None:
         from playwright.sync_api import sync_playwright
 
         playwright = None
         browser = None
         context = None
+        page = None
         try:
             playwright = sync_playwright().start()
-            browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-                timezone_id="Europe/Berlin",
-                user_agent=USER_AGENT,
+            browser = _launch_browser(
+                playwright,
+                headed=_headed,
+                channel=_browser_channel,
             )
-            request = context.request
+            context = _new_context(browser, storage_path=_storage_path)
+            page = context.new_page()
+
+            warmup_result = self._navigate_page(page, _WARMUP_URL)
             try:
-                warmup = request.get(f"{BASE_URL}/en/YuGiOh", timeout=15_000)
-                if warmup.status != 200:
-                    log_line(
-                        f"[WARN] browser warmup HTTP {warmup.status} "
-                        f"{BASE_URL}/en/YuGiOh"
-                    )
-                time.sleep(2)
-            except Exception as exc:
-                log_line(f"[WARN] browser warmup failed: {format_fetch_error(exc)}")
+                page.wait_for_selector(_CF_WAIT_SELECTOR, timeout=15_000)
+            except Exception:
+                if _headed:
+                    _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds)
+            if warmup_result.status != 200 and warmup_result.error:
+                log_line(f"[WARN] browser warmup: {warmup_result.error} {_WARMUP_URL}")
+            else:
+                self._save_storage_state(context)
+            time.sleep(2)
 
             with self._start_lock:
                 self._ready = True
             self._ready_event.set()
-            log_line("[BROWSER] Playwright Chromium session started")
 
             while True:
                 item = self._command_queue.get()
                 if item is _STOP:
                     break
                 url, result_queue = item
-                try:
-                    response = request.get(url, timeout=REQUEST_TIMEOUT * 1000)
-                    status = response.status
-                    headers = dict(response.headers)
-                    if status == 200:
-                        result_queue.put(
-                            _FetchResult(response.text(), status, headers, None)
-                        )
-                    else:
-                        result_queue.put(
-                            _FetchResult(None, status, headers, f"HTTP {status}")
-                        )
-                except Exception as exc:
-                    log_line(
-                        f"[WARN] browser fetch failed {url[:80]}: "
-                        f"{format_fetch_error(exc)}"
-                    )
-                    result_queue.put(
-                        _FetchResult(None, None, {}, format_fetch_error(exc))
-                    )
+                result = self._navigate_page(page, url)
+                if result.error:
+                    log_line(f"[WARN] browser fetch failed {url[:80]}: {result.error}")
+                elif result.status == 200:
+                    self._save_storage_state(context)
+                result_queue.put(result)
         except Exception as exc:
             self._fail_startup(exc)
             return
         finally:
-            for closer in (context, browser):
+            if context is not None and self._ready:
+                try:
+                    self._save_storage_state(context)
+                except Exception:
+                    pass
+            for closer in (page, context, browser):
                 if closer is None:
                     continue
                 try:

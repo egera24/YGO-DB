@@ -11,12 +11,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from ygo_app.cardmarket.constants import DEFAULT_MAX_AGE_DAYS, DEFAULT_WORKERS
+from ygo_app.cardmarket.constants import DEFAULT_MAX_AGE_DAYS, DEFAULT_WORKERS, FetchBackend
 from ygo_app.cardmarket.export_scrape import run_export_scrape
+from ygo_app.cardmarket.http_client import default_fetch_backend
 from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH, DEFAULT_CATALOG_PATH
 
 
 def main(argv: list[str] | None = None) -> int:
+    default_backend = default_fetch_backend()
     parser = argparse.ArgumentParser(
         description="Scrape Cardmarket prices locally and export JSON (no database)"
     )
@@ -45,14 +47,54 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel workers")
     parser.add_argument("--limit", type=int, default=None, help="Cap printings processed (testing)")
     parser.add_argument(
+        "--backend",
+        choices=["cloudscraper", "curl_cffi", "playwright"],
+        default=None,
+        help=f"HTTP backend (default: {default_backend})",
+    )
+    parser.add_argument(
         "--browser",
         action="store_true",
-        help="Use Playwright Chromium instead of cloudscraper (slower, fewer 403/429 issues)",
+        help="Shortcut for --backend playwright",
+    )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Visible browser (playwright only; uses Google Chrome when possible)",
+    )
+    parser.add_argument(
+        "--cf-login",
+        action="store_true",
+        help="Open Google Chrome, pass Cloudflare manually, save cookies, then exit",
+    )
+    parser.add_argument(
+        "--browser-channel",
+        choices=["chrome", "msedge", "chromium"],
+        default=None,
+        help="Browser for --cf-login / --headed (default: chrome)",
+    )
+    parser.add_argument(
+        "--rps",
+        type=float,
+        default=None,
+        help="Override price-phase requests per second",
+    )
+    parser.add_argument(
+        "--discovery-rps",
+        type=float,
+        default=None,
+        help="Override discovery-phase requests per second",
     )
     args = parser.parse_args(argv)
 
     if args.discover_only and args.prices_only:
         parser.error("Cannot use --discover-only and --prices-only together")
+    if args.headed and not (args.browser or args.backend == "playwright"):
+        parser.error("--headed requires --browser or --backend playwright")
+
+    backend: FetchBackend | None = args.backend
+    if args.browser:
+        backend = "playwright"
 
     return run_export_scrape(
         output=args.output,
@@ -63,7 +105,13 @@ def main(argv: list[str] | None = None) -> int:
         max_age_days=args.max_age_days,
         workers=args.workers,
         limit=args.limit,
+        backend=backend,
         use_browser=args.browser,
+        headed=args.headed,
+        cf_login=args.cf_login,
+        browser_channel=args.browser_channel,
+        price_rps=args.rps,
+        discovery_rps=args.discovery_rps,
     )
 
 

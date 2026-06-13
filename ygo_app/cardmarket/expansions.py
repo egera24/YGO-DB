@@ -16,7 +16,7 @@ from ygo_app.cardmarket.constants import (
     SEARCH_URL,
 )
 from ygo_app.cardmarket.expansion_seed import apply_seed_to_cache
-from ygo_app.cardmarket.http_client import RateLimiter, create_scraper, fetch_url
+from ygo_app.cardmarket.http_client import AdaptiveRateLimiter, create_scraper, fetch_url
 from ygo_app.models import CardmarketExpansion
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -90,15 +90,16 @@ def refresh_expansion_cache(
         if row.expansion_code
     }
 
-    scraper = None if backend == "playwright" else create_scraper()
-    if backend == "cloudscraper" and scraper is not None:
+    scraper = None
+    if backend == "cloudscraper":
+        scraper = create_scraper(0)
         try:
             scraper.get(f"{BASE_URL}/en/YuGiOh", timeout=15)
         except Exception:
             pass
         time.sleep(2)
 
-    rate_limiter = RateLimiter(discovery_rps)
+    rate_limiter = AdaptiveRateLimiter(discovery_rps)
     html, error = fetch_url(
         scraper,
         SEARCH_URL,
@@ -159,8 +160,8 @@ def resolve_expansion_ids(
         log_line(f"[EXPANSIONS] resolving {len(missing)} codes via product list probe")
         from ygo_app.cardmarket.product_list import probe_expansion_code
 
-        rate_limiter = RateLimiter(discovery_rps)
-        scraper = None if backend == "playwright" else create_scraper()
+        rate_limiter = AdaptiveRateLimiter(discovery_rps)
+        scraper = create_scraper(0) if backend == "cloudscraper" else None
         probes = 0
         for row in rows:
             if not missing:

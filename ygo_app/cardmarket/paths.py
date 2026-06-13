@@ -7,6 +7,7 @@ from ygo_app import config
 CATALOG_DIR = config.DATA_DIR / "catalog"
 CARDMARKET_PRICES_PATH = CATALOG_DIR / "cardmarket_prices.json"
 CARDMARKET_CACHE_DB = config.DATA_DIR / "catalog" / "cardmarket_cache.db"
+CARDMARKET_BROWSER_STATE_PATH = CATALOG_DIR / "cardmarket_browser_state.json"
 R2_CARDMARKET_PRICES_KEY = "catalog/cardmarket_prices.json"
 CHECKPOINT_PATH = CATALOG_DIR / "cardmarket_prices_checkpoint.json"
 FAILURES_PATH = CATALOG_DIR / "cardmarket_prices_failures.json"

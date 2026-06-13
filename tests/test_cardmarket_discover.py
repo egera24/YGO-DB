@@ -16,11 +16,15 @@ from ygo_app.cardmarket.expansion_seed import apply_seed_to_cache, load_seed_cod
 from ygo_app.cardmarket.expansions import resolve_expansion_ids
 from ygo_app.cardmarket.browser_client import BrowserSession, format_fetch_error
 from ygo_app.cardmarket.http_client import (
+    AdaptiveRateLimiter,
     RateLimiter,
     _looks_like_429,
     create_scraper,
+    curl_cffi_available,
     fetch_url,
+    is_cloudflare_challenge,
     resolve_scrape_settings,
+    user_agent_for_worker,
 )
 from ygo_app.models import Base, CardmarketExpansion
 
@@ -216,6 +220,7 @@ class TestFetchUrl429(unittest.TestCase):
         with (
             mock.patch.object(scraper, "get", side_effect=responses),
             mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+            mock.patch("ygo_app.cardmarket.http_client.log_line") as log_mock,
         ):
             html, error = fetch_url(
                 scraper,
@@ -228,6 +233,8 @@ class TestFetchUrl429(unittest.TestCase):
         self.assertIsNone(error)
         sleep_mock.assert_called()
         self.assertEqual(sleep_mock.call_args_list[0].args[0], 2.0)
+        logged = " ".join(str(c.args[0]) for c in log_mock.call_args_list)
+        self.assertIn("Retry-After='2'", logged)
 
     def test_playwright_backend_delegates_to_browser_session(self):
         browser_html = "<html>browser</html>"
@@ -275,6 +282,31 @@ class TestFetchUrl429(unittest.TestCase):
         sleep_mock.assert_called()
         logged = " ".join(str(c.args[0]) for c in log_mock.call_args_list)
         self.assertIn("HTTP 429", logged)
+        self.assertIn("Retry-After='3'", logged)
+
+    def test_429_without_retry_after_logs_not_set(self):
+        scraper = create_scraper()
+        responses = [
+            mock.Mock(status_code=429, headers={}, text=""),
+            mock.Mock(status_code=200, headers={}, text="<html>ok</html>"),
+        ]
+
+        with (
+            mock.patch.object(scraper, "get", side_effect=responses),
+            mock.patch("ygo_app.cardmarket.http_client.time.sleep"),
+            mock.patch("ygo_app.cardmarket.http_client.log_line") as log_mock,
+        ):
+            html, error = fetch_url(
+                scraper,
+                "https://www.cardmarket.com/en/YuGiOh",
+                rate_limiter=RateLimiter(1000),
+                retries=3,
+            )
+
+        self.assertEqual(html, "<html>ok</html>")
+        logged = " ".join(str(c.args[0]) for c in log_mock.call_args_list)
+        self.assertIn("Retry-After=(not set)", logged)
+        self.assertIn("no Retry-After header", logged)
 
 
 class TestBrowserSessionThreading(unittest.TestCase):
@@ -302,7 +334,18 @@ class TestBrowserSessionThreading(unittest.TestCase):
         self.assertIsNone(err)
 
 
-class TestResolveScrapeSettings(unittest.TestCase):
+class TestBrowserCookies(unittest.TestCase):
+    def test_storage_has_cf_clearance(self):
+        from ygo_app.cardmarket.browser_cookies import storage_has_cf_clearance
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            path.write_text('{"cookies": [{"name": "cf_clearance", "value": "x"}]}', encoding="utf-8")
+            self.assertTrue(storage_has_cf_clearance(path))
+            path.write_text('{"cookies": [{"name": "other", "value": "x"}]}', encoding="utf-8")
+            self.assertFalse(storage_has_cf_clearance(path))
+
+
     def test_browser_mode_clamps_workers(self):
         workers, discovery_rps, price_rps, backend = resolve_scrape_settings(
             use_browser=True,
@@ -315,11 +358,102 @@ class TestResolveScrapeSettings(unittest.TestCase):
 
     def test_cloudscraper_mode_keeps_workers(self):
         workers, _discovery_rps, _price_rps, backend = resolve_scrape_settings(
+            backend="cloudscraper",
             use_browser=False,
             workers=4,
         )
         self.assertEqual(workers, 4)
         self.assertEqual(backend, "cloudscraper")
+
+    def test_curl_cffi_mode_keeps_workers(self):
+        workers, discovery_rps, price_rps, backend = resolve_scrape_settings(
+            backend="curl_cffi",
+            workers=6,
+        )
+        self.assertEqual(workers, 6)
+        self.assertEqual(backend, "curl_cffi")
+        self.assertGreater(discovery_rps, 0)
+        self.assertGreater(price_rps, 0)
+
+
+class TestCloudflareChallengeDetection(unittest.TestCase):
+    def test_detects_challenge_markers(self):
+        self.assertTrue(is_cloudflare_challenge("<html>Just a moment...</html>"))
+        self.assertTrue(is_cloudflare_challenge('<script>_cf_chl_opt</script>'))
+        self.assertFalse(is_cloudflare_challenge("<html>normal page</html>"))
+
+    def test_cf_challenge_html_retries(self):
+        http_client._consecutive_429_count = 0
+        scraper = create_scraper(0)
+        responses = [
+            mock.Mock(status_code=200, headers={}, text="<html>Just a moment...</html>"),
+            mock.Mock(status_code=200, headers={}, text="<html>ok</html>"),
+        ]
+        with (
+            mock.patch.object(scraper, "get", side_effect=responses),
+            mock.patch("ygo_app.cardmarket.http_client.time.sleep"),
+        ):
+            html, error = fetch_url(
+                scraper,
+                "https://www.cardmarket.com/en/YuGiOh",
+                rate_limiter=RateLimiter(1000),
+                retries=3,
+            )
+        self.assertEqual(html, "<html>ok</html>")
+        self.assertIsNone(error)
+
+
+class TestUserAgentRotation(unittest.TestCase):
+    def test_workers_get_distinct_user_agents(self):
+        agents = {user_agent_for_worker(i) for i in range(3)}
+        self.assertGreaterEqual(len(agents), 2)
+
+    def test_create_scraper_uses_worker_agent(self):
+        scraper_a = create_scraper(0)
+        scraper_b = create_scraper(1)
+        self.assertNotEqual(
+            scraper_a.headers["User-Agent"],
+            scraper_b.headers["User-Agent"],
+        )
+
+
+class TestAdaptiveRateLimiter(unittest.TestCase):
+    def test_slows_down_on_block(self):
+        limiter = AdaptiveRateLimiter(4.0)
+        baseline = limiter.min_interval
+        limiter.note_block(reason="403")
+        self.assertGreater(limiter.min_interval, baseline)
+
+    def test_recovers_after_success_streak(self):
+        limiter = AdaptiveRateLimiter(4.0)
+        limiter.note_block(reason="403")
+        slowed = limiter.min_interval
+        for _ in range(20):
+            limiter.note_success()
+        self.assertLess(limiter.min_interval, slowed)
+
+
+@unittest.skipUnless(curl_cffi_available(), "curl_cffi not installed")
+class TestCurlCffiBackend(unittest.TestCase):
+    def test_curl_cffi_backend_delegates_to_session(self):
+        session = mock.Mock()
+        response = mock.Mock(status_code=200, headers={}, text="<html>cffi</html>")
+        session.get.return_value = response
+
+        with mock.patch(
+            "ygo_app.cardmarket.http_client.create_curl_cffi_session",
+            return_value=session,
+        ):
+            html, error = fetch_url(
+                None,
+                "https://www.cardmarket.com/en/YuGiOh",
+                backend="curl_cffi",
+                rate_limiter=RateLimiter(1000),
+            )
+
+        self.assertEqual(html, "<html>cffi</html>")
+        self.assertIsNone(error)
+        session.get.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -125,7 +125,7 @@ def discover_printings(
     discovery_rps: float = 3.0,
 ) -> dict[str, int]:
     from ygo_app.cardmarket.expansions import refresh_expansion_cache, resolve_expansion_ids
-    from ygo_app.cardmarket.http_client import RateLimiter, create_scraper
+    from ygo_app.cardmarket.http_client import AdaptiveRateLimiter, create_scraper, create_session_pool
     from ygo_app.cardmarket.product_list import scrape_expansion_products
 
     stats = {"matched": 0, "unmatched": 0, "expansions": 0}
@@ -169,8 +169,8 @@ def discover_printings(
         discovery_rps=discovery_rps,
     )
 
-    scraper = None if backend == "playwright" else create_scraper()
-    rate_limiter = RateLimiter(discovery_rps)
+    scraper = create_scraper(0) if backend == "cloudscraper" else None
+    rate_limiter = AdaptiveRateLimiter(discovery_rps)
 
     for exp_code, expansion_id in code_to_id.items():
         db_row = session.get(CardmarketExpansion, expansion_id)
@@ -243,7 +243,7 @@ def sync_prices(
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from ygo_app.cardmarket.constants import RANDOM_JITTER
-    from ygo_app.cardmarket.http_client import RateLimiter, SessionPool, fetch_url
+    from ygo_app.cardmarket.http_client import AdaptiveRateLimiter, create_session_pool, fetch_url
     from ygo_app.cardmarket.parsing import extract_price_data
 
     rows = select_prices_to_refresh(session, full=full, max_age_days=max_age_days, limit=limit)
@@ -251,15 +251,16 @@ def sync_prices(
     if not rows:
         return stats
 
-    rate_limiter = RateLimiter(price_rps)
-    session_pool = SessionPool(workers) if backend == "cloudscraper" else None
+    rate_limiter = AdaptiveRateLimiter(price_rps)
+    session_pool = create_session_pool(backend, workers)
     lock = threading.Lock()
 
     def process_row(row: PrintingMarketPrice) -> tuple[str, str, dict[str, float | None] | None]:
         worker_id = threading.get_ident() % max(workers, 1)
         scraper = None
-        if backend == "cloudscraper":
-            assert session_pool is not None
+        if backend == "cloudscraper" and session_pool is not None:
+            scraper, _ = session_pool.get_session(worker_id)
+        elif backend == "curl_cffi" and session_pool is not None:
             scraper, _ = session_pool.get_session(worker_id)
         html, _error = fetch_url(
             scraper,

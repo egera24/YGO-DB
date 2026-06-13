@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-FetchBackend = Literal["cloudscraper", "playwright"]
+FetchBackend = Literal["cloudscraper", "curl_cffi", "playwright"]
 
 BASE_URL = "https://www.cardmarket.com"
 SEARCH_URL = (
@@ -14,6 +14,26 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+USER_AGENTS = [
+    USER_AGENT,
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+]
 
 # Price sync (detail pages)
 DEFAULT_WORKERS = 8
@@ -36,6 +56,15 @@ RATE_LIMIT_429_BASE_SECONDS = 60
 CIRCUIT_BREAKER_429_THRESHOLD = 5
 CIRCUIT_BREAKER_429_COOLDOWN_SECONDS = 900
 
+# Adaptive throttle
+ADAPTIVE_THROTTLE_SLOW_FACTOR = 2.0
+ADAPTIVE_THROTTLE_RECOVER_FACTOR = 0.9
+ADAPTIVE_THROTTLE_MIN_RPS = 1.0 / 30.0
+ADAPTIVE_THROTTLE_SUCCESS_STREAK = 20
+
+# Cloudflare challenge backoff (seconds)
+CF_CHALLENGE_RETRY_DELAYS = (5, 10, 20)
+
 # Incremental TTL
 DEFAULT_MAX_AGE_DAYS = 7
 EXPANSION_CACHE_MAX_AGE_DAYS = 30
@@ -47,3 +76,5 @@ RANDOM_JITTER = 0.2
 DISCOVERY_MATCHED = "matched"
 DISCOVERY_UNMATCHED = "unmatched"
 DISCOVERY_ERROR = "error"
+
+CURL_CFFI_IMPERSONATE = "chrome120"

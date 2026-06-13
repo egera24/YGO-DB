@@ -316,15 +316,21 @@ python -m ygo_app.jobs.import_catalog
 
 Cardmarket blocks cloud/datacenter IPs (HTTP 403/429). **Scrape only on your PC**; import via R2 + GHA or direct local import.
 
-One-time Playwright setup (for `--browser` when rate-limited): `pip install -r requirements.txt` then `python -m playwright install chromium`.
+Default HTTP backend is **`curl_cffi`** (Chrome TLS impersonation) when installed; falls back to `cloudscraper`. Optional `CARDMARKET_HTTP_PROXY` in `.env` for a residential proxy (`http://user:pass@host:port`).
+
+One-time Playwright setup (for `--backend playwright` when rate-limited): `pip install -r requirements.txt` then `python -m playwright install chromium`.
 
 ```powershell
 # 1. Local scrape → JSON (needs data/catalog/yugipedia_all_cards.json; no DATABASE_URL)
-python -m ygo_app.jobs.scrape_cardmarket_prices --browser --limit 500 --workers 1   # test (Playwright)
-python -m ygo_app.jobs.scrape_cardmarket_prices --browser --workers 1             # incremental
-python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500                         # test (cloudscraper)
-python -m ygo_app.jobs.scrape_cardmarket_prices                                     # incremental
-python -m ygo_app.jobs.scrape_cardmarket_prices --full                              # rediscover all
+# First-time / HTTP 403: pass Cloudflare in real Chrome and save cookies (one-time):
+python -m ygo_app.jobs.scrape_cardmarket_prices --cf-login
+python -m ygo_app.jobs.scrape_cardmarket_prices --limit 500                    # uses saved cookies (curl_cffi)
+python -m ygo_app.jobs.scrape_cardmarket_prices --backend cloudscraper         # legacy cloudscraper
+python -m ygo_app.jobs.scrape_cardmarket_prices --backend curl_cffi            # explicit TLS impersonation
+python -m ygo_app.jobs.scrape_cardmarket_prices --backend playwright --browser-channel chrome --headed --workers 1
+python -m ygo_app.jobs.scrape_cardmarket_prices                                # incremental
+python -m ygo_app.jobs.scrape_cardmarket_prices --full                         # rediscover all
+python -m ygo_app.jobs.scrape_cardmarket_prices --rps 2 --discovery-rps 1.5    # override throttle
 
 # 2a. Upload to R2 (S3_* in .env), then GHA "Import Cardmarket prices"
 python -m ygo_app.jobs.upload_cardmarket_prices
@@ -360,6 +366,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 | `SECRET_KEY` | any local value | per Render service |
 | `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | optional in `.env` for local image sync | GHA repo secrets (image mirror; job skips when unset) |
 | `IMAGE_BASE_URL` | optional (import-time URL rewrite) | GHA repo secret (import jobs); **not** needed on Render |
+| `CARDMARKET_HTTP_PROXY` | optional residential proxy for local Cardmarket scrape | not used on Render/GHA |
 
 **Alembic on Neon:** [`alembic/env.py`](alembic/env.py) uses `database_url_for_migrations()` (direct host when pooled URL is set) and **`connection.commit()`** after `run_migrations()` so DDL + `alembic_version` persist. Without commit, `alembic upgrade head` can log success but leave Neon at the old revision. Verify with `alembic current` or `SELECT version_num FROM alembic_version`.
 
@@ -372,6 +379,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-13**
+- **Cardmarket Cloudflare bypass** — `curl_cffi` default backend; adaptive throttle; UA rotation; `--cf-login` opens **Google Chrome** (not Playwright Chromium) to pass Cloudflare and saves `cf_clearance` to `data/catalog/cardmarket_browser_state.json` for reuse by curl_cffi/cloudscraper; `--browser-channel chrome|msedge`; optional `CARDMARKET_HTTP_PROXY`.
 - **Cardmarket Playwright scrape** — optional `--browser` on `scrape_cardmarket_prices` uses headless Chromium (Playwright) with conservative 1 worker / ~1 req/s; bundled `expansion_seed.json` seeds expansion codes to cut discovery HTTP; improved 429 backoff (`Retry-After`, circuit breaker). `playwright install chromium` after pip install.
 - **Cardmarket export/import pipeline** — scrape runs **locally only** (`scrape_cardmarket_prices` → `data/catalog/cardmarket_prices.json`, local SQLite cache `cardmarket_cache.db`). Upload: `upload_cardmarket_prices` → R2 `catalog/cardmarket_prices.json`. Import: `import_cardmarket_prices` (local `--file` or GHA `--from-r2`). Replaced `sync-cardmarket-prices.yml` with `import-cardmarket-prices.yml` (no cloud scrape). Tests: `test_import_cardmarket_prices.py`, `test_cardmarket_discover.py`.
 - **Cardmarket printing prices** — `printing_market_prices` + `cardmarket_expansions` tables (Alembic `007`); card modal printings show LOW/AVG/TREND (EUR). Static `app.js?v=40`, `style.css?v=33`.

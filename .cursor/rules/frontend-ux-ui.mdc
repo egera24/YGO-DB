@@ -1,0 +1,51 @@
+---
+description: UX/UI best practices for static frontend (HTML, CSS, JS)
+globs: ygo_app/static/**/*
+alwaysApply: false
+---
+
+# Frontend — UX/UI standards
+
+Vanilla HTML/CSS/JS in `ygo_app/static/`. Follow existing patterns before inventing new ones.
+
+## Design system
+
+- Use CSS variables from `:root` in `style.css`: `--bg`, `--surface`, `--accent`, `--muted`, `--radius`, etc.
+- Reuse existing classes (`.tab`, `.secondary`, `.hidden`, `.filter-group--compact`, modal patterns) before adding one-off styles.
+- Keep the dark theme; do not introduce light-only colors without `color-scheme` consideration.
+
+## Accessibility
+
+- Match patterns in `index.html`: `role="tablist"`, `aria-label`, `aria-expanded`, `aria-controls`, `aria-labelledby`.
+- Every interactive control needs a visible label or `aria-label`; icon-only buttons must have `aria-label`.
+- Preserve keyboard use: focusable elements, logical tab order, `:focus-visible` styles.
+- Use semantic HTML (`button` for actions, `label` + `for` for inputs, `main`/`nav`/`section`).
+
+## UX patterns
+
+- **Loading:** immediate feedback — skeleton/shimmer for modals, `#import-progress` for long ops.
+- **Empty / error:** user-facing messages, not silent failures; disable actions until data is ready.
+- **Responsive:** keep `viewport` meta; use flex/wrap patterns; avoid fixed widths that break on mobile.
+- **Destructive actions:** confirm before delete; use `--danger` and existing delete button styling.
+
+## Security & DOM safety
+
+- Insert untrusted API text via `textContent`, not `innerHTML`. Default is text-only; sanitize explicitly if HTML is ever required.
+
+## Project conventions
+
+- After editing CSS or JS, bump the `?v=` query string on the matching `<link>` / `<script>` in `index.html`.
+- Prefer `app.js` patterns (event delegation, stale-response guards, tab memory cache) over per-row listeners.
+
+## Examples
+
+```
+BAD:  el.innerHTML = card.name
+GOOD: el.textContent = card.name
+
+BAD:  New purple button styles ignoring --accent
+GOOD: Reuse .secondary / .tab and CSS variables
+
+BAD:  Clickable <div> with no keyboard support
+GOOD: <button type="button"> with aria-label if icon-only
+```

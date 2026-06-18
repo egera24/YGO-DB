@@ -29,6 +29,12 @@ from ygo_app.services import (
 router = APIRouter(prefix="/decks", tags=["decks"])
 
 
+def _deck_out_from_base(base: dict) -> DeckOut:
+    previews = [DeckPreviewCard(**p) for p in base.get("preview_cards", [])]
+    payload = {k: v for k, v in base.items() if k != "preview_cards"}
+    return DeckOut(**payload, preview_cards=previews)
+
+
 def _deck_card_out(dc: DeckCard) -> DeckCardOut:
     return DeckCardOut(
         card_id=dc.card_id,
@@ -47,7 +53,8 @@ def _deck_detail_from_deck(deck: Deck, db: Session) -> DeckDetail:
     previews = compute_deck_preview_cards(deck.preview_card_id, entries)
     base = build_deck_out(deck, counts, previews)
     cards = [_deck_card_out(dc) for dc in deck.cards]
-    return DeckDetail(**base, cards=cards)
+    out = _deck_out_from_base(base)
+    return DeckDetail(**out.model_dump(), cards=cards)
 
 
 def _get_user_deck(db: Session, deck_id: int, user_id: int) -> Deck | None:
@@ -65,13 +72,7 @@ def list_decks(
     user: User = Depends(get_current_user),
 ):
     rows = list_decks_enriched(db, user.id, q=q, sort=sort)
-    return [
-        DeckOut(
-            **row,
-            preview_cards=[DeckPreviewCard(**p) for p in row["preview_cards"]],
-        )
-        for row in rows
-    ]
+    return [_deck_out_from_base(row) for row in rows]
 
 
 @router.post("", response_model=DeckOut)
@@ -90,7 +91,7 @@ def create_deck(
     db.refresh(deck)
     counts = {"main": 0, "extra": 0, "side": 0}
     base = build_deck_out(deck, counts, [])
-    return DeckOut(**base, preview_cards=[])
+    return _deck_out_from_base(base)
 
 
 @router.get("/{deck_id}", response_model=DeckDetail)
@@ -125,10 +126,7 @@ def patch_deck(
         entries = _deck_card_entries_for_decks(db, [deck_id]).get(deck_id, [])
         previews = compute_deck_preview_cards(deck.preview_card_id, entries)
         base = build_deck_out(deck, counts, previews)
-        return DeckOut(
-            **base,
-            preview_cards=[DeckPreviewCard(**p) for p in previews],
-        )
+        return _deck_out_from_base(base)
     try:
         update_deck(db, deck, updates)
     except ValueError as exc:
@@ -137,10 +135,7 @@ def patch_deck(
     entries = _deck_card_entries_for_decks(db, [deck_id]).get(deck_id, [])
     previews = compute_deck_preview_cards(deck.preview_card_id, entries)
     base = build_deck_out(deck, counts, previews)
-    return DeckOut(
-        **base,
-        preview_cards=[DeckPreviewCard(**p) for p in previews],
-    )
+    return _deck_out_from_base(base)
 
 
 @router.delete("/{deck_id}")

@@ -220,7 +220,7 @@ def update_deck_card(
     if deck:
         deck.updated_at = datetime.utcnow()
     db.commit()
-    return {"ok": True}
+    return get_deck(deck_id, db, user)
 
 
 @router.delete("/{deck_id}/cards/{card_id}")

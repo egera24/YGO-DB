@@ -34,6 +34,7 @@ const state = {
   decksQuery: "",
   decksSort: "updated_at",
   decksDetailOpen: false,
+  activeDeckDetail: null,
   activePresetId: null,
   searchPresets: [],
   searchResultsById: {},
@@ -41,6 +42,7 @@ const state = {
 
 let searchRequestSeq = 0;
 let collectionRequestSeq = 0;
+let deckDetailRequestSeq = 0;
 let decksSearchTimer = null;
 
 const COLLECTION_PAGE_SIZE = 100;
@@ -1131,6 +1133,18 @@ function formatModalStats(card) {
 }
 
 function findModalSeed(cardId) {
+  if (state.decksDetailOpen && state.activeDeckDetail?.cards) {
+    const deckCard = state.activeDeckDetail.cards.find((c) => c.card_id === cardId);
+    if (deckCard) {
+      return {
+        id: cardId,
+        name: deckCard.name || "Loading…",
+        image_url_small: deckCard.image_url_small,
+        image_url: deckCard.image_url,
+        type: deckCard.type,
+      };
+    }
+  }
   const summary = state.searchResultsById[cardId];
   if (summary) return summary;
   const collectionItem = Object.values(state.collectionItemsById).find(
@@ -1257,15 +1271,15 @@ async function openCardModal(cardId) {
   state.currentCardId = cardId;
   state.currentCard = null;
 
+  $("#modal-name").textContent = "Loading…";
+  $("#modal-meta").textContent = "";
+  $("#modal-favorite").textContent = "☆ Favorite";
+
   const imageToken = beginModalImagePending();
   const seed = findModalSeed(cardId);
 
   if (seed) {
     seedModalPreview(seed, imageToken);
-  } else {
-    $("#modal-name").textContent = "Loading…";
-    $("#modal-meta").textContent = "";
-    $("#modal-favorite").textContent = "☆ Favorite";
   }
 
   renderModalSkeleton();
@@ -2195,6 +2209,25 @@ function invalidateDecksCache() {
   state.decksListCache = null;
 }
 
+function formatDeckDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startOfToday - startOfDate) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays > 1 && diffDays < 7) return `${diffDays} days ago`;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function deckCardCount(deck) {
+  if (deck.card_count != null) return deck.card_count;
+  return (deck.cards || []).reduce((sum, c) => sum + c.quantity, 0);
+}
+
 function renderDeckStack(previewCards) {
   const cards = previewCards?.length ? previewCards : [{ image_url: null }];
   const stack = cards.slice(0, 3);
@@ -2216,6 +2249,10 @@ function renderDecksGrid(decks) {
   grid.innerHTML = decks
     .map((d) => {
       const countLabel = d.card_count === 1 ? "1 card" : `${d.card_count} cards`;
+      const dateLine =
+        state.decksSort === "updated_at" && d.updated_at
+          ? `<span class="deck-tile-date muted">${escapeHtml(formatDeckDate(d.updated_at))}</span>`
+          : "";
       return `
     <article class="deck-tile" data-id="${d.id}" tabindex="0" role="button" aria-label="${escapeHtml(d.name)}, ${countLabel}">
       <button type="button" class="deck-tile-delete" data-id="${d.id}" title="Delete deck" aria-label="Delete ${escapeHtml(d.name)}">×</button>
@@ -2223,6 +2260,7 @@ function renderDecksGrid(decks) {
       <div class="deck-tile-meta">
         <span class="deck-tile-name">${escapeHtml(d.name)}</span>
         <span class="deck-tile-count">${countLabel}</span>
+        ${dateLine}
       </div>
     </article>`;
     })
@@ -2273,7 +2311,38 @@ function showDecksDetailView() {
 }
 
 function closeDeckDetail() {
+  state.activeDeckDetail = null;
   showDecksListView();
+}
+
+function showDeckDetailLoading() {
+  const nameEl = $("#deck-name");
+  if (nameEl) nameEl.textContent = "Loading…";
+  const metaEl = $("#deck-meta");
+  if (metaEl) metaEl.textContent = "";
+  $("#deck-zones").innerHTML = ["main", "extra", "side"]
+    .map(
+      (zone) => `
+    <section class="deck-zone-row deck-zone-row--loading">
+      <h3 class="deck-zone-label">${deckZoneLabel(zone)}</h3>
+      <div class="deck-zone-cards">
+        <div class="skeleton deck-card-skeleton" aria-hidden="true"></div>
+        <div class="skeleton deck-card-skeleton" aria-hidden="true"></div>
+        <div class="skeleton deck-card-skeleton" aria-hidden="true"></div>
+      </div>
+    </section>`
+    )
+    .join("");
+  $("#decks-detail-view")?.setAttribute("aria-busy", "true");
+}
+
+function renderDeckDetailMeta(deck) {
+  const metaEl = $("#deck-meta");
+  if (!metaEl) return;
+  const count = deckCardCount(deck);
+  const countLabel = count === 1 ? "1 card" : `${count} cards`;
+  const modified = formatDeckDate(deck.updated_at);
+  metaEl.textContent = modified ? `${countLabel} · Last modified ${modified}` : countLabel;
 }
 
 async function populateDeckSelect() {
@@ -2350,7 +2419,13 @@ async function loadDecks({ background = false, force = false } = {}) {
 }
 
 function renderDeckDetail(deckId, deck) {
-  $("#deck-name").textContent = deck.name;
+  state.activeDeckDetail = deck;
+  const nameEl = $("#deck-name");
+  if (nameEl) {
+    nameEl.textContent = deck.name;
+    nameEl.title = "Double-click to rename";
+  }
+  renderDeckDetailMeta(deck);
 
   const zones = { main: [], extra: [], side: [] };
   deck.cards.forEach((c) => zones[c.zone]?.push(c));
@@ -2383,14 +2458,33 @@ function renderDeckDetail(deckId, deck) {
     const zone = slot.dataset.zone;
     slot.querySelector(".deck-minus-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const card = deck.cards.find((c) => c.card_id === cardId && c.zone === zone);
+      if (!state.activeDeckDetail || state.activeDeckDetail.id !== deckId) return;
+      const snapshot = JSON.parse(JSON.stringify(state.activeDeckDetail));
+      const card = snapshot.cards.find((c) => c.card_id === cardId && c.zone === zone);
       const newQty = (card?.quantity || 1) - 1;
-      await api(
-        `/decks/${deckId}/cards/${cardId}?zone=${zone}&quantity=${newQty}`,
-        { method: "PATCH" }
-      );
-      invalidateDecksCache();
-      await openDeckDetail(deckId);
+      const cards = snapshot.cards
+        .map((c) =>
+          c.card_id === cardId && c.zone === zone ? { ...c, quantity: newQty } : c
+        )
+        .filter((c) => c.quantity > 0);
+      const optimistic = {
+        ...snapshot,
+        cards,
+        card_count: cards.reduce((sum, c) => sum + c.quantity, 0),
+      };
+      renderDeckDetail(deckId, optimistic);
+      try {
+        const updated = await api(
+          `/decks/${deckId}/cards/${cardId}?zone=${zone}&quantity=${newQty}`,
+          { method: "PATCH" }
+        );
+        if (state.activeDeckId !== deckId) return;
+        renderDeckDetail(deckId, updated);
+        invalidateDecksCache();
+      } catch (err) {
+        if (state.activeDeckId === deckId) renderDeckDetail(deckId, snapshot);
+        alert(err.message);
+      }
     });
     slot.querySelector(".deck-cover-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -2398,23 +2492,77 @@ function renderDeckDetail(deckId, deck) {
     });
     slot.querySelector("img")?.addEventListener("click", () => openCardModal(cardId));
   });
+
+  $("#decks-detail-view")?.removeAttribute("aria-busy");
 }
 
 async function setDeckCover(deckId, cardId) {
-  await api(`/decks/${deckId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ preview_card_id: cardId }),
-  });
-  invalidateDecksCache();
-  await openDeckDetail(deckId);
+  if (!state.activeDeckDetail || state.activeDeckDetail.id !== deckId) return;
+  const snapshot = JSON.parse(JSON.stringify(state.activeDeckDetail));
+  const optimistic = { ...snapshot, preview_card_id: cardId };
+  renderDeckDetail(deckId, optimistic);
+  try {
+    const updated = await api(`/decks/${deckId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preview_card_id: cardId }),
+    });
+    if (state.activeDeckId !== deckId) return;
+    state.activeDeckDetail = { ...optimistic, ...updated };
+    renderDeckDetail(deckId, state.activeDeckDetail);
+    invalidateDecksCache();
+  } catch (err) {
+    if (state.activeDeckId === deckId) renderDeckDetail(deckId, snapshot);
+    alert(err.message);
+  }
 }
 
 async function openDeckDetail(deckId) {
   state.activeDeckId = deckId;
+  const seq = ++deckDetailRequestSeq;
   showDecksDetailView();
-  const deck = await api(`/decks/${deckId}`);
-  renderDeckDetail(deckId, deck);
+  showDeckDetailLoading();
+  try {
+    const deck = await api(`/decks/${deckId}`);
+    if (seq !== deckDetailRequestSeq || state.activeDeckId !== deckId) return;
+    renderDeckDetail(deckId, deck);
+  } catch (err) {
+    if (seq !== deckDetailRequestSeq) return;
+    $("#decks-detail-view")?.removeAttribute("aria-busy");
+    const nameEl = $("#deck-name");
+    if (nameEl) nameEl.textContent = "Failed to load deck";
+    $("#deck-meta").textContent = "";
+    $("#deck-zones").innerHTML = `<p class="deck-zone-empty modal-load-error">${escapeHtml(err.message || "Failed to load deck.")}</p>`;
+  }
+}
+
+async function renameDeck() {
+  if (!state.token) {
+    alert("Log in to rename decks.");
+    return;
+  }
+  if (!state.activeDeckDetail) {
+    alert("Open a deck to rename it.");
+    return;
+  }
+  const deckId = state.activeDeckDetail.id;
+  const currentName = state.activeDeckDetail.name;
+  const newName = prompt("Rename deck:", currentName);
+  if (!newName?.trim() || newName.trim() === currentName) return;
+  try {
+    const updated = await api(`/decks/${deckId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim() }),
+    });
+    if (state.activeDeckId !== deckId) return;
+    state.activeDeckDetail = { ...state.activeDeckDetail, ...updated };
+    renderDeckDetail(deckId, state.activeDeckDetail);
+    invalidateDecksCache();
+    loadDecks({ background: true });
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function selectDeck(deckId) {
@@ -2754,6 +2902,13 @@ function wireEvents() {
   $("#decks-back-btn")?.addEventListener("click", () => {
     closeDeckDetail();
     loadDecks({ background: true });
+  });
+
+  $("#deck-rename-btn")?.addEventListener("click", () => {
+    renameDeck().catch((err) => alert(err.message));
+  });
+  $("#deck-name")?.addEventListener("dblclick", () => {
+    renameDeck().catch((err) => alert(err.message));
   });
 
   $("#decks-sort")?.addEventListener("change", () => {

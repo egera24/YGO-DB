@@ -280,7 +280,11 @@
       <div id="decks-detail-view" class="hidden">
         <header class="decks-detail-header">
           <button type="button" id="decks-back-btn" class="decks-back-btn">← Decks</button>
-          <h2 id="deck-name"></h2>
+          <div class="deck-title-block">
+            <h2 id="deck-name" title="Double-click to rename"></h2>
+            <p id="deck-meta" class="muted"></p>
+          </div>
+          <button type="button" id="deck-rename-btn" class="secondary deck-rename-btn" title="Rename deck">Rename</button>
         </header>
         <div id="deck-zones"></div>
       </div>

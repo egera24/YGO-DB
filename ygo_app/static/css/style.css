@@ -1052,6 +1052,61 @@ tr:hover td { background: var(--surface); }
 
 .empty-msg { color: var(--muted); padding: 2rem; text-align: center; grid-column: 1 / -1; }
 
+#toast-region {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  font-size: 0.9rem;
+  max-width: min(90vw, 24rem);
+  text-align: center;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast--success {
+  border-color: var(--accent-dim);
+}
+.toast--error {
+  border-color: #ef4444;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}
+
+.btn-busy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.btn-busy .loading-spinner {
+  width: 1rem;
+  height: 1rem;
+  border-width: 2px;
+  flex-shrink: 0;
+}
+
 @media (max-width: 800px) {
   .search-primary { grid-template-columns: 1fr; }
   .filter-group--wide { grid-column: span 1; }

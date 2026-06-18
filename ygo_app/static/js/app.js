@@ -74,6 +74,59 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+const buttonBusyState = new WeakMap();
+
+function showToast(message, { variant = "success", durationMs = 3200 } = {}) {
+  const region = $("#toast-region");
+  if (!region) return;
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${variant}`;
+  toast.textContent = message;
+  region.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("is-visible"));
+  const dismissMs = variant === "error" ? durationMs || 5000 : durationMs;
+  window.setTimeout(() => {
+    toast.classList.remove("is-visible");
+    window.setTimeout(() => toast.remove(), 200);
+  }, dismissMs);
+}
+
+function setButtonBusy(button, busy, { busyLabel = "Loading…" } = {}) {
+  if (!button) return;
+  if (busy) {
+    if (!buttonBusyState.has(button)) {
+      buttonBusyState.set(button, button.textContent);
+    }
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.classList.add("btn-busy");
+    button.innerHTML = `<span class="loading-spinner" role="status" aria-hidden="true"></span>${escapeHtml(busyLabel)}`;
+  } else {
+    const original = buttonBusyState.get(button);
+    if (original != null) {
+      button.textContent = original;
+      buttonBusyState.delete(button);
+    }
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.classList.remove("btn-busy");
+  }
+}
+
+async function runModalAction(button, action, { busyLabel, successMessage } = {}) {
+  setButtonBusy(button, true, { busyLabel });
+  try {
+    const result = await action();
+    if (successMessage) showToast(successMessage);
+    return result;
+  } catch (err) {
+    showToast(err.message || "Something went wrong.", { variant: "error", durationMs: 5000 });
+    throw err;
+  } finally {
+    setButtonBusy(button, false);
+  }
+}
+
 function $(sel) {
   return document.querySelector(sel);
 }
@@ -2191,9 +2244,17 @@ async function loadDecks({ background = false } = {}) {
   await populateDeckSelect();
 }
 
-async function selectDeck(deckId) {
-  state.activeDeckId = deckId;
-  const deck = await api(`/decks/${deckId}`);
+function syncDeckListCounts(deckId, deck) {
+  if (!state.decksListCache) return;
+  const entry = state.decksListCache.find((d) => d.id === deckId);
+  if (!entry) return;
+  entry.main_count = deck.main_count;
+  entry.extra_count = deck.extra_count;
+  entry.side_count = deck.side_count;
+  renderDecksList(state.decksListCache);
+}
+
+function renderDeckDetail(deckId, deck) {
   $("#deck-empty").classList.add("hidden");
   $("#deck-editor").classList.remove("hidden");
   $("#deck-name").textContent = deck.name;
@@ -2246,15 +2307,13 @@ async function selectDeck(deckId) {
     chip.addEventListener("click", () => openCardModal(Number(chip.dataset.card)));
   });
 
-  if (state.decksListCache) {
-    const entry = state.decksListCache.find((d) => d.id === deckId);
-    if (entry) {
-      entry.main_count = deck.main_count;
-      entry.extra_count = deck.extra_count;
-      entry.side_count = deck.side_count;
-      renderDecksList(state.decksListCache);
-    }
-  }
+  syncDeckListCounts(deckId, deck);
+}
+
+async function selectDeck(deckId) {
+  state.activeDeckId = deckId;
+  const deck = await api(`/decks/${deckId}`);
+  renderDeckDetail(deckId, deck);
 }
 
 function wireEvents() {
@@ -2463,12 +2522,28 @@ function wireEvents() {
       alert("Log in to use favorites.");
       return;
     }
-    await api(`/cards/${state.currentCardId}/favorite`, { method: "POST" });
+    const btn = $("#modal-favorite");
+    if (btn.disabled) return;
+
+    const wasFavorite = state.currentCard?.is_favorite ?? false;
+    const newFavorite = !wasFavorite;
+
     if (state.currentCard) {
-      state.currentCard.is_favorite = !state.currentCard.is_favorite;
-      $("#modal-favorite").textContent = state.currentCard.is_favorite
-        ? "★ Favorited"
-        : "☆ Favorite";
+      state.currentCard.is_favorite = newFavorite;
+      btn.textContent = newFavorite ? "★ Favorited" : "☆ Favorite";
+    }
+    btn.disabled = true;
+
+    try {
+      await api(`/cards/${state.currentCardId}/favorite`, { method: "POST" });
+    } catch (err) {
+      if (state.currentCard) {
+        state.currentCard.is_favorite = wasFavorite;
+        btn.textContent = wasFavorite ? "★ Favorited" : "☆ Favorite";
+      }
+      showToast(err.message || "Failed to update favorite.", { variant: "error", durationMs: 5000 });
+    } finally {
+      btn.disabled = false;
     }
   });
 
@@ -2479,20 +2554,31 @@ function wireEvents() {
     }
     const tag = $("#tag-input").value.trim();
     if (!tag) return;
-    await api(`/cards/${state.currentCardId}/tags`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag }),
-    });
-    $("#tag-input").value = "";
-    if (state.currentCard) {
-      const tags = state.currentCard.tags || [];
-      if (!tags.includes(tag)) {
-        state.currentCard.tags = [...tags, tag];
-        $("#modal-tags").innerHTML = state.currentCard.tags
-          .map((t) => `<span class="tag">${escapeHtml(t)}</span>`)
-          .join("");
-      }
+    const btn = $("#tag-add-btn");
+    try {
+      await runModalAction(
+        btn,
+        async () => {
+          await api(`/cards/${state.currentCardId}/tags`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tag }),
+          });
+          $("#tag-input").value = "";
+          if (state.currentCard) {
+            const tags = state.currentCard.tags || [];
+            if (!tags.includes(tag)) {
+              state.currentCard.tags = [...tags, tag];
+              $("#modal-tags").innerHTML = state.currentCard.tags
+                .map((t) => `<span class="tag">${escapeHtml(t)}</span>`)
+                .join("");
+            }
+          }
+        },
+        { busyLabel: "Adding…", successMessage: `Tag "${tag}" added` }
+      );
+    } catch {
+      // runModalAction already surfaced the error toast
     }
   });
 
@@ -2504,17 +2590,26 @@ function wireEvents() {
     const val = $("#owned-printing").value;
     const [set_code, rarity] = val.split("|");
     const qty = Number($("#owned-qty").value) || 1;
-    await api("/collection", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ set_code, rarity, quantity: qty }),
-    });
-    alert(`Added ${qty}× ${set_code}`);
+    const btn = $("#owned-add-btn");
+    try {
+      await runModalAction(
+        btn,
+        () =>
+          api("/collection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ set_code, rarity, quantity: qty }),
+          }),
+        { busyLabel: "Adding…", successMessage: `Added ${qty}× ${set_code}` }
+      );
+    } catch {
+      return;
+    }
     state.collectionViewCache = null;
-    await refreshModalCard();
-    await loadStatus();
-    await refreshOwnedSearchState();
-    await refreshCollectionIfActive();
+    refreshModalCard();
+    loadStatus();
+    refreshOwnedSearchState();
+    refreshCollectionIfActive();
   });
 
   $("#deck-add-card-btn").addEventListener("click", async () => {
@@ -2528,15 +2623,28 @@ function wireEvents() {
       return;
     }
     const zone = $("#deck-zone").value;
-    await api(`/decks/${deckId}/cards`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ card_id: state.currentCardId, zone, quantity: 1 }),
-    });
-    if (deckId === state.activeDeckId) {
-      await selectDeck(deckId);
+    const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1);
+    const btn = $("#deck-add-card-btn");
+    try {
+      await runModalAction(
+        btn,
+        async () => {
+          const deck = await api(`/decks/${deckId}/cards`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ card_id: state.currentCardId, zone, quantity: 1 }),
+          });
+          if (deckId === state.activeDeckId) {
+            renderDeckDetail(deckId, deck);
+          } else {
+            syncDeckListCounts(deckId, deck);
+          }
+        },
+        { busyLabel: "Adding…", successMessage: `Added to ${zoneLabel} deck` }
+      );
+    } catch {
+      // runModalAction already surfaced the error toast
     }
-    alert("Added to deck.");
   });
 
   $("#new-deck-btn").addEventListener("click", async () => {

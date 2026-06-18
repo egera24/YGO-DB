@@ -369,6 +369,9 @@ git checkout main && git merge develop && git push   # promote app to prod
 | `DATABASE_URL_MIGRATIONS` | optional direct Neon URL (no `-pooler`) | optional; overrides auto strip of `-pooler` in [`database_url_for_migrations()`](ygo_app/config.py) |
 | `ENV` | `production` (parity) or unset → SQLite | `production` |
 | `SECRET_KEY` | any local value | per Render service |
+| `EMAIL_BACKEND` | `console` (OTP in terminal) | `brevo` |
+| `BREVO_API_KEY` / `EMAIL_FROM` | optional | Brevo API key + verified sender |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | optional | optional bot protection on register |
 | `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | optional in `.env` for local image sync | GHA repo secrets (image mirror; job skips when unset) |
 | `IMAGE_BASE_URL` | optional (import-time URL rewrite) | GHA repo secret (import jobs); **not** needed on Render |
 | `CARDMARKET_HTTP_PROXY` | optional residential proxy for local Cardmarket scrape | not used on Render/GHA |
@@ -384,6 +387,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-18**
+- **Email verification on registration** — two-step signup: `POST /api/auth/register` creates `pending_registrations` row and emails 6-digit OTP (10 min TTL, Brevo or `EMAIL_BACKEND=console` locally); `POST /api/auth/verify-email` creates `users` row with `email_verified_at`. Endpoints: `/auth/resend-code`, `/auth/config` (Turnstile site key). Neon-backed rate limits on auth routes. Alembic `009`. Frontend verify panel + resend cooldown. Env: `EMAIL_BACKEND`, `BREVO_API_KEY`, `EMAIL_FROM`, optional `TURNSTILE_*`. Tests: `test_email_verification.py`. Static `app.js?v=49`, `style.css?v=38`.
 - **Login as landing page (no anonymous access)** — catalog read APIs (`GET /api/cards/search`, card detail/printings/suggestions, `GET /api/filters`, `GET /api/status`) now require JWT via `get_current_user`. Frontend shows a login/register landing page until `/api/auth/me` succeeds; app shell (tabs, search, collection, decks) hidden until authenticated. `GET /api/health` and auth login/register stay public. Static `app.js?v=47`, `style.css?v=36`. Tests: `test_api_auth.py`.
 - **Hash-based client routing** — URL reflects active tab (`#/search`, `#/collection`, `#/decks`), search filter query params, collection `folder`, deck detail (`#/decks/{id}`), and card modal (`#/card/{passcode}`). Browser back/forward and refresh restore state; tab `aria-*` wiring; `document.title` per view; URL search-param allowlist + length caps. Static `app.js?v=43`, `style.css?v=35`.
 
@@ -528,4 +532,4 @@ data/catalog/                  # gitignored scrape JSON
 | `folder=__no_folder__` on list | Returns items with No Folder allocation |
 | CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |
 | Logged in: Search **preset** toolbar | `#search-presets-bar` visible; Save/Load/Rename/Delete; `GET /api/search-presets` returns list |
-| `alembic current` (Neon dev in `.env`) | `006 (head)` after performance-index migration |
+| `alembic current` (Neon dev in `.env`) | `009 (head)` after email-verification migration |

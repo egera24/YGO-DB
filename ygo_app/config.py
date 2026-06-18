@@ -105,6 +105,14 @@ SECRET_KEY = os.getenv("SECRET_KEY", "dev-change-me-in-production")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))
 PORT = int(os.getenv("PORT", "8000"))
 
+EMAIL_BACKEND = (os.getenv("EMAIL_BACKEND") or "console").strip().lower()
+BREVO_API_KEY = (os.getenv("BREVO_API_KEY") or "").strip() or None
+EMAIL_FROM = (os.getenv("EMAIL_FROM") or "").strip() or None
+EMAIL_OTP_TTL_MINUTES = int(os.getenv("EMAIL_OTP_TTL_MINUTES", "10"))
+EMAIL_OTP_MAX_ATTEMPTS = int(os.getenv("EMAIL_OTP_MAX_ATTEMPTS", "5"))
+TURNSTILE_SITE_KEY = (os.getenv("TURNSTILE_SITE_KEY") or "").strip() or None
+TURNSTILE_SECRET_KEY = (os.getenv("TURNSTILE_SECRET_KEY") or "").strip() or None
+
 YGO_API_URL = os.getenv(
     "YGO_API_URL", "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 )

@@ -22,6 +22,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="user")
     collection_folders: Mapped[list["CollectionFolder"]] = relationship(
@@ -31,6 +32,27 @@ class User(Base):
     favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="user")
     card_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="user")
     search_presets: Mapped[list["SearchPreset"]] = relationship(back_populates="user")
+
+
+class PendingRegistration(Base):
+    __tablename__ = "pending_registrations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    otp_hash: Mapped[str] = mapped_column(String(64))
+    otp_expires_at: Mapped[datetime] = mapped_column(DateTime)
+    otp_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthRateLimit(Base):
+    __tablename__ = "auth_rate_limits"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    window_start: Mapped[datetime] = mapped_column(DateTime)
 
 
 class Card(Base):

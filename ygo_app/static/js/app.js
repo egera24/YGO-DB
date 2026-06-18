@@ -313,11 +313,18 @@ async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const message = err.detail || res.statusText;
-    const error = new Error(
-      typeof message === "string" ? message : JSON.stringify(message)
-    );
+    const detail = err.detail;
+    let message = res.statusText;
+    let code = null;
+    if (typeof detail === "string") {
+      message = detail;
+    } else if (detail && typeof detail === "object") {
+      message = detail.message || JSON.stringify(detail);
+      code = detail.code || null;
+    }
+    const error = new Error(message);
     error.status = res.status;
+    error.code = code;
     throw error;
   }
   if (res.status === 204) return null;
@@ -390,6 +397,75 @@ function escapeHtml(s) {
 }
 
 let authActiveTab = "login";
+let authConfig = { turnstile_site_key: null };
+let turnstileWidgetId = null;
+let pendingVerifyEmail = null;
+let resendCooldownInterval = null;
+
+function maskEmail(email) {
+  const parts = String(email || "").split("@");
+  if (parts.length !== 2) return email;
+  const local = parts[0];
+  const domain = parts[1];
+  const masked =
+    local.length <= 2 ? `${local[0] || ""}***` : `${local[0]}***${local.slice(-1)}`;
+  return `${masked}@${domain}`;
+}
+
+async function loadAuthConfig() {
+  try {
+    const res = await fetch(`${API}/auth/config`, { headers: { Accept: "application/json" } });
+    if (res.ok) authConfig = await res.json();
+  } catch {
+    /* optional */
+  }
+}
+
+function loadTurnstileScript() {
+  return new Promise((resolve, reject) => {
+    if (window.turnstile) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load captcha"));
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureTurnstileWidget() {
+  const container = $("#register-turnstile");
+  if (!container || !authConfig.turnstile_site_key) return;
+  try {
+    await loadTurnstileScript();
+    container.innerHTML = "";
+    turnstileWidgetId = window.turnstile.render(container, {
+      sitekey: authConfig.turnstile_site_key,
+    });
+  } catch {
+    /* captcha optional for local dev */
+  }
+}
+
+function resetTurnstileWidget() {
+  if (window.turnstile && turnstileWidgetId != null) {
+    try {
+      window.turnstile.reset(turnstileWidgetId);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function getTurnstileToken() {
+  if (!authConfig.turnstile_site_key) return null;
+  if (!window.turnstile || turnstileWidgetId == null) return "";
+  return window.turnstile.getResponse(turnstileWidgetId) || "";
+}
 
 function setAuthenticatedShell(visible) {
   document.querySelectorAll(".app-shell").forEach((el) => {
@@ -400,6 +476,10 @@ function setAuthenticatedShell(visible) {
 }
 
 function updateAuthLandingTitle() {
+  if (authActiveTab === "verify") {
+    document.title = `Verify email — ${APP_TITLE_BASE}`;
+    return;
+  }
   document.title =
     authActiveTab === "register"
       ? `Create account — ${APP_TITLE_BASE}`
@@ -442,11 +522,17 @@ function setAuthTabsDisabled(disabled) {
 
 function switchAuthTab(tab) {
   authActiveTab = tab;
+  pendingVerifyEmail = null;
   const isLogin = tab === "login";
   const loginTab = $("#auth-tab-login");
   const registerTab = $("#auth-tab-register");
   const loginPanel = $("#auth-panel-login");
   const registerPanel = $("#auth-panel-register");
+  const verifyPanel = $("#auth-panel-verify");
+
+  $("#auth-tabs")?.classList.remove("hidden");
+  verifyPanel?.classList.add("hidden");
+  if (verifyPanel) verifyPanel.hidden = true;
 
   loginTab?.classList.toggle("active", isLogin);
   registerTab?.classList.toggle("active", !isLogin);
@@ -462,6 +548,47 @@ function switchAuthTab(tab) {
 
   clearAuthError();
   updateAuthLandingTitle();
+  if (tab === "register") {
+    ensureTurnstileWidget();
+  }
+}
+
+function showVerifyPanel(email) {
+  pendingVerifyEmail = email;
+  authActiveTab = "verify";
+  $("#auth-tabs")?.classList.add("hidden");
+  $("#auth-panel-login")?.classList.add("hidden");
+  $("#auth-panel-register")?.classList.add("hidden");
+  $("#auth-panel-verify")?.classList.remove("hidden");
+  const verifyPanel = $("#auth-panel-verify");
+  if (verifyPanel) verifyPanel.hidden = false;
+  const display = $("#verify-email-display");
+  if (display) display.textContent = maskEmail(email);
+  $("#verify-code").value = "";
+  clearAuthError();
+  updateAuthLandingTitle();
+  startResendCooldown(60);
+  requestAnimationFrame(() => $("#verify-code")?.focus());
+}
+
+function startResendCooldown(seconds) {
+  const btn = $("#verify-resend-btn");
+  if (!btn) return;
+  if (resendCooldownInterval) window.clearInterval(resendCooldownInterval);
+  let remaining = seconds;
+  btn.disabled = true;
+  btn.textContent = `Resend code (${remaining}s)`;
+  resendCooldownInterval = window.setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      window.clearInterval(resendCooldownInterval);
+      resendCooldownInterval = null;
+      btn.disabled = false;
+      btn.textContent = "Resend code";
+      return;
+    }
+    btn.textContent = `Resend code (${remaining}s)`;
+  }, 1000);
 }
 
 function showAuthChecking() {
@@ -548,31 +675,70 @@ async function bootstrapAuthenticatedApp() {
 }
 
 async function login(email, password) {
-  const data = await api("/auth/login", {
+  try {
+    const data = await api("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    state.token = data.access_token;
+    localStorage.setItem("ygo_token", state.token);
+    state.user = await api("/auth/me");
+    setAuthenticatedShell(true);
+    updateAuthUI();
+    await bootstrapAuthenticatedApp();
+  } catch (err) {
+    if (err.status === 403 && err.code === "email_not_verified") {
+      showVerifyPanel(email);
+      throw new Error("Verify your email to continue. Check your inbox for the code.");
+    }
+    throw err;
+  }
+}
+
+async function register(email, password) {
+  const body = { email, password };
+  const turnstileToken = getTurnstileToken();
+  if (authConfig.turnstile_site_key) {
+    if (!turnstileToken) {
+      throw new Error("Please complete the captcha.");
+    }
+    body.turnstile_token = turnstileToken;
+  }
+  const data = await api("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(body),
+  });
+  resetTurnstileWidget();
+  if (data.needs_verification) {
+    showVerifyPanel(data.email);
+    return;
+  }
+}
+
+async function verifyEmail(email, code) {
+  const data = await api("/auth/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
   });
   state.token = data.access_token;
   localStorage.setItem("ygo_token", state.token);
   state.user = await api("/auth/me");
+  pendingVerifyEmail = null;
   setAuthenticatedShell(true);
   updateAuthUI();
   await bootstrapAuthenticatedApp();
 }
 
-async function register(email, password) {
-  const data = await api("/auth/register", {
+async function resendVerificationCode(email) {
+  await api("/auth/resend-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email }),
   });
-  state.token = data.access_token;
-  localStorage.setItem("ygo_token", state.token);
-  state.user = await api("/auth/me");
-  setAuthenticatedShell(true);
-  updateAuthUI();
-  await bootstrapAuthenticatedApp();
+  startResendCooldown(60);
 }
 
 function logout() {
@@ -3089,13 +3255,62 @@ function wireEvents() {
         e.target,
         async () => {
           await register($("#register-email").value, $("#register-password").value);
-          focusAppEntry();
+          if (!pendingVerifyEmail) {
+            focusAppEntry();
+          } else {
+            showToast("Check your email for the verification code.");
+          }
         },
-        { busyLabel: "Creating account…", successToast: "Account created — welcome!" }
+        { busyLabel: "Creating account…" }
       );
     } catch {
       /* errors handled in submitAuthForm */
     }
+  });
+
+  $("#auth-verify-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = pendingVerifyEmail || $("#register-email")?.value;
+    if (!email) {
+      showAuthError("Missing email for verification.");
+      return;
+    }
+    try {
+      await submitAuthForm(
+        e.target,
+        async () => {
+          await verifyEmail(email, $("#verify-code").value.trim());
+          focusAppEntry();
+        },
+        { busyLabel: "Verifying…", successToast: "Email verified — welcome!" }
+      );
+    } catch {
+      /* errors handled in submitAuthForm */
+    }
+  });
+
+  $("#verify-resend-btn")?.addEventListener("click", async () => {
+    const email = pendingVerifyEmail;
+    if (!email) return;
+    const btn = $("#verify-resend-btn");
+    if (btn?.disabled) return;
+    clearAuthError();
+    setButtonBusy(btn, true, { busyLabel: "Sending…" });
+    try {
+      await resendVerificationCode(email);
+      showToast("If your registration is pending, a new code was sent.");
+    } catch (err) {
+      showAuthError(err.message || "Could not resend code.");
+      showToast(err.message || "Could not resend code.", { variant: "error", durationMs: 5000 });
+    } finally {
+      setButtonBusy(btn, false);
+    }
+  });
+
+  $("#verify-back-btn")?.addEventListener("click", () => {
+    pendingVerifyEmail = null;
+    switchAuthTab("register");
+    $("#register-email")?.focus();
   });
 
   $("#auth-logout")?.addEventListener("click", logout);
@@ -3414,6 +3629,7 @@ function wireEvents() {
 
 async function init() {
   wireEvents();
+  await loadAuthConfig();
   updateAuthUI();
   try {
     if (state.token) {

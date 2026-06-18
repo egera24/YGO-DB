@@ -128,6 +128,18 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
    | `DATABASE_URL` | Neon pooled URL |
    | `SECRET_KEY` | Long random string |
    | `PYTHON_VERSION` | `3.12.0` (optional) |
+   | `EMAIL_BACKEND` | `brevo` |
+   | `BREVO_API_KEY` | Brevo SMTP/API key |
+   | `EMAIL_FROM` | Verified sender, e.g. `YGO App <you@example.com>` |
+
+Optional (bot protection on registration):
+
+| Key | Value |
+|-----|--------|
+| `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key |
+
+For **local development**, use `EMAIL_BACKEND=console` in `.env` — verification codes print in the terminal instead of sending email.
 
 ---
 
@@ -136,7 +148,7 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 1. Open the Render URL (e.g. `https://ygo-app-xxxx.onrender.com`).
 2. First request after idle may take **~1 minute** (free tier spin-up).
 3. Status line should show thousands of **cards** (not “catalog empty”).
-4. **Register** in the header.
+4. **Register** — create an account; check email for the 6-digit verification code (or spam folder).
 5. **My Collection** → **Import CSV** to upload your DragonShield export (logged-in users only).
 
 ---
@@ -147,8 +159,8 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 - [ ] Neon project created; pooled `DATABASE_URL` copied  
 - [ ] GitHub secret `DATABASE_URL` set  
 - [ ] **Import Yugipedia catalog** workflow succeeded  
-- [ ] Render free web deployed with same `DATABASE_URL` + `SECRET_KEY`  
-- [ ] Register on live site and test search + CSV import  
+- [ ] Render free web deployed with same `DATABASE_URL` + `SECRET_KEY` + email env vars  
+- [ ] Register on live site, verify email, and test search + CSV import  
 
 ---
 

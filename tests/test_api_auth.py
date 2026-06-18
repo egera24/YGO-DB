@@ -6,6 +6,8 @@ import os
 import tempfile
 import unittest
 
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -40,7 +42,11 @@ class TestApiAuth(unittest.TestCase):
         self.Session = sessionmaker(bind=self.engine)
 
         session = self.Session()
-        user = User(email="auth@test.example", hashed_password="x")
+        user = User(
+            email="auth@test.example",
+            hashed_password="x",
+            email_verified_at=datetime.utcnow(),
+        )
         session.add(user)
         session.add(
             Card(

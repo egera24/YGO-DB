@@ -207,6 +207,9 @@ class Deck(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    preview_card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cards.id", ondelete="SET NULL"), nullable=True
+    )
 
     user: Mapped["User"] = relationship(back_populates="decks")
     cards: Mapped[list["DeckCard"]] = relationship(

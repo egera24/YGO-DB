@@ -14,14 +14,14 @@ from ygo_app.yugipedia.scrape_progress import log_line
 def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     try:
         payload = {
-            "sessionId": "c330db",
+            "sessionId": "ac4234",
             "hypothesisId": hypothesis_id,
             "location": location,
             "message": message,
             "data": data,
             "timestamp": int(time.time() * 1000),
         }
-        with Path("debug-c330db.log").open("a", encoding="utf-8") as f:
+        with Path("debug-ac4234.log").open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload) + "\n")
     except Exception:
         pass

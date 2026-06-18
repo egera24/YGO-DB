@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=33" />
+  <link rel="stylesheet" href="/static/css/style.css?v=34" />
 </head>
 <body>
   <header class="app-header">
@@ -263,25 +263,26 @@
     </section>
 
     <section id="view-decks" class="view">
-      <div class="deck-layout">
-        <aside class="deck-sidebar">
-          <button id="new-deck-btn" class="primary">+ New deck</button>
-          <ul id="deck-list"></ul>
-        </aside>
-        <div id="deck-editor" class="deck-editor hidden">
-          <header class="deck-header">
-            <h2 id="deck-name"></h2>
-            <div class="deck-counts">
-              <span>Main: <strong id="count-main">0</strong></span>
-              <span>Extra: <strong id="count-extra">0</strong></span>
-              <span>Side: <strong id="count-side">0</strong></span>
-            </div>
-          </header>
-          <div id="deck-zones"></div>
+      <div id="decks-list-view">
+        <div class="decks-toolbar">
+          <input type="search" id="decks-q" placeholder="Search decks or cards…" autocomplete="off" aria-label="Search decks" />
+          <select id="decks-sort" aria-label="Sort decks">
+            <option value="updated_at">Sort: Last modified</option>
+            <option value="created_at">Sort: Created</option>
+            <option value="name">Sort: Name</option>
+          </select>
+          <button type="button" id="new-deck-btn" class="primary">+ New deck</button>
         </div>
-        <div id="deck-empty" class="deck-empty">
-          <p>Select or create a deck to start building.</p>
-        </div>
+        <div id="decks-grid" class="decks-grid"></div>
+        <p id="decks-empty" class="empty-msg hidden">No decks yet. Create one to get started.</p>
+        <p id="decks-login-msg" class="empty-msg hidden">Log in to manage decks.</p>
+      </div>
+      <div id="decks-detail-view" class="hidden">
+        <header class="decks-detail-header">
+          <button type="button" id="decks-back-btn" class="decks-back-btn">← Decks</button>
+          <h2 id="deck-name"></h2>
+        </header>
+        <div id="deck-zones"></div>
       </div>
     </section>
   </main>
@@ -433,6 +434,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=41" type="module"></script>
+  <script src="/static/js/app.js?v=42" type="module"></script>
 </body>
 </html>

@@ -222,11 +222,17 @@ class CollectionItemUpdate(BaseModel):
         return value
 
 
+class DeckPreviewCard(BaseModel):
+    card_id: int
+    image_url: str | None
+
+
 class DeckCardOut(BaseModel):
     card_id: int
     name: str
     type: str | None
     image_url_small: str | None
+    image_url: str | None = None
     zone: str
     quantity: int
 
@@ -239,9 +245,12 @@ class DeckOut(BaseModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
+    preview_card_id: int | None = None
+    preview_cards: list[DeckPreviewCard] = []
     main_count: int = 0
     extra_count: int = 0
     side_count: int = 0
+    card_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -253,6 +262,12 @@ class DeckDetail(DeckOut):
 class DeckCreate(BaseModel):
     name: str
     description: str | None = None
+
+
+class DeckUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    preview_card_id: int | None = None
 
 
 class DeckCardMutate(BaseModel):

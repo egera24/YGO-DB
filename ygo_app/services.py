@@ -1080,6 +1080,166 @@ def deck_counts(session: Session, deck_id: int) -> dict[str, int]:
     return counts
 
 
+_DECK_ZONE_ORDER = {"main": 0, "extra": 1, "side": 2}
+
+
+def _deck_zone_sort_key(zone: str) -> int:
+    return _DECK_ZONE_ORDER.get(zone, 99)
+
+
+def _deck_card_entries_for_decks(
+    session: Session, deck_ids: list[int]
+) -> dict[int, list[tuple[DeckCard, Card]]]:
+    if not deck_ids:
+        return {}
+    rows = session.execute(
+        select(DeckCard, Card)
+        .join(Card, DeckCard.card_id == Card.id)
+        .where(DeckCard.deck_id.in_(deck_ids))
+    ).all()
+    grouped: dict[int, list[tuple[DeckCard, Card]]] = {did: [] for did in deck_ids}
+    for dc, card in rows:
+        grouped[dc.deck_id].append((dc, card))
+    for deck_id in deck_ids:
+        grouped[deck_id].sort(
+            key=lambda t: (_deck_zone_sort_key(t[0].zone), t[0].card_id)
+        )
+    return grouped
+
+
+def compute_deck_preview_cards(
+    preview_card_id: int | None,
+    entries: list[tuple[DeckCard, Card]],
+) -> list[dict]:
+    """Up to 3 distinct cards for list tile stack; front card first."""
+    if not entries:
+        return []
+    seen: set[int] = set()
+    unique: list[tuple[int, str | None]] = []
+    for _dc, card in entries:
+        if card.id not in seen:
+            seen.add(card.id)
+            unique.append((card.id, card.image_url))
+    if not unique:
+        return []
+    front_id = preview_card_id if preview_card_id in seen else unique[0][0]
+    ordered: list[tuple[int, str | None]] = []
+    for card_id, image_url in unique:
+        if card_id == front_id:
+            ordered.insert(0, (card_id, image_url))
+        else:
+            ordered.append((card_id, image_url))
+    return [
+        {"card_id": card_id, "image_url": image_url}
+        for card_id, image_url in ordered[:3]
+    ]
+
+
+def list_user_decks(
+    session: Session,
+    user_id: int,
+    *,
+    q: str | None = None,
+    sort: str = "updated_at",
+) -> list[Deck]:
+    stmt = select(Deck).where(Deck.user_id == user_id)
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        card_match = (
+            select(DeckCard.deck_id)
+            .join(Card, DeckCard.card_id == Card.id)
+            .where(Card.name.ilike(term))
+            .distinct()
+        )
+        stmt = stmt.where(or_(Deck.name.ilike(term), Deck.id.in_(card_match)))
+    if sort == "name":
+        stmt = stmt.order_by(Deck.name.asc(), Deck.id.asc())
+    elif sort == "created_at":
+        stmt = stmt.order_by(Deck.created_at.desc(), Deck.id.desc())
+    else:
+        stmt = stmt.order_by(Deck.updated_at.desc(), Deck.id.desc())
+    return list(session.execute(stmt).scalars().all())
+
+
+def build_deck_out(
+    deck: Deck,
+    counts: dict[str, int],
+    preview_cards: list[dict],
+) -> dict:
+    card_count = counts.get("main", 0) + counts.get("extra", 0) + counts.get("side", 0)
+    return {
+        "id": deck.id,
+        "name": deck.name,
+        "description": deck.description,
+        "created_at": deck.created_at,
+        "updated_at": deck.updated_at,
+        "preview_card_id": deck.preview_card_id,
+        "preview_cards": preview_cards,
+        "main_count": counts.get("main", 0),
+        "extra_count": counts.get("extra", 0),
+        "side_count": counts.get("side", 0),
+        "card_count": card_count,
+    }
+
+
+def list_decks_enriched(
+    session: Session,
+    user_id: int,
+    *,
+    q: str | None = None,
+    sort: str = "updated_at",
+) -> list[dict]:
+    decks = list_user_decks(session, user_id, q=q, sort=sort)
+    if not decks:
+        return []
+    deck_ids = [d.id for d in decks]
+    entries_by_deck = _deck_card_entries_for_decks(session, deck_ids)
+    result = []
+    for deck in decks:
+        counts = deck_counts(session, deck.id)
+        entries = entries_by_deck.get(deck.id, [])
+        previews = compute_deck_preview_cards(deck.preview_card_id, entries)
+        result.append(build_deck_out(deck, counts, previews))
+    return result
+
+
+def clear_deck_preview_if_removed(session: Session, deck_id: int, card_id: int) -> None:
+    deck = session.get(Deck, deck_id)
+    if not deck or deck.preview_card_id != card_id:
+        return
+    still_in = session.execute(
+        select(DeckCard.id).where(
+            DeckCard.deck_id == deck_id,
+            DeckCard.card_id == card_id,
+        )
+    ).scalar_one_or_none()
+    if still_in is None:
+        deck.preview_card_id = None
+
+
+def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
+    if "name" in updates and updates["name"] is not None:
+        deck.name = updates["name"].strip()
+    if "description" in updates:
+        deck.description = updates["description"]
+    if "preview_card_id" in updates:
+        preview_card_id = updates["preview_card_id"]
+        if preview_card_id is not None:
+            in_deck = session.execute(
+                select(DeckCard.id).where(
+                    DeckCard.deck_id == deck.id,
+                    DeckCard.card_id == preview_card_id,
+                )
+            ).scalar_one_or_none()
+            if not in_deck:
+                raise ValueError("Preview card must be in the deck")
+        deck.preview_card_id = preview_card_id
+    deck.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(deck)
+    return deck
+
+
 def add_collection_item(session: Session, user_id: int, data: dict) -> CollectionItem:
     rarity_code = normalize_rarity_code(data["rarity"])
     quantity = data.get("quantity", 1)

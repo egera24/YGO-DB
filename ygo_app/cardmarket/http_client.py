@@ -280,6 +280,20 @@ def create_curl_cffi_session(worker_id: int = 0):
     if proxies:
         session.proxies = proxies
     apply_storage_cookies(session, CARDMARKET_BROWSER_STATE_PATH, backend="curl_cffi")
+    # #region agent log
+    from ygo_app.cardmarket.browser_cookies import _agent_debug_log
+
+    _agent_debug_log(
+        "D",
+        "http_client.py:create_curl_cffi_session",
+        "session_created",
+        {
+            "impersonate": CURL_CFFI_IMPERSONATE,
+            "user_agent": user_agent_for_worker(worker_id),
+            "has_proxy": bool(_proxy_dict()),
+        },
+    )
+    # #endregion
     return session
 
 

@@ -31,6 +31,9 @@ const state = {
   collectionLastItems: [],
   collectionViewCache: null,
   decksListCache: null,
+  decksQuery: "",
+  decksSort: "updated_at",
+  decksDetailOpen: false,
   activePresetId: null,
   searchPresets: [],
   searchResultsById: {},
@@ -38,6 +41,7 @@ const state = {
 
 let searchRequestSeq = 0;
 let collectionRequestSeq = 0;
+let decksSearchTimer = null;
 
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
@@ -534,7 +538,11 @@ function switchView(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   $(`#view-${name}`).classList.add("active");
   document.querySelector(`.tab[data-view="${name}"]`).classList.add("active");
-  if (name === "decks") loadDecks({ background: true });
+  if (name === "decks") {
+    loadDecks({ background: true });
+    if (state.decksDetailOpen) showDecksDetailView();
+    else showDecksListView();
+  }
   if (name === "collection") loadCollectionView({ background: true });
 }
 
@@ -2164,16 +2172,108 @@ async function downloadCollectionExport(formatId) {
   downloadCsvBlob(body, filename);
 }
 
+function decksListCacheKey() {
+  return `${state.decksQuery}\0${state.decksSort}`;
+}
+
 async function fetchDecksList(force = false) {
   if (!state.token) return [];
-  if (state.decksListCache && !force) return state.decksListCache;
-  const decks = await api("/decks");
-  state.decksListCache = decks;
+  const cacheKey = decksListCacheKey();
+  if (state.decksListCache && state.decksListCache.key === cacheKey && !force) {
+    return state.decksListCache.decks;
+  }
+  const params = new URLSearchParams();
+  if (state.decksQuery.trim()) params.set("q", state.decksQuery.trim());
+  if (state.decksSort) params.set("sort", state.decksSort);
+  const qs = params.toString();
+  const decks = await api(`/decks${qs ? `?${qs}` : ""}`);
+  state.decksListCache = { key: cacheKey, decks };
   return decks;
 }
 
 function invalidateDecksCache() {
   state.decksListCache = null;
+}
+
+function renderDeckStack(previewCards) {
+  const cards = previewCards?.length ? previewCards : [{ image_url: null }];
+  const stack = cards.slice(0, 3);
+  return stack
+    .map((c) => cardImgTag(c.image_url || null, 'class="deck-stack-card"'))
+    .join("");
+}
+
+function renderDecksGrid(decks) {
+  const grid = $("#decks-grid");
+  const empty = $("#decks-empty");
+  if (!grid) return;
+  if (!decks.length) {
+    grid.innerHTML = "";
+    empty?.classList.remove("hidden");
+    return;
+  }
+  empty?.classList.add("hidden");
+  grid.innerHTML = decks
+    .map((d) => {
+      const countLabel = d.card_count === 1 ? "1 card" : `${d.card_count} cards`;
+      return `
+    <article class="deck-tile" data-id="${d.id}" tabindex="0" role="button" aria-label="${escapeHtml(d.name)}, ${countLabel}">
+      <button type="button" class="deck-tile-delete" data-id="${d.id}" title="Delete deck" aria-label="Delete ${escapeHtml(d.name)}">×</button>
+      <div class="deck-stack">${renderDeckStack(d.preview_cards)}</div>
+      <div class="deck-tile-meta">
+        <span class="deck-tile-name">${escapeHtml(d.name)}</span>
+        <span class="deck-tile-count">${countLabel}</span>
+      </div>
+    </article>`;
+    })
+    .join("");
+
+  grid.querySelectorAll(".deck-tile").forEach((tile) => {
+    tile.addEventListener("click", (e) => {
+      if (e.target.closest(".deck-tile-delete")) return;
+      openDeckDetail(Number(tile.dataset.id));
+    });
+    tile.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openDeckDetail(Number(tile.dataset.id));
+      }
+    });
+  });
+
+  grid.querySelectorAll(".deck-tile-delete").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const deckId = Number(btn.dataset.id);
+      const deck = decks.find((d) => d.id === deckId);
+      const label = deck?.name || "this deck";
+      if (!confirm(`Delete deck "${label}"? This cannot be undone.`)) return;
+      await api(`/decks/${deckId}`, { method: "DELETE" });
+      if (state.activeDeckId === deckId) {
+        state.activeDeckId = null;
+        closeDeckDetail();
+      }
+      invalidateDecksCache();
+      await loadDecks({ force: true });
+      await populateDeckSelect();
+    });
+  });
+}
+
+function showDecksListView() {
+  state.decksDetailOpen = false;
+  $("#decks-list-view")?.classList.remove("hidden");
+  $("#decks-detail-view")?.classList.add("hidden");
+}
+
+function showDecksDetailView() {
+  state.decksDetailOpen = true;
+  $("#decks-list-view")?.classList.add("hidden");
+  $("#decks-detail-view")?.classList.remove("hidden");
+}
+
+function closeDeckDetail() {
+  showDecksListView();
 }
 
 async function populateDeckSelect() {
@@ -2202,65 +2302,55 @@ async function populateDeckSelect() {
   sel.value = String(preferred);
 }
 
-function renderDecksList(decks) {
-  const list = $("#deck-list");
-  if (!list) return;
-  list.innerHTML = decks
-    .map(
-      (d) => `
-    <li data-id="${d.id}" class="${d.id === state.activeDeckId ? "active" : ""}">
-      <strong>${escapeHtml(d.name)}</strong><br />
-      <small class="muted">Main ${d.main_count} · Extra ${d.extra_count} · Side ${d.side_count}</small>
-    </li>`
-    )
-    .join("");
-
-  list.querySelectorAll("li").forEach((li) => {
-    li.addEventListener("click", () => selectDeck(Number(li.dataset.id)));
-  });
+function deckZoneLabel(zone) {
+  if (zone === "main") return "Main deck";
+  if (zone === "extra") return "Extra deck";
+  return "Side deck";
 }
 
-async function loadDecks({ background = false } = {}) {
+function renderDeckCardSlot(deck, card, zone) {
+  const imgUrl = card.image_url || card.image_url_small || null;
+  const isCover = deck.preview_card_id === card.card_id;
+  return `
+    <div class="deck-card-slot${isCover ? " is-cover" : ""}" data-card="${card.card_id}" data-zone="${zone}">
+      ${cardImgTag(imgUrl)}
+      <div class="deck-card-actions">
+        <button type="button" class="deck-cover-btn${isCover ? " is-active" : ""}" title="Set as deck cover" aria-label="Set as deck cover">★</button>
+        <button type="button" class="deck-minus-btn" title="Remove one" aria-label="Remove one">−</button>
+      </div>
+    </div>`;
+}
+
+async function loadDecks({ background = false, force = false } = {}) {
+  const loginMsg = $("#decks-login-msg");
+  const empty = $("#decks-empty");
   if (!state.token) {
-    $("#deck-list").innerHTML =
-      '<li class="empty-msg">Log in to manage decks.</li>';
+    $("#decks-grid").innerHTML = "";
+    loginMsg?.classList.remove("hidden");
+    empty?.classList.add("hidden");
     return;
   }
+  loginMsg?.classList.add("hidden");
 
-  if (background && state.decksListCache) {
-    renderDecksList(state.decksListCache);
+  if (background && state.decksListCache && !force) {
+    renderDecksGrid(state.decksListCache.decks);
     await populateDeckSelect();
     fetchDecksList(true)
       .then((decks) => {
-        renderDecksList(decks);
+        renderDecksGrid(decks);
         return populateDeckSelect();
       })
       .catch(() => {});
     return;
   }
 
-  const decks = await fetchDecksList(true);
-  renderDecksList(decks);
+  const decks = await fetchDecksList(force || !background);
+  renderDecksGrid(decks);
   await populateDeckSelect();
 }
 
-function syncDeckListCounts(deckId, deck) {
-  if (!state.decksListCache) return;
-  const entry = state.decksListCache.find((d) => d.id === deckId);
-  if (!entry) return;
-  entry.main_count = deck.main_count;
-  entry.extra_count = deck.extra_count;
-  entry.side_count = deck.side_count;
-  renderDecksList(state.decksListCache);
-}
-
 function renderDeckDetail(deckId, deck) {
-  $("#deck-empty").classList.add("hidden");
-  $("#deck-editor").classList.remove("hidden");
   $("#deck-name").textContent = deck.name;
-  $("#count-main").textContent = deck.main_count;
-  $("#count-extra").textContent = deck.extra_count;
-  $("#count-side").textContent = deck.side_count;
 
   const zones = { main: [], extra: [], side: [] };
   deck.cards.forEach((c) => zones[c.zone]?.push(c));
@@ -2268,52 +2358,67 @@ function renderDeckDetail(deckId, deck) {
   $("#deck-zones").innerHTML = ["main", "extra", "side"]
     .map((zone) => {
       const cards = zones[zone];
+      const slots = [];
+      cards.forEach((c) => {
+        for (let i = 0; i < c.quantity; i += 1) {
+          slots.push(renderDeckCardSlot(deck, c, zone));
+        }
+      });
       return `
-        <div class="zone-block">
-          <h3>${zone.charAt(0).toUpperCase() + zone.slice(1)} deck</h3>
-          <div class="zone-cards">
+        <section class="deck-zone-row">
+          <h3 class="deck-zone-label">${deckZoneLabel(zone)}</h3>
+          <div class="deck-zone-cards">
             ${
-              cards.length
-                ? cards
-                    .map(
-                      (c) => `
-                <div class="deck-card-chip" data-card="${c.card_id}" data-zone="${zone}">
-                  ${cardImgTag(c.image_url_small)}
-                  <span>${escapeHtml(c.name)} ×${c.quantity}</span>
-                  <button type="button" class="deck-minus" title="Remove one">−</button>
-                </div>`
-                    )
-                    .join("")
-                : '<span class="muted">Empty</span>'
+              slots.length
+                ? slots.join("")
+                : '<span class="deck-zone-empty">Empty</span>'
             }
           </div>
-        </div>`;
+        </section>`;
     })
     .join("");
 
-  $("#deck-zones").querySelectorAll(".deck-card-chip").forEach((chip) => {
-    chip.querySelector(".deck-minus")?.addEventListener("click", async (e) => {
+  $("#deck-zones").querySelectorAll(".deck-card-slot").forEach((slot) => {
+    const cardId = Number(slot.dataset.card);
+    const zone = slot.dataset.zone;
+    slot.querySelector(".deck-minus-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const cardId = Number(chip.dataset.card);
-      const zone = chip.dataset.zone;
       const card = deck.cards.find((c) => c.card_id === cardId && c.zone === zone);
       const newQty = (card?.quantity || 1) - 1;
       await api(
         `/decks/${deckId}/cards/${cardId}?zone=${zone}&quantity=${newQty}`,
         { method: "PATCH" }
       );
-      selectDeck(deckId);
+      invalidateDecksCache();
+      await openDeckDetail(deckId);
     });
-    chip.addEventListener("click", () => openCardModal(Number(chip.dataset.card)));
+    slot.querySelector(".deck-cover-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await setDeckCover(deckId, cardId);
+    });
+    slot.querySelector("img")?.addEventListener("click", () => openCardModal(cardId));
   });
+}
 
-  syncDeckListCounts(deckId, deck);
+async function setDeckCover(deckId, cardId) {
+  await api(`/decks/${deckId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ preview_card_id: cardId }),
+  });
+  invalidateDecksCache();
+  await openDeckDetail(deckId);
+}
+
+async function openDeckDetail(deckId) {
+  state.activeDeckId = deckId;
+  showDecksDetailView();
+  const deck = await api(`/decks/${deckId}`);
+  renderDeckDetail(deckId, deck);
 }
 
 async function selectDeck(deckId) {
-  state.activeDeckId = deckId;
-  const deck = await api(`/decks/${deckId}`);
-  renderDeckDetail(deckId, deck);
+  await openDeckDetail(deckId);
 }
 
 function wireEvents() {
@@ -2634,10 +2739,9 @@ function wireEvents() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ card_id: state.currentCardId, zone, quantity: 1 }),
           });
-          if (deckId === state.activeDeckId) {
+          invalidateDecksCache();
+          if (deckId === state.activeDeckId && state.decksDetailOpen) {
             renderDeckDetail(deckId, deck);
-          } else {
-            syncDeckListCounts(deckId, deck);
           }
         },
         { busyLabel: "Adding…", successMessage: `Added to ${zoneLabel} deck` }
@@ -2645,6 +2749,26 @@ function wireEvents() {
     } catch {
       // runModalAction already surfaced the error toast
     }
+  });
+
+  $("#decks-back-btn")?.addEventListener("click", () => {
+    closeDeckDetail();
+    loadDecks({ background: true });
+  });
+
+  $("#decks-sort")?.addEventListener("change", () => {
+    state.decksSort = $("#decks-sort")?.value || "updated_at";
+    invalidateDecksCache();
+    loadDecks({ force: true });
+  });
+
+  $("#decks-q")?.addEventListener("input", () => {
+    clearTimeout(decksSearchTimer);
+    decksSearchTimer = setTimeout(() => {
+      state.decksQuery = $("#decks-q")?.value || "";
+      invalidateDecksCache();
+      loadDecks({ force: true });
+    }, 300);
   });
 
   $("#new-deck-btn").addEventListener("click", async () => {
@@ -2657,7 +2781,7 @@ function wireEvents() {
     });
     invalidateDecksCache();
     state.activeDeckId = deck.id;
-    await loadDecks();
+    await loadDecks({ force: true });
     selectDeck(deck.id);
   });
 }

@@ -7,23 +7,47 @@ from sqlalchemy.orm import Session, joinedload
 from ygo_app.auth import get_current_user
 from ygo_app.database import get_db
 from ygo_app.models import Card, Deck, DeckCard, User
-from ygo_app.schemas import DeckCardMutate, DeckCardOut, DeckCreate, DeckDetail, DeckOut
-from ygo_app.services import deck_counts
+from ygo_app.schemas import (
+    DeckCardMutate,
+    DeckCardOut,
+    DeckCreate,
+    DeckDetail,
+    DeckOut,
+    DeckPreviewCard,
+    DeckUpdate,
+)
+from ygo_app.services import (
+    build_deck_out,
+    clear_deck_preview_if_removed,
+    compute_deck_preview_cards,
+    deck_counts,
+    list_decks_enriched,
+    update_deck,
+    _deck_card_entries_for_decks,
+)
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
 
-def _deck_out(deck: Deck, counts: dict[str, int]) -> DeckOut:
-    return DeckOut(
-        id=deck.id,
-        name=deck.name,
-        description=deck.description,
-        created_at=deck.created_at,
-        updated_at=deck.updated_at,
-        main_count=counts.get("main", 0),
-        extra_count=counts.get("extra", 0),
-        side_count=counts.get("side", 0),
+def _deck_card_out(dc: DeckCard) -> DeckCardOut:
+    return DeckCardOut(
+        card_id=dc.card_id,
+        name=dc.card.name,
+        type=dc.card.type,
+        image_url_small=dc.card.image_url_small,
+        image_url=dc.card.image_url,
+        zone=dc.zone,
+        quantity=dc.quantity,
     )
+
+
+def _deck_detail_from_deck(deck: Deck, db: Session) -> DeckDetail:
+    counts = deck_counts(db, deck.id)
+    entries = _deck_card_entries_for_decks(db, [deck.id]).get(deck.id, [])
+    previews = compute_deck_preview_cards(deck.preview_card_id, entries)
+    base = build_deck_out(deck, counts, previews)
+    cards = [_deck_card_out(dc) for dc in deck.cards]
+    return DeckDetail(**base, cards=cards)
 
 
 def _get_user_deck(db: Session, deck_id: int, user_id: int) -> Deck | None:
@@ -35,19 +59,19 @@ def _get_user_deck(db: Session, deck_id: int, user_id: int) -> Deck | None:
 
 @router.get("", response_model=list[DeckOut])
 def list_decks(
+    q: str | None = Query(None),
+    sort: str = Query("updated_at", pattern="^(name|created_at|updated_at)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    decks = (
-        db.execute(
-            select(Deck)
-            .where(Deck.user_id == user.id)
-            .order_by(Deck.updated_at.desc())
+    rows = list_decks_enriched(db, user.id, q=q, sort=sort)
+    return [
+        DeckOut(
+            **row,
+            preview_cards=[DeckPreviewCard(**p) for p in row["preview_cards"]],
         )
-        .scalars()
-        .all()
-    )
-    return [_deck_out(d, deck_counts(db, d.id)) for d in decks]
+        for row in rows
+    ]
 
 
 @router.post("", response_model=DeckOut)
@@ -64,7 +88,9 @@ def create_deck(
     db.add(deck)
     db.commit()
     db.refresh(deck)
-    return _deck_out(deck, {"main": 0, "extra": 0, "side": 0})
+    counts = {"main": 0, "extra": 0, "side": 0}
+    base = build_deck_out(deck, counts, [])
+    return DeckOut(**base, preview_cards=[])
 
 
 @router.get("/{deck_id}", response_model=DeckDetail)
@@ -80,20 +106,41 @@ def get_deck(
     )
     if not deck or deck.user_id != user.id:
         raise HTTPException(404, "Deck not found")
-    counts = deck_counts(db, deck_id)
-    cards = [
-        DeckCardOut(
-            card_id=dc.card_id,
-            name=dc.card.name,
-            type=dc.card.type,
-            image_url_small=dc.card.image_url_small,
-            zone=dc.zone,
-            quantity=dc.quantity,
+    return _deck_detail_from_deck(deck, db)
+
+
+@router.patch("/{deck_id}", response_model=DeckOut)
+def patch_deck(
+    deck_id: int,
+    body: DeckUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    deck = _get_user_deck(db, deck_id, user.id)
+    if not deck:
+        raise HTTPException(404, "Deck not found")
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        counts = deck_counts(db, deck_id)
+        entries = _deck_card_entries_for_decks(db, [deck_id]).get(deck_id, [])
+        previews = compute_deck_preview_cards(deck.preview_card_id, entries)
+        base = build_deck_out(deck, counts, previews)
+        return DeckOut(
+            **base,
+            preview_cards=[DeckPreviewCard(**p) for p in previews],
         )
-        for dc in deck.cards
-    ]
-    base = _deck_out(deck, counts)
-    return DeckDetail(**base.model_dump(), cards=cards)
+    try:
+        update_deck(db, deck, updates)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    counts = deck_counts(db, deck_id)
+    entries = _deck_card_entries_for_decks(db, [deck_id]).get(deck_id, [])
+    previews = compute_deck_preview_cards(deck.preview_card_id, entries)
+    base = build_deck_out(deck, counts, previews)
+    return DeckOut(
+        **base,
+        preview_cards=[DeckPreviewCard(**p) for p in previews],
+    )
 
 
 @router.delete("/{deck_id}")
@@ -171,6 +218,7 @@ def update_deck_card(
         raise HTTPException(404, "Card not in deck")
     if quantity <= 0:
         db.delete(row)
+        clear_deck_preview_if_removed(db, deck_id, card_id)
     else:
         row.quantity = quantity
     deck = db.get(Deck, deck_id)
@@ -199,6 +247,7 @@ def remove_from_deck(
     ).scalar_one_or_none()
     if row:
         db.delete(row)
+        clear_deck_preview_if_removed(db, deck_id, card_id)
         deck = db.get(Deck, deck_id)
         if deck:
             deck.updated_at = datetime.utcnow()

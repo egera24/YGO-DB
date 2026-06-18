@@ -73,8 +73,24 @@ def prepare_scrape_session(
             log_line(f"[COOKIES] will reuse cf_clearance from {CARDMARKET_BROWSER_STATE_PATH}")
         else:
             log_line(
-                f"[WARN] No cf_clearance cookies found. If you get HTTP 403, run: {CF_LOGIN_JOB}"
+                f"[WARN] No cf_clearance cookies found. If you get HTTP 403, run: {CF_LOGIN_JOB} "
+                "or use --browser --headed --workers 1"
             )
+        # #region agent log
+        from ygo_app.cardmarket.browser_cookies import _agent_debug_log, load_storage_cookies
+
+        _agent_debug_log(
+            "A",
+            "scrape_session.py:prepare_scrape_session",
+            "session_cookie_check",
+            {
+                "backend": backend_label,
+                "has_cf_clearance": storage_has_cf_clearance(CARDMARKET_BROWSER_STATE_PATH),
+                "cookie_names": [c.get("name") for c in load_storage_cookies(CARDMARKET_BROWSER_STATE_PATH)],
+                "workers": effective_workers,
+            },
+        )
+        # #endregion
 
     log_line(
         f"[CARDMARKET] backend={backend_label} workers={effective_workers} "

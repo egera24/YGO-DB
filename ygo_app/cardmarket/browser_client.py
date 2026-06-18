@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ygo_app import config
-from ygo_app.cardmarket.constants import BASE_URL, REQUEST_TIMEOUT, SEARCH_URL
+from ygo_app.cardmarket.constants import BASE_URL, CARD_LIST_PROBE_URL, REQUEST_TIMEOUT, SEARCH_URL
 from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, user_agent_for_worker
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
 from ygo_app.yugipedia.scrape_progress import log_line
@@ -40,6 +40,18 @@ _CF_INCOMPATIBLE_MARKERS = (
     "incompatible browser extension",
     "challenges.cloudflare.com",
     "security verification",
+)
+
+_COOKIE_CONSENT_MARKERS = (
+    "Cardmarket uses cookies",
+    "Accept All Cookies",
+    "Only Required Cookies",
+)
+
+_COOKIE_ACCEPT_SELECTORS = (
+    'button:has-text("Accept All Cookies")',
+    'button:has-text("Only Required Cookies")',
+    "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
 )
 
 
@@ -80,7 +92,8 @@ def is_cf_incompatible_page(html: str | None) -> bool:
     if not html:
         return False
     lower = html.lower()
-    return any(marker in lower for marker in _CF_INCOMPATIBLE_MARKERS)
+    # Match the actual Cloudflare error copy, not script URLs on normal Cardmarket pages.
+    return "incompatible browser extension" in lower
 
 
 def _log_cf_incompatible_help() -> None:
@@ -148,6 +161,9 @@ def _new_context(browser: Any, *, storage_path: Path):
 
 
 _CDP_PROFILE_DIR_NAME = "cardmarket_chrome_profile"
+_CF_LOGIN_PAGE_READY_GRACE_SECONDS = 15
+
+CfLoginWaitResult = Literal["cf_clearance", "page_ready", "timeout", "closed"]
 
 
 def _browser_executable(channel: BrowserChannel | None) -> str | None:
@@ -200,6 +216,43 @@ def _connect_cdp_browser(playwright: Any, port: int, *, timeout_seconds: float =
     raise RuntimeError(f"CDP connect failed on port {port}: {last_error}")
 
 
+def _launch_headed_cdp_browser(playwright: Any, channel: BrowserChannel | None):
+    """Launch real Chrome/Edge and attach via CDP (avoids Playwright automation detection)."""
+    exe = _browser_executable(channel or "chrome")
+    if not exe:
+        label = channel or "chrome"
+        raise RuntimeError(f"Could not find {label} executable on this machine.")
+
+    profile_dir = _storage_path.parent / _CDP_PROFILE_DIR_NAME
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    port = _pick_free_port()
+    browser_label = channel or "chrome"
+    log_line(f"[BROWSER] launching real {browser_label} via CDP (headed)")
+
+    proc = subprocess.Popen(
+        [
+            exe,
+            f"--user-data-dir={profile_dir}",
+            f"--remote-debugging-port={port}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            _WARMUP_URL,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(3)
+    if proc.poll() is not None:
+        raise RuntimeError(
+            "Chrome exited immediately. Close any other Cardmarket scrape Chrome window "
+            f"(profile: {profile_dir}) and retry."
+        )
+    browser = _connect_cdp_browser(playwright, port, timeout_seconds=60)
+    context = browser.contexts[0] if browser.contexts else browser.new_context()
+    page = _cardmarket_page_for_context(context, target_url=_WARMUP_URL)
+    return browser, context, page, proc
+
+
 def _cardmarket_page_for_context(context: Any, *, target_url: str):
     for page in context.pages:
         if "cardmarket.com" in page.url:
@@ -211,23 +264,81 @@ def _cardmarket_page_for_context(context: Any, *, target_url: str):
     return page
 
 
+def _page_needs_cookie_consent(page, html: str | None = None) -> bool:
+    """True only when the cookie banner buttons are still visible."""
+    del html  # banner visibility is authoritative; footer text mentions cookies on every page
+    try:
+        for selector in _COOKIE_ACCEPT_SELECTORS:
+            if page.locator(selector).first.is_visible(timeout=500):
+                return True
+        if page.get_by_role("button", name="Accept All Cookies").is_visible(timeout=500):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _dismiss_cookie_consent(page) -> bool:
+    """Click Cardmarket cookie banner when visible. Returns True if dismissed."""
+    if not _page_needs_cookie_consent(page):
+        return False
+    for selector in _COOKIE_ACCEPT_SELECTORS:
+        try:
+            button = page.locator(selector).first
+            if button.is_visible(timeout=1_500):
+                button.click(timeout=5_000)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=15_000)
+                except Exception:
+                    try:
+                        page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                    except Exception:
+                        pass
+                if not _page_needs_cookie_consent(page):
+                    log_line("[BROWSER] accepted cookie consent")
+                    return True
+        except Exception:
+            continue
+    try:
+        button = page.get_by_role("button", name="Accept All Cookies")
+        if button.is_visible(timeout=1_000):
+            button.click(timeout=5_000)
+            if not _page_needs_cookie_consent(page):
+                log_line("[BROWSER] accepted cookie consent")
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _cardmarket_page_ready(page, html: str | None) -> bool:
     """True when Cloudflare is cleared and Cardmarket content is visible."""
     cookies = page.context.cookies()
     if any(c.get("name") == "cf_clearance" for c in cookies):
         return True
     if html is None:
-        return False
-    if is_cloudflare_challenge(html) or is_cf_incompatible_page(html):
         try:
-            title = page.title().lower()
-            if "just a moment" not in title and "cardmarket" in title:
-                return True
+            html = page.content()
         except Exception:
-            pass
+            return False
+    if is_cloudflare_challenge(html) or is_cf_incompatible_page(html):
         return False
+    if _page_needs_cookie_consent(page, html):
+        return False
+    if any(
+        marker in html
+        for marker in (
+            "productRow",
+            "Search Results",
+            "Sorry, no matches",
+            'name="idExpansion"',
+        )
+    ):
+        return True
     try:
         if page.locator(_WARMUP_SELECTOR).count() > 0:
+            return True
+        if page.locator('div[id^="productRow"]').count() > 0:
             return True
         if page.locator('a[href*="/YuGiOh/Products"]').count() > 0:
             return True
@@ -245,9 +356,14 @@ def _cookies_have_cf_clearance(page) -> bool:
 
 def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
     log_line(
-        f"[CF-WAIT] Complete Cloudflare verification in the browser "
+        f"[CF-WAIT] Waiting for Cardmarket to finish loading in the browser "
         f"(up to {timeout_seconds}s)..."
     )
+    if _headed:
+        log_line(
+            "[CF-WAIT] If you see a cookie banner or unstyled page, click "
+            "'Accept All Cookies' — the script will also try automatically."
+        )
     deadline = time.time() + timeout_seconds
     last_hint_at = 0.0
     while time.time() < deadline:
@@ -277,15 +393,82 @@ def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
             time.sleep(1)
             continue
 
+        if _page_needs_cookie_consent(page, html):
+            if _dismiss_cookie_consent(page):
+                html = page.content()
+            elif _headed and time.time() - last_hint_at >= 20:
+                log_line(
+                    "[CF-WAIT] Cookie consent is blocking the page — click "
+                    "'Accept All Cookies' in the browser window."
+                )
+                last_hint_at = time.time()
+
         if is_cf_incompatible_page(html):
             if time.time() - last_hint_at >= 30:
                 _log_cf_incompatible_help()
                 last_hint_at = time.time()
-        ready = _cardmarket_page_ready(page, html)
-        if ready:
+        if _cardmarket_page_ready(page, html):
             return True
         time.sleep(2)
     return False
+
+
+def _wait_for_cf_login(page, *, timeout_seconds: int) -> CfLoginWaitResult:
+    """Wait for cf_clearance, or page-ready without a visible challenge."""
+    log_line(
+        f"[CF-WAIT] Waiting for Cardmarket to load or Cloudflare verification "
+        f"(up to {timeout_seconds}s)..."
+    )
+    deadline = time.time() + timeout_seconds
+    last_hint_at = 0.0
+    page_ready_since: float | None = None
+    while time.time() < deadline:
+        if _cookies_have_cf_clearance(page):
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=15_000)
+            except Exception:
+                pass
+            return "cf_clearance"
+
+        html: str | None = None
+        try:
+            html = page.content()
+        except Exception as exc:
+            detail = str(exc).lower()
+            if type(exc).__name__ == "TargetClosedError" or (
+                "closed" in detail and "navigating" not in detail
+            ):
+                return "closed"
+            if "navigating" in detail or "unable to retrieve content" in detail:
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                except Exception:
+                    pass
+                time.sleep(1)
+                continue
+            time.sleep(1)
+            continue
+
+        if is_cf_incompatible_page(html):
+            if time.time() - last_hint_at >= 30:
+                _log_cf_incompatible_help()
+                last_hint_at = time.time()
+
+        if _cardmarket_page_ready(page, html):
+            if page_ready_since is None:
+                page_ready_since = time.time()
+                log_line(
+                    "[CF-WAIT] Cardmarket loaded in Chrome. If no Cloudflare check appears, "
+                    "that is normal — waiting briefly, then testing automated access..."
+                )
+            elif (
+                time.time() - page_ready_since >= _CF_LOGIN_PAGE_READY_GRACE_SECONDS
+            ):
+                return "page_ready"
+        else:
+            page_ready_since = None
+        time.sleep(2)
+    return "timeout"
 
 
 def run_cf_login(
@@ -313,8 +496,8 @@ def run_cf_login(
         f"on the product search page..."
     )
     log_line(
-        "[CF-LOGIN] Complete any Cloudflare check in the browser window. "
-        "The script saves cookies and closes the browser when done."
+        "[CF-LOGIN] Open Cardmarket in Chrome. Complete any Cloudflare check if one appears; "
+        "if the search page loads with no challenge, wait — the script will test access automatically."
     )
 
     proc = subprocess.Popen(
@@ -341,8 +524,9 @@ def run_cf_login(
             context = browser.contexts[0] if browser.contexts else browser.new_context()
             page = _cardmarket_page_for_context(context, target_url=SEARCH_URL)
 
-            if not _wait_for_cf_clearance(page, timeout_seconds=timeout_seconds):
-                log_line("[ERROR] Timed out waiting for Cloudflare verification.")
+            wait_result = _wait_for_cf_login(page, timeout_seconds=timeout_seconds)
+            if wait_result in ("timeout", "closed"):
+                log_line("[ERROR] Timed out waiting for Cardmarket to load in Chrome.")
                 _log_cf_incompatible_help()
                 return 1
 
@@ -351,18 +535,58 @@ def run_cf_login(
             saved_names = [c.get("name") for c in context.cookies() if c.get("name")]
             has_cf = "cf_clearance" in saved_names
             log_line(f"[CF-LOGIN] Saved session to {storage_path}")
-            if has_cf:
-                log_line("[CF-LOGIN] cf_clearance cookie captured — curl_cffi scrape should work.")
-            else:
+
+            from ygo_app.cardmarket.http_client import probe_curl_cffi_session
+
+            probe_ok, probe_status, probe_error = probe_curl_cffi_session(
+                storage_path, CARD_LIST_PROBE_URL
+            )
+            # #region agent log
+            from ygo_app.cardmarket.browser_cookies import _agent_debug_log
+
+            _agent_debug_log(
+                "A",
+                "browser_client.py:run_cf_login",
+                "cf_login_complete",
+                {
+                    "wait_result": wait_result,
+                    "has_cf_clearance": has_cf,
+                    "cookie_names": saved_names,
+                    "probe_ok": probe_ok,
+                    "probe_status": probe_status,
+                    "probe_error": probe_error,
+                },
+            )
+            # #endregion
+
+            if probe_ok:
+                if has_cf:
+                    log_line("[CF-LOGIN] cf_clearance captured — curl_cffi scrape should work.")
+                else:
+                    log_line(
+                        "[CF-LOGIN] No cf_clearance cookie, but curl_cffi probe succeeded — "
+                        "you can scrape with the default backend."
+                    )
                 log_line(
-                    "[WARN] No cf_clearance cookie saved. If curl_cffi still returns HTTP 403, use: "
-                    "python -m ygo_app.jobs.scrape_cardmarket_card_details --browser --headed --workers 1"
+                    "[CF-LOGIN] You can now scrape with: "
+                    "python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5"
+                )
+                return 0
+
+            log_line(
+                f"[CF-LOGIN] curl_cffi probe failed ({probe_error or probe_status}). "
+                "Chrome can browse Cardmarket, but automated HTTP cannot reuse that session."
+            )
+            if wait_result == "page_ready" and not has_cf:
+                log_line(
+                    "[HINT] No Cloudflare challenge appeared — cf_clearance was never issued. "
+                    "Use real-browser scraping instead:"
                 )
             log_line(
-                "[CF-LOGIN] You can now scrape with: "
-                "python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5"
+                "[HINT] python -m ygo_app.jobs.scrape_cardmarket_card_list "
+                "--browser --headed --workers 1 --resume"
             )
-            return 0
+            return 1
     finally:
         _terminate_process(proc)
 
@@ -452,6 +676,17 @@ class BrowserSession:
             if response is not None:
                 headers = dict(response.headers)
 
+            if _page_needs_cookie_consent(page, html):
+                if _dismiss_cookie_consent(page):
+                    html = page.content()
+                elif _headed and not _cardmarket_page_ready(page, html):
+                    log_line(
+                        "[BROWSER] Cookie consent visible — click 'Accept All Cookies' "
+                        "if the page stays unstyled."
+                    )
+                    if _wait_for_cf_clearance(page, timeout_seconds=60):
+                        html = page.content()
+
             if is_cf_incompatible_page(html):
                 _log_cf_incompatible_help()
                 if _headed and _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds):
@@ -468,7 +703,39 @@ class BrowserSession:
 
             if status == 200 and is_cloudflare_challenge(html):
                 return _FetchResult(None, 403, headers, "Cloudflare challenge page")
+            if status == 200 and not _cardmarket_page_ready(page, html):
+                if _headed:
+                    if _wait_for_cf_clearance(page, timeout_seconds=60):
+                        html = page.content()
+                    else:
+                        return _FetchResult(
+                            None,
+                            403,
+                            headers,
+                            "Cardmarket page did not finish loading (cookie consent or challenge)",
+                        )
+                else:
+                    return _FetchResult(
+                        None,
+                        403,
+                        headers,
+                        "Cardmarket page did not finish loading",
+                    )
             if status == 200:
+                # #region agent log
+                from ygo_app.cardmarket.browser_cookies import _agent_debug_log
+
+                _agent_debug_log(
+                    "G",
+                    "browser_client.py:_navigate_page",
+                    "page_ready",
+                    {
+                        "url": url[:120],
+                        "had_cookie_consent": _page_needs_cookie_consent(page, html),
+                        "has_product_rows": "productRow" in (html or ""),
+                    },
+                )
+                # #endregion
                 return _FetchResult(html, status, headers, None)
             return _FetchResult(None, status, headers, f"HTTP {status}")
         except Exception as exc:
@@ -481,23 +748,24 @@ class BrowserSession:
         browser = None
         context = None
         page = None
+        cdp_proc: subprocess.Popen[Any] | None = None
         try:
             playwright = sync_playwright().start()
-            browser = _launch_browser(
-                playwright,
-                headed=_headed,
-                channel=_browser_channel,
-            )
-            context = _new_context(browser, storage_path=_storage_path)
-            page = context.new_page()
+            if _headed and _browser_executable(_browser_channel or "chrome"):
+                browser, context, page, cdp_proc = _launch_headed_cdp_browser(
+                    playwright, _browser_channel
+                )
+            else:
+                browser = _launch_browser(
+                    playwright,
+                    headed=_headed,
+                    channel=_browser_channel,
+                )
+                context = _new_context(browser, storage_path=_storage_path)
+                page = context.new_page()
 
             warmup_result = self._navigate_page(page, _WARMUP_URL)
-            try:
-                page.wait_for_selector(_CF_WAIT_SELECTOR, timeout=15_000)
-            except Exception:
-                if _headed:
-                    _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds)
-            if warmup_result.status != 200 and warmup_result.error:
+            if warmup_result.error:
                 log_line(f"[WARN] browser warmup: {warmup_result.error} {_WARMUP_URL}")
             else:
                 self._save_storage_state(context)
@@ -527,6 +795,8 @@ class BrowserSession:
                     self._save_storage_state(context)
                 except Exception:
                     pass
+            if cdp_proc is not None:
+                _terminate_process(cdp_proc)
             for closer in (page, context, browser):
                 if closer is None:
                     continue

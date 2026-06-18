@@ -51,6 +51,27 @@ RANDOM_JITTER = 0.3
 # Locks
 file_lock = threading.Lock()
 
+# #region agent log
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "debug-43c26a.log"
+
+def _agent_debug_log(hypothesis_id, location, message, data=None, run_id="pre-fix"):
+    import json as _json
+    payload = {
+        "sessionId": "43c26a",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data or {},
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+# #endregion
+
 # User agents
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -182,14 +203,37 @@ def fetch_page(scraper, url, rate_limiter, retries=3):
             response = scraper.get(url, timeout=20)
             
             if response.status_code == 200:
+                # #region agent log
+                _html = response.text or ""
+                _cf_markers = [m for m in ("_cf_chl_opt", "just a moment", "challenge-platform") if m in _html.lower()]
+                _agent_debug_log(
+                    "H1,H2",
+                    "fetch_page:200",
+                    "http_ok",
+                    {
+                        "url": url[-80:],
+                        "final_url": (response.url or "")[-80:],
+                        "html_len": len(_html),
+                        "cf_markers": _cf_markers,
+                        "product_row_count": len(re.findall(r"productRow\d+", _html)),
+                        "gallery_box_count": _html.count("galleryBox"),
+                    },
+                )
+                # #endregion
                 return response.text, response.url, None, None
             elif response.status_code == 403:
+                # #region agent log
+                _agent_debug_log("H1,H5", "fetch_page:403", "http_forbidden", {"url": url[-80:], "attempt": attempt + 1})
+                # #endregion
                 error_detail = f"403 Forbidden (attempt {attempt + 1}/{retries})"
                 if attempt < retries - 1:
                     time.sleep(20 * (attempt + 1))
                     continue
                 return None, None, "403 Forbidden", error_detail
             elif response.status_code == 429:
+                # #region agent log
+                _agent_debug_log("H5", "fetch_page:429", "http_rate_limited", {"url": url[-80:], "attempt": attempt + 1})
+                # #endregion
                 error_detail = f"429 Rate Limited (attempt {attempt + 1}/{retries})"
                 time.sleep(10 * (attempt + 1))
                 continue
@@ -505,6 +549,22 @@ def scrape_expansion_with_retry(scraper, expansion_id, expansion_name, worker_id
         
         if not product_rows:
             if page == 1:
+                # #region agent log
+                _agent_debug_log(
+                    "H3,H4",
+                    "scrape_expansion_with_retry:no_rows",
+                    "page1_no_product_rows",
+                    {
+                        "expansion_id": expansion_id,
+                        "page": page,
+                        "final_url": (final_url or "")[-100:],
+                        "gallery_box_count": html.count("galleryBox"),
+                        "singles_link_count": len(soup.find_all("a", href=re.compile(r"/en/YuGiOh/Products/Singles/[^/]+/[^/]+"))),
+                        "is_product_redirect": check_if_product_page_redirect(html),
+                        "is_empty_msg": check_if_empty_on_first_page(html),
+                    },
+                )
+                # #endregion
                 fetch_issues.append(f"Page {page}: No product rows found")
                 html_errors.append({
                     'page': page,
@@ -612,6 +672,20 @@ def scrape_expansion_worker(worker_id, expansion, session_pool, rate_limiter, ma
         successful_attempt = None
         status = 'rejected'
     
+    # #region agent log
+    _agent_debug_log(
+        "H1,H3,H5",
+        "scrape_expansion_worker:done",
+        "worker_result",
+        {
+            "expansion_id": expansion_id,
+            "status": status,
+            "card_count": len(final_cards),
+            "total_attempts": len(all_attempts),
+            "fetch_issues": (all_attempts[-1].get("issues") if all_attempts else []),
+        },
+    )
+    # #endregion
     return {
         'expansion': expansion,
         'cards': final_cards,

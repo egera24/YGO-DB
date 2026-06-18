@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import cloudscraper
@@ -282,6 +283,35 @@ def create_curl_cffi_session(worker_id: int = 0):
     return session
 
 
+def probe_curl_cffi_session(
+    storage_path: Path,
+    url: str,
+    *,
+    worker_id: int = 0,
+) -> tuple[bool, int | None, str | None]:
+    """Test whether saved browser cookies work with curl_cffi for a URL."""
+    from curl_cffi import requests as curl_requests
+
+    from ygo_app.cardmarket.browser_cookies import apply_storage_cookies
+
+    session = curl_requests.Session(impersonate=CURL_CFFI_IMPERSONATE)
+    session.headers.update(browser_headers(user_agent_for_worker(worker_id)))
+    proxies = _proxy_dict()
+    if proxies:
+        session.proxies = proxies
+    apply_storage_cookies(session, storage_path, backend="curl_cffi")
+    try:
+        html, status, _headers, error = _fetch_curl_cffi(session, url)
+        if html and status == 200:
+            return True, status, None
+        return False, status, error
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
 def resolve_scrape_settings(
     *,
     backend: FetchBackend | None = None,
@@ -414,8 +444,42 @@ def _fetch_curl_cffi(
     if status == 200:
         text = response.text
         if is_cloudflare_challenge(text):
+            # #region agent log
+            from ygo_app.cardmarket.browser_cookies import _agent_debug_log
+
+            _agent_debug_log(
+                "F",
+                "http_client.py:_fetch_curl_cffi",
+                "cf_challenge_on_200",
+                {
+                    "server": headers.get("server"),
+                    "cf_ray": headers.get("cf-ray"),
+                    "body_len": len(text),
+                    "impersonate": CURL_CFFI_IMPERSONATE,
+                },
+            )
+            # #endregion
             return None, 403, headers, "Cloudflare challenge page"
         return text, status, headers, None
+    if status in (403, 429):
+        # #region agent log
+        from ygo_app.cardmarket.browser_cookies import _agent_debug_log
+
+        body = response.text or ""
+        _agent_debug_log(
+            "B,D,E,F",
+            "http_client.py:_fetch_curl_cffi",
+            "http_block",
+            {
+                "status": status,
+                "server": headers.get("server"),
+                "cf_ray": headers.get("cf-ray"),
+                "is_cf_challenge": is_cloudflare_challenge(body),
+                "body_len": len(body),
+                "impersonate": CURL_CFFI_IMPERSONATE,
+            },
+        )
+        # #endregion
     return None, status, headers, f"HTTP {status}"
 
 
@@ -558,6 +622,30 @@ def fetch_url(
                 return html, None
 
             if status == 403 or _is_cf_challenge_error(error):
+                # #region agent log
+                from ygo_app.cardmarket.browser_cookies import _agent_debug_log, storage_has_cf_clearance
+
+                _agent_debug_log(
+                    "A,E",
+                    "http_client.py:fetch_url",
+                    "403_handler",
+                    {
+                        "status": status,
+                        "error": error,
+                        "worker_id": worker_id,
+                        "backend": backend,
+                        "attempt": attempt,
+                        "has_cf_clearance_in_storage": storage_has_cf_clearance(
+                            CARDMARKET_BROWSER_STATE_PATH
+                        ),
+                        "current_rps": (
+                            rate_limiter.current_rps
+                            if isinstance(rate_limiter, AdaptiveRateLimiter)
+                            else None
+                        ),
+                    },
+                )
+                # #endregion
                 scraper, should_continue = _handle_block(
                     url=url,
                     status=status,

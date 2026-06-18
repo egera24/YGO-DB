@@ -9,6 +9,11 @@ SEARCH_URL = (
     f"{BASE_URL}/en/YuGiOh/Products/Search?"
     "searchMode=v1&idCategory=0&idExpansion=0&onlyAvailable=on&idRarity=0&perSite=1"
 )
+# Product-search URL used to verify curl_cffi can scrape (job 2 traffic pattern).
+CARD_LIST_PROBE_URL = (
+    f"{BASE_URL}/en/YuGiOh/Products/Search?"
+    "searchMode=v1&idCategory=0&idExpansion=1&onlyAvailable=on&idRarity=0&site=1"
+)
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

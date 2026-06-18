@@ -3,10 +3,29 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 from ygo_app.yugipedia.scrape_progress import log_line
+
+
+# #region agent log
+def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        payload = {
+            "sessionId": "c330db",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with Path("debug-c330db.log").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# #endregion
 
 
 def load_storage_cookies(path: Path) -> list[dict[str, Any]]:
@@ -69,6 +88,9 @@ def apply_storage_cookies_to_curl_cffi(session: Any, path: Path) -> int:
 
 def apply_storage_cookies(session: Any, path: Path, *, backend: str) -> int:
     if not path.is_file():
+        # #region agent log
+        _agent_debug_log("A", "browser_cookies.py:apply_storage_cookies", "no_state_file", {"path": str(path), "backend": backend})
+        # #endregion
         return 0
     if backend == "curl_cffi":
         count = apply_storage_cookies_to_curl_cffi(session, path)
@@ -80,4 +102,26 @@ def apply_storage_cookies(session: Any, path: Path, *, backend: str) -> int:
             f"[COOKIES] applied {count} cookies from {path}"
             + (" (cf_clearance present)" if cf else "")
         )
+    # #region agent log
+    now = time.time()
+    cookie_meta = []
+    for row in load_storage_cookies(path):
+        expires = row.get("expires")
+        cookie_meta.append({
+            "name": row.get("name"),
+            "domain": row.get("domain"),
+            "expired": isinstance(expires, (int, float)) and expires > 0 and expires < now,
+        })
+    _agent_debug_log(
+        "A,C",
+        "browser_cookies.py:apply_storage_cookies",
+        "cookies_applied",
+        {
+            "backend": backend,
+            "count": count,
+            "has_cf_clearance": storage_has_cf_clearance(path),
+            "cookies": cookie_meta,
+        },
+    )
+    # #endregion
     return count

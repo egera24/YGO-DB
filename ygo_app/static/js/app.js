@@ -57,6 +57,250 @@ const COLLECTION_CONDITIONS = [
   { value: "Poor", label: "Poor (PO)" },
 ];
 
+const ROUTE_VIEWS = new Set(["search", "collection", "decks"]);
+const DEFAULT_ROUTE_VIEW = "search";
+const ROUTE_SEARCH_KEYS = new Set([
+  "q",
+  "set_code",
+  "category",
+  "types",
+  "mechanic",
+  "attribute",
+  "archetype",
+  "summoning_condition",
+  "link_markers",
+  "level_min",
+  "level_max",
+  "rank_min",
+  "rank_max",
+  "link_rating_min",
+  "link_rating_max",
+  "pendulum_scale_min",
+  "pendulum_scale_max",
+  "atk_min",
+  "atk_max",
+  "def_min",
+  "def_max",
+  "owned_only",
+  "favorites_only",
+]);
+const ROUTE_PARAM_MAX_LEN = 500;
+const ROUTE_PARAM_MAX_KEYS = 30;
+const APP_TITLE_BASE = "YGO Collection & Deck Builder";
+
+let suppressHashSync = false;
+let lastAppliedRouteHash = "";
+
+function parseRouteHash() {
+  const raw = (window.location.hash || "").replace(/^#/, "");
+  const [pathPart, queryPart = ""] = raw.split("?");
+  const segments = pathPart.split("/").filter(Boolean);
+  const params = new URLSearchParams(queryPart);
+
+  if (segments[0] === "card") {
+    if (/^\d+$/.test(segments[1] || "")) {
+      return { kind: "card", cardId: segments[1], params };
+    }
+    return { kind: "tab", view: DEFAULT_ROUTE_VIEW, deckId: null, params, invalid: true };
+  }
+
+  const view = segments[0] || DEFAULT_ROUTE_VIEW;
+  if (view === "decks" && segments[1]) {
+    if (/^\d+$/.test(segments[1])) {
+      return { kind: "tab", view: "decks", deckId: Number(segments[1]), params };
+    }
+    return { kind: "tab", view: "decks", deckId: null, params, invalid: true };
+  }
+  if (ROUTE_VIEWS.has(view)) {
+    return { kind: "tab", view, deckId: null, params };
+  }
+  return { kind: "tab", view: DEFAULT_ROUTE_VIEW, deckId: null, params, invalid: true };
+}
+
+function snapshotFromRouteParams(params) {
+  const snapshot = {};
+  let count = 0;
+  for (const [key, value] of params.entries()) {
+    if (!ROUTE_SEARCH_KEYS.has(key) || count >= ROUTE_PARAM_MAX_KEYS) continue;
+    const text = String(value).slice(0, ROUTE_PARAM_MAX_LEN).trim();
+    if (text) snapshot[key] = text;
+    count += 1;
+  }
+  return snapshot;
+}
+
+function parseFolderRouteParam(raw) {
+  if (raw == null || raw === "") return null;
+  if (raw === NO_FOLDER) return NO_FOLDER;
+  if (/^\d+$/.test(raw)) return raw;
+  return null;
+}
+
+function folderFromRouteParams(params) {
+  const folder = params.get("folder");
+  return folder ? parseFolderRouteParam(folder) : null;
+}
+
+function searchSnapshotMatchesUrl(routeParams) {
+  const urlSnap = snapshotFromRouteParams(routeParams);
+  const domSnap = searchParamsToSnapshot(buildSearchParams());
+  const keys = new Set([...Object.keys(urlSnap), ...Object.keys(domSnap)]);
+  for (const k of keys) {
+    if ((urlSnap[k] || "") !== (domSnap[k] || "")) return false;
+  }
+  return true;
+}
+
+function tabRouteAlreadyApplied(route, view) {
+  if (state.activeView !== view) return false;
+  if (view === "search") return searchSnapshotMatchesUrl(route.params);
+  if (view === "collection") {
+    return state.collectionFolder === folderFromRouteParams(route.params);
+  }
+  if (view === "decks") {
+    if (route.deckId) {
+      return state.decksDetailOpen && state.activeDeckId === route.deckId;
+    }
+    return !state.decksDetailOpen;
+  }
+  return false;
+}
+
+function buildRouteHash() {
+  if (isModalVisible("#card-modal") && state.currentCardId) {
+    return `#/card/${state.currentCardId}`;
+  }
+
+  let path;
+  if (state.activeView === "decks" && state.decksDetailOpen && state.activeDeckId) {
+    path = `/decks/${state.activeDeckId}`;
+  } else {
+    path = `/${state.activeView || DEFAULT_ROUTE_VIEW}`;
+  }
+
+  const params = new URLSearchParams();
+  if (state.activeView === "search") {
+    for (const [k, v] of buildSearchParams()) params.set(k, v);
+  } else if (state.activeView === "collection" && state.collectionFolder) {
+    params.set("folder", state.collectionFolder);
+  }
+
+  const qs = params.toString();
+  return qs ? `#${path}?${qs}` : `#${path}`;
+}
+
+function syncRouteHash({ replace = false } = {}) {
+  const hash = buildRouteHash();
+  if (window.location.hash === hash) {
+    lastAppliedRouteHash = hash;
+    return;
+  }
+  suppressHashSync = true;
+  if (replace) history.replaceState(null, "", hash);
+  else location.hash = hash;
+  lastAppliedRouteHash = hash;
+  queueMicrotask(() => {
+    suppressHashSync = false;
+  });
+}
+
+function truncateRouteTitle(text, max = 40) {
+  const s = String(text || "");
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+function updateRouteDocumentTitle() {
+  if (isModalVisible("#card-modal") && state.currentCard?.name) {
+    document.title = `Card: ${truncateRouteTitle(state.currentCard.name)} — ${APP_TITLE_BASE}`;
+    return;
+  }
+  if (state.activeView === "decks" && state.decksDetailOpen && state.activeDeckDetail?.name) {
+    document.title = `Deck: ${truncateRouteTitle(state.activeDeckDetail.name)} — ${APP_TITLE_BASE}`;
+    return;
+  }
+  if (state.activeView === "collection") {
+    document.title = `My Collection — ${APP_TITLE_BASE}`;
+    return;
+  }
+  if (state.activeView === "decks") {
+    document.title = `Decks — ${APP_TITLE_BASE}`;
+    return;
+  }
+  document.title = `Search — ${APP_TITLE_BASE}`;
+}
+
+async function applyRouteFromHash({ initial = false } = {}) {
+  const currentHash = window.location.hash;
+  if (!initial && currentHash === lastAppliedRouteHash) return;
+
+  const route = parseRouteHash();
+
+  if (route.kind === "card") {
+    const cardId = Number(route.cardId);
+    if (state.currentCardId !== cardId || !isModalVisible("#card-modal")) {
+      await openCardModal(cardId, { fromRouter: true });
+    }
+    if (initial) syncRouteHash({ replace: true });
+    lastAppliedRouteHash = window.location.hash;
+    return;
+  }
+
+  if (isModalVisible("#card-modal")) {
+    closeCardModalOverlay({ fromRouter: true });
+  }
+
+  const view =
+    route.invalid && route.view !== "decks" ? DEFAULT_ROUTE_VIEW : route.view;
+
+  if (!initial && tabRouteAlreadyApplied(route, view)) {
+    lastAppliedRouteHash = currentHash;
+    updateRouteDocumentTitle();
+    return;
+  }
+
+  if (view === "collection") {
+    const newFolder = folderFromRouteParams(route.params);
+    if (state.collectionFolder !== newFolder) {
+      state.collectionFolder = newFolder;
+      state.collectionPage = 0;
+    }
+  }
+
+  let needsSearchRun = false;
+  if (view === "search") {
+    const snapshot = snapshotFromRouteParams(route.params);
+    if (Object.keys(snapshot).length) {
+      applySearchParams(snapshot);
+      clearActivePreset();
+      needsSearchRun = true;
+    }
+  }
+
+  const replaceHash = initial && (!window.location.hash || route.invalid);
+
+  await switchView(view, { fromRouter: true, replaceHash });
+
+  if (route.view === "decks") {
+    if (!route.invalid && route.deckId) {
+      if (!(state.decksDetailOpen && state.activeDeckId === route.deckId)) {
+        await openDeckDetail(route.deckId, { fromRouter: true });
+      }
+    } else {
+      closeDeckDetail({ fromRouter: true });
+    }
+  }
+
+  if (view === "search" && (initial || needsSearchRun)) {
+    await runSearch(null, { skipHashSync: true });
+  }
+
+  if (route.invalid || replaceHash) {
+    syncRouteHash({ replace: true });
+  }
+
+  lastAppliedRouteHash = window.location.hash;
+}
+
 function conditionLabel(value) {
   if (!value) return "—";
   const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
@@ -534,18 +778,40 @@ function setupLinkMarkerGrid() {
   });
 }
 
-function switchView(name) {
+function switchView(name, { fromRouter = false, replaceHash = false } = {}) {
+  if (!ROUTE_VIEWS.has(name)) name = DEFAULT_ROUTE_VIEW;
   state.activeView = name;
-  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-  $(`#view-${name}`).classList.add("active");
-  document.querySelector(`.tab[data-view="${name}"]`).classList.add("active");
+
+  document.querySelectorAll(".view").forEach((v) => {
+    const isActive = v.id === `view-${name}`;
+    v.classList.toggle("active", isActive);
+    v.hidden = !isActive;
+  });
+
+  let activeTab = null;
+  document.querySelectorAll(".tab").forEach((t) => {
+    const isActive = t.dataset.view === name;
+    t.classList.toggle("active", isActive);
+    t.setAttribute("aria-selected", isActive ? "true" : "false");
+    t.tabIndex = isActive ? 0 : -1;
+    if (isActive) activeTab = t;
+  });
+
   if (name === "decks") {
     loadDecks({ background: true });
     if (state.decksDetailOpen) showDecksDetailView();
     else showDecksListView();
   }
   if (name === "collection") loadCollectionView({ background: true });
+
+  updateRouteDocumentTitle();
+
+  if (!fromRouter) {
+    activeTab?.focus();
+    syncRouteHash({ replace: replaceHash });
+  } else if (!isModalVisible("#card-modal")) {
+    activeTab?.focus();
+  }
 }
 
 const SEARCH_PAGE_SIZE = 100;
@@ -975,11 +1241,12 @@ async function loadSearchPage(pageIndex) {
   }
 }
 
-async function runSearch(e) {
-  e?.preventDefault();
+async function runSearch(e, { skipHashSync = false } = {}) {
+  e?.preventDefault?.();
   state.searchParams = buildSearchParams();
   state.searchPage = 0;
   await loadSearchPage(0);
+  if (state.activeView === "search" && !skipHashSync) syncRouteHash();
 }
 
 const MODAL_TEXT = "#e8eef7";
@@ -1010,10 +1277,22 @@ function openCardModalOverlay() {
   applyModalReadableColors();
 }
 
-function closeCardModalOverlay() {
+function closeCardModalOverlay({ fromRouter = false } = {}) {
   const dlg = $("#card-modal");
   dlg.hidden = true;
+  state.currentCardId = null;
+  state.currentCard = null;
   syncModalOpenClass();
+  updateRouteDocumentTitle();
+  if (fromRouter) return;
+  const routeKind = parseRouteHash().kind;
+  if (routeKind === "card") {
+    if (window.history.length > 1) {
+      history.back();
+    } else {
+      syncRouteHash({ replace: true });
+    }
+  }
 }
 
 function isModalVisible(id) {
@@ -1267,7 +1546,7 @@ async function refreshModalCard() {
   setModalLoadingState(false);
 }
 
-async function openCardModal(cardId) {
+async function openCardModal(cardId, { fromRouter = false } = {}) {
   state.currentCardId = cardId;
   state.currentCard = null;
 
@@ -1286,6 +1565,8 @@ async function openCardModal(cardId) {
   setModalLoadingState(true);
   openCardModalOverlay();
   populateDeckSelect();
+  if (!fromRouter) syncRouteHash();
+  $("#modal-close")?.focus();
 
   try {
     const card = await api(`/cards/${cardId}`);
@@ -1296,6 +1577,7 @@ async function openCardModal(cardId) {
     setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
     setModalLoadingState(false);
     applyModalReadableColors();
+    updateRouteDocumentTitle();
   } catch (err) {
     if (state.currentCardId !== cardId) return;
     $("#modal-desc").textContent = err.message || "Failed to load card details.";
@@ -1639,6 +1921,7 @@ function renderCollectionSidebar() {
       state.collectionFolder = raw === "" ? null : decodeURIComponent(raw);
       state.collectionPage = 0;
       renderCollectionSidebar();
+      syncRouteHash();
       await loadCollectionPage(0);
     });
 
@@ -2310,9 +2593,12 @@ function showDecksDetailView() {
   $("#decks-detail-view")?.classList.remove("hidden");
 }
 
-function closeDeckDetail() {
+function closeDeckDetail({ fromRouter = false } = {}) {
+  state.activeDeckId = null;
   state.activeDeckDetail = null;
   showDecksListView();
+  updateRouteDocumentTitle();
+  if (!fromRouter) syncRouteHash();
 }
 
 function showDeckDetailLoading() {
@@ -2426,6 +2712,7 @@ function renderDeckDetail(deckId, deck) {
     nameEl.title = "Double-click to rename";
   }
   renderDeckDetailMeta(deck);
+  updateRouteDocumentTitle();
 
   const zones = { main: [], extra: [], side: [] };
   deck.cards.forEach((c) => zones[c.zone]?.push(c));
@@ -2517,11 +2804,12 @@ async function setDeckCover(deckId, cardId) {
   }
 }
 
-async function openDeckDetail(deckId) {
+async function openDeckDetail(deckId, { fromRouter = false } = {}) {
   state.activeDeckId = deckId;
   const seq = ++deckDetailRequestSeq;
   showDecksDetailView();
   showDeckDetailLoading();
+  if (!fromRouter) syncRouteHash();
   try {
     const deck = await api(`/decks/${deckId}`);
     if (seq !== deckDetailRequestSeq || state.activeDeckId !== deckId) return;
@@ -2533,6 +2821,7 @@ async function openDeckDetail(deckId) {
     if (nameEl) nameEl.textContent = "Failed to load deck";
     $("#deck-meta").textContent = "";
     $("#deck-zones").innerHTML = `<p class="deck-zone-empty modal-load-error">${escapeHtml(err.message || "Failed to load deck.")}</p>`;
+    updateRouteDocumentTitle();
   }
 }
 
@@ -2574,7 +2863,20 @@ function wireEvents() {
   setupCollectionTableDelegation();
 
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => switchView(tab.dataset.view));
+    tab.addEventListener("click", () => {
+      if (isModalVisible("#card-modal")) {
+        closeCardModalOverlay({ fromRouter: true });
+      }
+      if (tab.dataset.view === "decks" && state.decksDetailOpen) {
+        closeDeckDetail({ fromRouter: true });
+      }
+      switchView(tab.dataset.view);
+    });
+  });
+
+  window.addEventListener("hashchange", () => {
+    if (suppressHashSync) return;
+    applyRouteFromHash();
   });
 
   $("#search-form").addEventListener("submit", runSearch);
@@ -2964,7 +3266,7 @@ async function init() {
     if (state.token) parallel.push(loadSearchPresets());
     await Promise.all(parallel);
 
-    await runSearch();
+    await applyRouteFromHash({ initial: true });
   } catch (err) {
     $("#status-line").textContent = err.message;
   }

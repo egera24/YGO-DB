@@ -93,6 +93,10 @@ body.modal-open {
 
 main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .view { display: none; }
+.view[hidden] {
+  display: none !important;
+}
+
 .view.active { display: block; }
 
 .search-panel {

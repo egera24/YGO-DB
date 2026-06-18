@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=34" />
+  <link rel="stylesheet" href="/static/css/style.css?v=35" />
 </head>
 <body>
   <header class="app-header">
@@ -19,10 +19,10 @@
         <progress id="import-progress" class="import-progress" value="0" max="100" hidden></progress>
       </div>
     </div>
-    <nav class="tabs" role="tablist">
-      <button class="tab active" data-view="search">Search</button>
-      <button class="tab" data-view="collection">My Collection</button>
-      <button class="tab" data-view="decks">Decks</button>
+    <nav class="tabs" role="tablist" aria-label="Main views">
+      <button type="button" class="tab active" role="tab" id="tab-search" data-view="search" aria-selected="true" aria-controls="view-search" tabindex="0">Search</button>
+      <button type="button" class="tab" role="tab" id="tab-collection" data-view="collection" aria-selected="false" aria-controls="view-collection" tabindex="-1">My Collection</button>
+      <button type="button" class="tab" role="tab" id="tab-decks" data-view="decks" aria-selected="false" aria-controls="view-decks" tabindex="-1">Decks</button>
     </nav>
     <div id="auth-panel" class="auth-panel">
       <span id="auth-user" class="auth-user hidden"></span>
@@ -44,7 +44,7 @@
   </header>
 
   <main>
-    <section id="view-search" class="view active">
+    <section id="view-search" class="view active" role="tabpanel" aria-labelledby="tab-search" tabindex="0">
       <form id="search-form" class="search-panel">
         <div class="search-primary">
           <div class="search-q-wrap">
@@ -210,7 +210,7 @@
       <div id="search-results" class="card-grid"></div>
     </section>
 
-    <section id="view-collection" class="view">
+    <section id="view-collection" class="view" role="tabpanel" aria-labelledby="tab-collection" hidden tabindex="0">
       <div id="collection-login-prompt" class="collection-empty hidden">
         <p>Log in to view and manage your collection.</p>
       </div>
@@ -262,7 +262,7 @@
       </div>
     </section>
 
-    <section id="view-decks" class="view">
+    <section id="view-decks" class="view" role="tabpanel" aria-labelledby="tab-decks" hidden tabindex="0">
       <div id="decks-list-view">
         <div class="decks-toolbar">
           <input type="search" id="decks-q" placeholder="Search decks or cards…" autocomplete="off" aria-label="Search decks" />
@@ -438,6 +438,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=42" type="module"></script>
+  <script src="/static/js/app.js?v=46" type="module"></script>
 </body>
 </html>

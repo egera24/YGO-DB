@@ -383,6 +383,9 @@ git checkout main && git merge develop && git push   # promote app to prod
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
+**2026-06-18**
+- **Hash-based client routing** — URL reflects active tab (`#/search`, `#/collection`, `#/decks`), search filter query params, collection `folder`, deck detail (`#/decks/{id}`), and card modal (`#/card/{passcode}`). Browser back/forward and refresh restore state; tab `aria-*` wiring; `document.title` per view; URL search-param allowlist + length caps. Static `app.js?v=43`, `style.css?v=35`.
+
 **2026-06-13**
 - **Cardmarket 3-step scrape refactor** — replaced monolithic `scrape_cardmarket_prices` with four jobs: `scrape_cardmarket_expansions` → `scrape_cardmarket_card_list` → `scrape_cardmarket_card_details` → `export_cardmarket_prices`. Full TCG catalog scrape (legacy 3-step parity), resumable checkpoints, phase-2 recovery, shared `http_client` adaptive throttle/429/CF handling. Job 4 joins details with Yugipedia catalog → existing `cardmarket_prices.json` import schema. `expansion_seed.json` auto-regenerates after job 2.
 - **Cardmarket Cloudflare bypass** — `curl_cffi` default backend; adaptive throttle; UA rotation; `--cf-login` opens **Google Chrome** (not Playwright Chromium) to pass Cloudflare and saves `cf_clearance` to `data/catalog/cardmarket_browser_state.json` for reuse by curl_cffi/cloudscraper; `--browser-channel chrome|msedge`; optional `CARDMARKET_HTTP_PROXY`.

@@ -31,16 +31,16 @@ Working list of upcoming topics. Companion to [`future_must_have_features.md`](f
 - [ ] Decide whether `/api/health` stays public (Render health checks need it — yes).
 - [ ] Update verification checklist in `agent_handoff.md` (§12 currently expects `GET /api/filters` without auth).
 
-## 3. URL reflects active page (routing)
+## 3. URL reflects active page (routing) (DONE)
 
-**Current state:** single `index.html`, tabs (Search / My Collection / Decks) switched purely in JS — URL never changes.
+**Current state:** hash-based client routing in `app.js` — tabs, search filters, collection folder, deck detail, and card modal deep links.
 
-**Plan:**
+**Implemented 2026-06-18:**
 
-- [ ] Add lightweight client-side routing in `app.js`: hash-based (`#/search`, `#/collection`, `#/decks`) is simplest with FastAPI static serving — no server changes, back/forward and bookmarks work.
-- [ ] On tab switch → update hash; on load / `hashchange` → activate matching tab.
-- [ ] Nice-to-have later: encode search params or selected folder in the URL (e.g. `#/collection?folder=12`), and card modal deep links (`#/card/85087012`).
-- [ ] If we prefer clean paths (`/collection`) instead of hashes, FastAPI needs a catch-all route returning `index.html` + History API in JS — more work, decide if worth it.
+- [x] Hash routing (`#/search`, `#/collection`, `#/decks`) with back/forward and bookmarks.
+- [x] Search params, collection `folder`, `#/decks/{id}`, `#/card/{passcode}` in the URL.
+- [x] Tab a11y (`aria-selected`, `aria-controls`, `hidden` panels), `document.title` per view, URL param allowlist + length caps.
+- [ ] Clean paths (`/collection` without `#`) — deferred; hash routing is sufficient for now.
 
 ## 4. Webapp speed improvements (DONE)
 

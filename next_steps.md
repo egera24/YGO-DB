@@ -2,7 +2,7 @@
 
 Working list of upcoming topics. Companion to [`future_must_have_features.md`](future_must_have_features.md) (long-term roadmap) — items here are nearer-term and get checked off / moved to the changelog in [`agent_handoff.md`](agent_handoff.md) when done.
 
-> **Last updated:** 2026-06-12
+> **Last updated:** 2026-06-18
 
 ---
 
@@ -20,16 +20,14 @@ Working list of upcoming topics. Companion to [`future_must_have_features.md`](f
 - [ ] Decide target sizes: keep `-small` at 150px for table thumbnails, consider bumping full image quality (WebP q85–90) and/or storing a medium size for the card modal.
 - [ ] Any change in source/size = update `sync_card_images.py` + `--force` re-mirror + re-import (URLs live in `cards` rows).
 
-## 2. Login as landing page (no anonymous access)
+## 2. Login as landing page (no anonymous access) (DONE)
 
-**Current state:** the UI loads for everyone; auth only gates collection/decks/presets. `GET /api/filters` and card search are public.
+**Implemented 2026-06-18:**
 
-**Plan:**
-
-- [ ] Frontend: on load, call `/api/auth/me`; if not authenticated, render only a login/register view (hide tabs, search, everything). No data fetches until logged in.
-- [ ] Backend: add the auth dependency to currently-public API routes (`/api/cards/search`, `/api/cards/{id}`, `/api/filters`, `/api/status`?) so data is not reachable without a token — frontend hiding alone is not access control.
-- [ ] Decide whether `/api/health` stays public (Render health checks need it — yes).
-- [ ] Update verification checklist in `agent_handoff.md` (§12 currently expects `GET /api/filters` without auth).
+- [x] Frontend: on load, call `/api/auth/me`; if not authenticated, render only login/register landing (hide tabs, search, everything). No data fetches until logged in.
+- [x] Backend: auth dependency on formerly public routes (`/api/cards/search`, `/api/cards/{id}`, `/api/filters`, `/api/status`, summoning-suggestions, printings, by-set-code).
+- [x] `/api/health` stays public for Render health checks.
+- [x] Verification checklist in `agent_handoff.md` §12 updated.
 
 ## 3. URL reflects active page (routing) (DONE)
 

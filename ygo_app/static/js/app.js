@@ -389,10 +389,141 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+let authActiveTab = "login";
+
+function setAuthenticatedShell(visible) {
+  document.querySelectorAll(".app-shell").forEach((el) => {
+    el.classList.toggle("hidden", !visible);
+    el.setAttribute("aria-hidden", visible ? "false" : "true");
+  });
+  $("#auth-landing")?.classList.toggle("hidden", visible);
+}
+
+function updateAuthLandingTitle() {
+  document.title =
+    authActiveTab === "register"
+      ? `Create account — ${APP_TITLE_BASE}`
+      : `Sign in — ${APP_TITLE_BASE}`;
+}
+
+function showAuthError(message) {
+  const el = $("#auth-error");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function clearAuthError() {
+  const el = $("#auth-error");
+  if (!el) return;
+  el.textContent = "";
+  el.classList.add("hidden");
+}
+
+function clearAuthFieldInvalid() {
+  document
+    .querySelectorAll("#auth-landing input[aria-invalid]")
+    .forEach((input) => input.removeAttribute("aria-invalid"));
+}
+
+function clearAuthForms() {
+  $("#login-email").value = "";
+  $("#login-password").value = "";
+  $("#register-email").value = "";
+  $("#register-password").value = "";
+  clearAuthError();
+  clearAuthFieldInvalid();
+}
+
+function setAuthTabsDisabled(disabled) {
+  $("#auth-tab-login")?.toggleAttribute("disabled", disabled);
+  $("#auth-tab-register")?.toggleAttribute("disabled", disabled);
+}
+
+function switchAuthTab(tab) {
+  authActiveTab = tab;
+  const isLogin = tab === "login";
+  const loginTab = $("#auth-tab-login");
+  const registerTab = $("#auth-tab-register");
+  const loginPanel = $("#auth-panel-login");
+  const registerPanel = $("#auth-panel-register");
+
+  loginTab?.classList.toggle("active", isLogin);
+  registerTab?.classList.toggle("active", !isLogin);
+  loginTab?.setAttribute("aria-selected", isLogin ? "true" : "false");
+  registerTab?.setAttribute("aria-selected", isLogin ? "false" : "true");
+  if (loginTab) loginTab.tabIndex = isLogin ? 0 : -1;
+  if (registerTab) registerTab.tabIndex = isLogin ? -1 : 0;
+
+  loginPanel?.classList.toggle("hidden", !isLogin);
+  registerPanel?.classList.toggle("hidden", isLogin);
+  if (loginPanel) loginPanel.hidden = !isLogin;
+  if (registerPanel) registerPanel.hidden = isLogin;
+
+  clearAuthError();
+  updateAuthLandingTitle();
+}
+
+function showAuthChecking() {
+  $("#auth-landing")?.classList.remove("hidden");
+  $("#auth-checking")?.classList.remove("hidden");
+  $("#auth-landing-body")?.classList.add("hidden");
+  document.querySelectorAll(".app-shell").forEach((el) => {
+    el.classList.add("hidden");
+    el.setAttribute("aria-hidden", "true");
+  });
+  document.title = `Loading — ${APP_TITLE_BASE}`;
+}
+
+function hideAuthChecking() {
+  $("#auth-checking")?.classList.add("hidden");
+  $("#auth-landing-body")?.classList.remove("hidden");
+}
+
+function showAuthLanding() {
+  hideAuthChecking();
+  $("#auth-landing")?.classList.remove("hidden");
+  updateAuthLandingTitle();
+  requestAnimationFrame(() => {
+    const field = authActiveTab === "register" ? $("#register-email") : $("#login-email");
+    field?.focus();
+  });
+}
+
+function focusAppEntry() {
+  requestAnimationFrame(() => {
+    const q = $("#q");
+    if (q) q.focus();
+    else $("#tab-search")?.focus();
+  });
+}
+
+async function submitAuthForm(form, action, { busyLabel, successToast } = {}) {
+  clearAuthError();
+  clearAuthFieldInvalid();
+  const submitBtn = form?.querySelector('button[type="submit"]');
+  setAuthTabsDisabled(true);
+  setButtonBusy(submitBtn, true, { busyLabel: busyLabel || "Loading…" });
+  try {
+    await action();
+    if (successToast) showToast(successToast);
+  } catch (err) {
+    showAuthError(err.message || "Something went wrong.");
+    showToast(err.message || "Something went wrong.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+    form?.querySelector('input[type="email"]')?.setAttribute("aria-invalid", "true");
+    form?.querySelector('input[type="email"]')?.focus();
+    throw err;
+  } finally {
+    setButtonBusy(submitBtn, false);
+    setAuthTabsDisabled(false);
+  }
+}
+
 function updateAuthUI() {
   const loggedIn = Boolean(state.token && state.user);
-  $("#auth-login-form")?.classList.toggle("hidden", loggedIn);
-  $("#auth-register-form")?.classList.toggle("hidden", loggedIn);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
   $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
   $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
@@ -406,6 +537,16 @@ function updateAuthUI() {
   }
 }
 
+async function bootstrapAuthenticatedApp() {
+  initFilterMultiWidgets();
+  initStatRangeSelects();
+  setupLinkMarkerGrid();
+  setupSummoningSuggestions();
+
+  await Promise.all([loadStatus(), loadFilters(), loadSearchPresets()]);
+  await applyRouteFromHash({ initial: true });
+}
+
 async function login(email, password) {
   const data = await api("/auth/login", {
     method: "POST",
@@ -415,10 +556,9 @@ async function login(email, password) {
   state.token = data.access_token;
   localStorage.setItem("ygo_token", state.token);
   state.user = await api("/auth/me");
+  setAuthenticatedShell(true);
   updateAuthUI();
-  await loadStatus();
-  await loadFilters();
-  await loadSearchPresets();
+  await bootstrapAuthenticatedApp();
 }
 
 async function register(email, password) {
@@ -430,7 +570,9 @@ async function register(email, password) {
   state.token = data.access_token;
   localStorage.setItem("ygo_token", state.token);
   state.user = await api("/auth/me");
+  setAuthenticatedShell(true);
   updateAuthUI();
+  await bootstrapAuthenticatedApp();
 }
 
 function logout() {
@@ -439,9 +581,17 @@ function logout() {
   state.activePresetId = null;
   state.searchPresets = [];
   localStorage.removeItem("ygo_token");
+  clearAuthForms();
+  switchAuthTab("login");
+  setAuthenticatedShell(false);
+  showAuthLanding();
   updateAuthUI();
   renderSearchPresetSelect();
-  loadStatus();
+  if (location.hash !== "#/") {
+    suppressHashSync = true;
+    location.hash = "#/";
+    suppressHashSync = false;
+  }
 }
 
 async function loadStatus() {
@@ -2862,7 +3012,7 @@ function wireEvents() {
   setupSearchResultsDelegation();
   setupCollectionTableDelegation();
 
-  document.querySelectorAll(".tab").forEach((tab) => {
+  document.querySelectorAll(".tab[data-view]").forEach((tab) => {
     tab.addEventListener("click", () => {
       if (isModalVisible("#card-modal")) {
         closeCardModalOverlay({ fromRouter: true });
@@ -2907,25 +3057,44 @@ function wireEvents() {
   $("#search-preset-delete")?.addEventListener("click", () => {
     deleteSearchPreset().catch((err) => alert(err.message));
   });
+  $("#auth-tab-login")?.addEventListener("click", () => {
+    switchAuthTab("login");
+    $("#login-email")?.focus();
+  });
+  $("#auth-tab-register")?.addEventListener("click", () => {
+    switchAuthTab("register");
+    $("#register-email")?.focus();
+  });
+
   $("#auth-login-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
-      await login($("#login-email").value, $("#login-password").value);
-    } catch (err) {
-      alert(err.message);
+      await submitAuthForm(
+        e.target,
+        async () => {
+          await login($("#login-email").value, $("#login-password").value);
+          focusAppEntry();
+        },
+        { busyLabel: "Signing in…" }
+      );
+    } catch {
+      /* errors handled in submitAuthForm */
     }
   });
 
   $("#auth-register-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
-      await register($("#register-email").value, $("#register-password").value);
-      await loadStatus();
-      await loadFilters();
-      await loadSearchPresets();
-      alert("Account created. You are logged in.");
-    } catch (err) {
-      alert(err.message);
+      await submitAuthForm(
+        e.target,
+        async () => {
+          await register($("#register-email").value, $("#register-password").value);
+          focusAppEntry();
+        },
+        { busyLabel: "Creating account…", successToast: "Account created — welcome!" }
+      );
+    } catch {
+      /* errors handled in submitAuthForm */
     }
   });
 
@@ -3248,6 +3417,7 @@ async function init() {
   updateAuthUI();
   try {
     if (state.token) {
+      showAuthChecking();
       try {
         state.user = await api("/auth/me");
       } catch {
@@ -3256,19 +3426,25 @@ async function init() {
         localStorage.removeItem("ygo_token");
       }
     }
-    updateAuthUI();
-    initFilterMultiWidgets();
-    initStatRangeSelects();
-    setupLinkMarkerGrid();
-    setupSummoningSuggestions();
 
-    const parallel = [loadStatus(), loadFilters()];
-    if (state.token) parallel.push(loadSearchPresets());
-    await Promise.all(parallel);
-
-    await applyRouteFromHash({ initial: true });
+    if (state.token && state.user) {
+      setAuthenticatedShell(true);
+      updateAuthUI();
+      await bootstrapAuthenticatedApp();
+    } else {
+      setAuthenticatedShell(false);
+      switchAuthTab("login");
+      showAuthLanding();
+      updateAuthUI();
+    }
   } catch (err) {
-    $("#status-line").textContent = err.message;
+    showToast(err.message || "Something went wrong.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+    setAuthenticatedShell(false);
+    switchAuthTab("login");
+    showAuthLanding();
   }
 }
 

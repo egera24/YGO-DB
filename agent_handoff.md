@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-13
+> **Last updated:** 2026-06-18
 
 ---
 
@@ -180,14 +180,14 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 |-------|------|
 | [`card_filters.py`](ygo_app/card_filters.py) | JSON list parse; `types` / `link_markers` SQL helpers |
 | [`services.search_cards`](ygo_app/services.py) | `q` + all filter params; one `COUNT` query |
-| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **without login**; `folders[]` = distinct `folder_name` (legacy; My Collection uses `/api/collection/stats` instead) |
-| UI | Tabs: **Search**, **My Collection**, **Decks**. [`app.js?v=34`](ygo_app/static/js/app.js) — `buildSearchParams` / `applySearchParams`, preset toolbar, `initStatRangeSelects()`, `loadCollectionView()` / folder sidebar / paginated table. Header **Import/Export my collection**. Static [`style.css?v=30`](ygo_app/static/css/style.css). |
+| [`meta.filters`](ygo_app/api/routes/meta.py) | `GET /api/filters` — catalog options **require auth**; `folders[]` = distinct folder names for the logged-in user (legacy; My Collection uses `/api/collection/stats` instead) |
+| UI | Tabs: **Search**, **My Collection**, **Decks** (visible only when logged in). Unauthenticated visitors see a login/register landing page; no catalog API calls until JWT is valid. [`app.js?v=47`](ygo_app/static/js/app.js) — hash routing, preset toolbar, `initStatRangeSelects()`, `loadCollectionView()` / folder sidebar / paginated table. Header **Import/Export my collection**. Static [`style.css?v=36`](ygo_app/static/css/style.css). |
 
 **Advanced panel layout (static/CSS):** Category–Attribute = compact multi-selects (`.filter-group--compact`). Level/Rank/Link/Pendulum = min/max `<select>` (options from `initStatRangeSelects()`; Level 1–12, Rank 1–13, Link 1–6, Pendulum 0–13). ATK/DEF = number inputs. Stat fieldsets in `.filter-ranges` (flex wrap, `gap: 1.5rem`, `width: fit-content`). Bump `style.css` / `app.js` `?v=` in `index.html` after static edits.
 
 Legacy `frame_type` / `race` columns remain for YGOProDeck fallback import; **not** exposed in search UI.
 
-Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_filters.py`, `test_summoning_suggestions.py`, `test_yugipedia_card_import.py`, `test_search_presets.py`.
+Tests: `test_search_query.py`, `test_search_cards.py`, `test_search_yugipedia_filters.py`, `test_summoning_suggestions.py`, `test_yugipedia_card_import.py`, `test_search_presets.py`, `test_api_auth.py`.
 
 ### Search presets (logged-in, Search tab only)
 
@@ -384,6 +384,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-18**
+- **Login as landing page (no anonymous access)** — catalog read APIs (`GET /api/cards/search`, card detail/printings/suggestions, `GET /api/filters`, `GET /api/status`) now require JWT via `get_current_user`. Frontend shows a login/register landing page until `/api/auth/me` succeeds; app shell (tabs, search, collection, decks) hidden until authenticated. `GET /api/health` and auth login/register stay public. Static `app.js?v=47`, `style.css?v=36`. Tests: `test_api_auth.py`.
 - **Hash-based client routing** — URL reflects active tab (`#/search`, `#/collection`, `#/decks`), search filter query params, collection `folder`, deck detail (`#/decks/{id}`), and card modal (`#/card/{passcode}`). Browser back/forward and refresh restore state; tab `aria-*` wiring; `document.title` per view; URL search-param allowlist + length caps. Static `app.js?v=43`, `style.css?v=35`.
 
 **2026-06-13**
@@ -506,8 +507,9 @@ data/catalog/                  # gitignored scrape JSON
 
 | Check | Expected |
 |-------|----------|
-| `GET /api/health` | `{"ok": true}` |
-| `GET /api/status` | `ready: true`; `cards` count TCG-printed only (< ~14k passcodes; ~500 in test_mode) |
+| `GET /api/health` | `{"ok": true}` (no auth — Render health checks) |
+| `GET /api/status` (auth) | `ready: true`; `cards` count TCG-printed only (< ~14k passcodes; ~500 in test_mode) |
+| Anonymous `GET /api/filters`, `/api/status`, `/api/cards/*` read routes | **401** Not authenticated |
 | `python -m unittest discover -s tests` | All pass |
 | GHA scrape (full) | Green `passcodes` + `scrape_batch_0..5` + `import`; each batch `[BATCH_RESULT] missing=0` |
 | GHA scrape (test) | Green `passcodes` + `scrape_batch_0` + `import`; batches 1–5 skipped; ~500 cards on dev |
@@ -516,7 +518,7 @@ data/catalog/                  # gitignored scrape JSON
 | `GET /api/cards/search?q="You can reveal"` | Only the contiguous phrase (case-insensitive) |
 | Multi-rarity | Same `set_code`, different `set_rarity` (e.g. `RA03-EN172`) |
 | Search UI `?` button | Opens help modal (Example/Description); Close / Escape / backdrop dismiss |
-| `GET /api/filters` (no auth) | Non-empty `types` / `attributes` after re-import on that DB |
+| `GET /api/filters` (with auth) | Non-empty `types` / `attributes` after re-import on that DB |
 | `GET /api/cards/search?category=Monster&types=Fusion` | OR on `types` JSON |
 | `GET /api/cards/summoning-suggestions?q=WATER` | Distinct `summoning_condition` substring matches |
 | Logged in: **Import my collection** | Header button visible; NDJSON progress on `#import-progress` |

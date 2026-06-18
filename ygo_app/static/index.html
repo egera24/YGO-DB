@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=35" />
+  <link rel="stylesheet" href="/static/css/style.css?v=37" />
 </head>
 <body>
   <header class="app-header">
@@ -15,27 +15,17 @@
       <span class="brand-mark">YGO</span>
       <div>
         <h1>Collection & Deck Builder</h1>
-        <p id="status-line">Loading…</p>
-        <progress id="import-progress" class="import-progress" value="0" max="100" hidden></progress>
+        <p id="status-line" class="app-shell hidden" aria-hidden="true">Loading…</p>
+        <progress id="import-progress" class="import-progress app-shell hidden" value="0" max="100" hidden aria-hidden="true"></progress>
       </div>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Main views">
+    <nav class="tabs app-shell hidden" role="tablist" aria-label="Main views" aria-hidden="true">
       <button type="button" class="tab active" role="tab" id="tab-search" data-view="search" aria-selected="true" aria-controls="view-search" tabindex="0">Search</button>
       <button type="button" class="tab" role="tab" id="tab-collection" data-view="collection" aria-selected="false" aria-controls="view-collection" tabindex="-1">My Collection</button>
       <button type="button" class="tab" role="tab" id="tab-decks" data-view="decks" aria-selected="false" aria-controls="view-decks" tabindex="-1">Decks</button>
     </nav>
-    <div id="auth-panel" class="auth-panel">
+    <div id="auth-panel" class="auth-panel app-shell hidden" aria-hidden="true">
       <span id="auth-user" class="auth-user hidden"></span>
-      <form id="auth-login-form" class="auth-form">
-        <input type="email" id="login-email" placeholder="Email" required autocomplete="username" />
-        <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password" />
-        <button type="submit">Log in</button>
-      </form>
-      <form id="auth-register-form" class="auth-form">
-        <input type="email" id="register-email" placeholder="New email" required autocomplete="email" />
-        <input type="password" id="register-password" placeholder="Password (8+)" required minlength="8" autocomplete="new-password" />
-        <button type="submit" class="secondary">Register</button>
-      </form>
       <button type="button" id="import-collection-btn" class="secondary hidden">Import my collection</button>
       <button type="button" id="export-collection-btn" class="secondary hidden">Export my collection</button>
       <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
@@ -43,7 +33,48 @@
     </div>
   </header>
 
-  <main>
+  <section id="auth-landing" class="auth-landing" aria-labelledby="auth-landing-title">
+    <div class="auth-landing-card">
+      <h2 id="auth-landing-title">Sign in to continue</h2>
+      <p class="auth-landing-lead">Search cards, manage your collection, and build decks.</p>
+
+      <div id="auth-checking" class="auth-checking hidden" role="status" aria-live="polite">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        Checking session…
+      </div>
+
+      <div id="auth-landing-body">
+        <div id="auth-error" class="auth-error hidden" role="alert" aria-live="assertive"></div>
+
+        <div class="auth-tabs" role="tablist" aria-label="Authentication">
+          <button type="button" id="auth-tab-login" class="auth-tab active" role="tab" aria-selected="true" aria-controls="auth-panel-login" tabindex="0">Sign in</button>
+          <button type="button" id="auth-tab-register" class="auth-tab" role="tab" aria-selected="false" aria-controls="auth-panel-register" tabindex="-1">Create account</button>
+        </div>
+
+        <div id="auth-panel-login" class="auth-panel-view" role="tabpanel" aria-labelledby="auth-tab-login" tabindex="0">
+          <form id="auth-login-form" class="auth-form auth-form--stacked">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" placeholder="you@example.com" required autocomplete="username" />
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password" />
+            <button type="submit">Sign in</button>
+          </form>
+        </div>
+
+        <div id="auth-panel-register" class="auth-panel-view hidden" role="tabpanel" aria-labelledby="auth-tab-register" hidden tabindex="0">
+          <form id="auth-register-form" class="auth-form auth-form--stacked">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" placeholder="you@example.com" required autocomplete="email" />
+            <label for="register-password">Password</label>
+            <input type="password" id="register-password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password" />
+            <button type="submit">Create account</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main class="app-shell hidden" aria-hidden="true">
     <section id="view-search" class="view active" role="tabpanel" aria-labelledby="tab-search" tabindex="0">
       <form id="search-form" class="search-panel">
         <div class="search-primary">
@@ -438,6 +469,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=46" type="module"></script>
+  <script src="/static/js/app.js?v=48" type="module"></script>
 </body>
 </html>

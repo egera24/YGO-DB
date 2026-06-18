@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ygo_app.auth import get_current_user, get_optional_user
+from ygo_app.auth import get_current_user
 from ygo_app.card_filters import card_response_extras
 from ygo_app.config import SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT
 from ygo_app.database import get_db
@@ -99,7 +99,7 @@ def search(
     limit: int = Query(None, le=SEARCH_MAX_LIMIT),
     offset: int = 0,
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ):
     effective_limit = limit if limit is not None else SEARCH_DEFAULT_LIMIT
     cards, total = search_cards(
@@ -129,11 +129,11 @@ def search(
         owned_only=owned_only,
         favorites_only=favorites_only,
         tag=tag,
-        user_id=user.id if user else None,
+        user_id=user.id,
         limit=effective_limit,
         offset=offset,
     )
-    extras = card_summaries_batch(db, cards, user.id if user else None)
+    extras = card_summaries_batch(db, cards, user.id)
     results = [_card_summary(card, extras.get(card.id, {})) for card in cards]
     return CardSearchPage(
         items=results, total=total, limit=effective_limit, offset=offset
@@ -145,6 +145,7 @@ def summoning_suggestions(
     q: str = "",
     limit: int = Query(20, le=50),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     return {"suggestions": summoning_condition_suggestions(db, q=q, limit=limit)}
 
@@ -153,7 +154,7 @@ def summoning_suggestions(
 def by_set_code(
     set_code: str,
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ):
     printing = db.execute(
         select(Printing).where(Printing.set_code == set_code).limit(1)
@@ -167,7 +168,7 @@ def by_set_code(
 def get_card(
     card_id: int,
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ):
     return _build_card_detail(db, card_id, user)
 
@@ -181,8 +182,8 @@ def _summary_extra_from_card(card: Card) -> dict:
     }
 
 
-def _build_card_detail(db: Session, card_id: int, user: User | None) -> CardDetail:
-    card = get_card_detail(db, card_id, user.id if user else None)
+def _build_card_detail(db: Session, card_id: int, user: User) -> CardDetail:
+    card = get_card_detail(db, card_id, user.id)
     if not card:
         raise HTTPException(404, "Card not found")
 
@@ -221,9 +222,9 @@ def toggle_favorite_route(
 def list_printings(
     card_id: int,
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ):
-    card = get_card_detail(db, card_id, user.id if user else None)
+    card = get_card_detail(db, card_id, user.id)
     if not card:
         raise HTTPException(404, "Card not found")
     return [_printing_out(p) for p in sorted(card.printings, key=lambda x: x.set_code)]

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from ygo_app.auth import get_current_user, get_optional_user
+from ygo_app.auth import get_current_user
 from ygo_app.card_filters import parse_json_string_list
 from ygo_app.config import IS_PRODUCTION
 from ygo_app.database import get_db
@@ -75,7 +75,7 @@ def health():
 @router.get("/status")
 def status(
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ):
     try:
         card_count = db.execute(select(func.count()).select_from(Card)).scalar() or 0
@@ -84,7 +84,7 @@ def status(
 
     collection_count = 0
     deck_count = 0
-    if user and card_count:
+    if card_count:
         collection_count = (
             db.execute(
                 select(func.count())
@@ -108,7 +108,7 @@ def status(
         "collection_items": collection_count,
         "decks": deck_count,
         "ready": card_count > 0,
-        "authenticated": user is not None,
+        "authenticated": True,
     }
     if not IS_PRODUCTION:
         from ygo_app.config import DB_PATH
@@ -130,21 +130,19 @@ def _distinct_type_labels(db: Session) -> list[str]:
 @router.get("/filters")
 def filters(
     db: Session = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: User = Depends(get_current_user),
 ):
-    folders: list[str] = []
-    if user:
-        from ygo_app.models import CollectionFolder
+    from ygo_app.models import CollectionFolder
 
-        folders = list(
-            db.execute(
-                select(CollectionFolder.name)
-                .where(CollectionFolder.user_id == user.id)
-                .order_by(CollectionFolder.sort_order, CollectionFolder.name)
-            )
-            .scalars()
-            .all()
+    folders = list(
+        db.execute(
+            select(CollectionFolder.name)
+            .where(CollectionFolder.user_id == user.id)
+            .order_by(CollectionFolder.sort_order, CollectionFolder.name)
         )
+        .scalars()
+        .all()
+    )
 
     catalog = _load_catalog_filters(db)
 

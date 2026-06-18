@@ -2,16 +2,38 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
+from pathlib import Path
 
 import requests
 
 from ygo_app.config import BREVO_API_KEY, EMAIL_BACKEND, EMAIL_FROM, EMAIL_OTP_TTL_MINUTES
 
 logger = logging.getLogger(__name__)
+_DEBUG_LOG = Path(__file__).resolve().parent.parent / "debug-ae7b2f.log"
 
 _FROM_RE = re.compile(r"^(.+?)\s*<([^>]+)>$")
+
+
+def _agent_debug_log(location: str, message: str, data: dict, hypothesis_id: str) -> None:
+    # #region agent log
+    try:
+        entry = {
+            "sessionId": "ae7b2f",
+            "timestamp": int(time.time() * 1000),
+            "location": location,
+            "message": message,
+            "data": data,
+            "hypothesisId": hypothesis_id,
+        }
+        with _DEBUG_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+    # #endregion
 
 
 def _parse_from_address(raw: str) -> tuple[str, str]:
@@ -22,6 +44,14 @@ def _parse_from_address(raw: str) -> tuple[str, str]:
 
 
 def send_verification_code(to: str, code: str) -> None:
+    # #region agent log
+    _agent_debug_log(
+        "email.py:send_verification_code",
+        "send called",
+        {"backend": EMAIL_BACKEND, "code_len": len(code)},
+        "H2",
+    )
+    # #endregion
     if EMAIL_BACKEND == "brevo":
         _send_brevo(to, code)
     else:
@@ -29,7 +59,23 @@ def send_verification_code(to: str, code: str) -> None:
 
 
 def _send_console(to: str, code: str) -> None:
-    logger.info("VERIFICATION CODE for %s: %s (valid %s minutes)", to, code, EMAIL_OTP_TTL_MINUTES)
+    message = (
+        f"VERIFICATION CODE for {to}: {code} "
+        f"(valid {EMAIL_OTP_TTL_MINUTES} minutes)"
+    )
+    # #region agent log
+    root_level = logging.getLogger().level
+    logger_effective = logger.isEnabledFor(logging.INFO)
+    _agent_debug_log(
+        "email.py:_send_console",
+        "console backend",
+        {"root_log_level": root_level, "logger_info_enabled": logger_effective},
+        "H1",
+    )
+    # #endregion
+    # logger.info is suppressed unless logging is configured (uvicorn default).
+    print(message, flush=True)
+    logger.info("%s", message)
 
 
 def _send_brevo(to: str, code: str) -> None:

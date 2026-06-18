@@ -88,6 +88,16 @@ def _client_ip(request: Request) -> str:
 
 
 def _queue_verification_email(background_tasks: BackgroundTasks, email: str, code: str) -> None:
+    # #region agent log
+    from ygo_app.email import _agent_debug_log
+
+    _agent_debug_log(
+        "auth.py:_queue_verification_email",
+        "background task scheduled",
+        {"code_len": len(code)},
+        "H2",
+    )
+    # #endregion
     background_tasks.add_task(send_verification_code, email, code)
 
 

@@ -18,6 +18,8 @@ from ygo_app.database import get_db
 from ygo_app.models import Base, PendingRegistration, User
 from ygo_app.verification import hash_otp, issue_otp_for_pending
 
+TEST_PASSWORD = "Password1!"
+
 
 def _sqlite_engine(path: str):
     eng = create_engine(
@@ -70,11 +72,16 @@ class TestEmailVerification(unittest.TestCase):
     def _record_send(self, to: str, code: str) -> None:
         self.sent_codes.append((to, code))
 
-    def _register(self, email: str = "new@test.example", password: str = "password123"):
+    def _register(self, email: str = "new@test.example", password: str = TEST_PASSWORD):
         return self.client.post(
             "/api/auth/register",
             json={"email": email, "password": password},
         )
+
+    def test_weak_password_rejected(self):
+        res = self._register(password="password123")
+        self.assertEqual(res.status_code, 422)
+        self.assertEqual(len(self.sent_codes), 0)
 
     def test_register_returns_needs_verification_without_jwt(self):
         res = self._register()
@@ -191,7 +198,7 @@ class TestEmailVerification(unittest.TestCase):
         self._register()
         res = self.client.post(
             "/api/auth/login",
-            json={"email": "new@test.example", "password": "password123"},
+            json={"email": "new@test.example", "password": TEST_PASSWORD},
         )
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"]["code"], "email_not_verified")
@@ -199,7 +206,7 @@ class TestEmailVerification(unittest.TestCase):
     def test_existing_verified_user_can_login(self):
         session = self.Session()
         try:
-            password = "password123"
+            password = TEST_PASSWORD
             user = User(
                 email="existing@test.example",
                 hashed_password=hash_password(password),
@@ -222,7 +229,7 @@ class TestEmailVerification(unittest.TestCase):
             session.add(
                 User(
                     email="taken@test.example",
-                    hashed_password=hash_password("password123"),
+                    hashed_password=hash_password(TEST_PASSWORD),
                     email_verified_at=datetime.utcnow(),
                 )
             )

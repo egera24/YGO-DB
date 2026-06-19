@@ -80,7 +80,8 @@
             <label for="register-email">Email</label>
             <input type="email" id="register-email" placeholder="you@example.com" required autocomplete="email" />
             <label for="register-password">Password</label>
-            <input type="password" id="register-password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password" />
+            <input type="password" id="register-password" placeholder="8+ chars, upper, number, special" required minlength="8" autocomplete="new-password" />
+            <p class="muted auth-password-hint">At least 8 characters with an uppercase letter, a number, and a special character.</p>
             <div id="register-turnstile" class="register-turnstile" aria-label="Captcha"></div>
             <button type="submit">Create account</button>
           </form>
@@ -484,6 +485,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=49" type="module"></script>
+  <script src="/static/js/app.js?v=50" type="module"></script>
 </body>
 </html>

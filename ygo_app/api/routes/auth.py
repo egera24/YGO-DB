@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ygo_app.auth import (
@@ -9,6 +9,7 @@ from ygo_app.auth import (
     get_current_user,
     get_user_by_email,
     hash_password,
+    validate_password_strength,
     verify_password,
 )
 from ygo_app.config import TURNSTILE_SITE_KEY
@@ -32,14 +33,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 REGISTER_IP_LIMIT = RateLimitSpec(max_count=5, window_seconds=3600)
 REGISTER_EMAIL_LIMIT = RateLimitSpec(max_count=3, window_seconds=3600)
 RESEND_EMAIL_LIMIT = RateLimitSpec(max_count=3, window_seconds=3600)
+RESEND_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
 VERIFY_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
 LOGIN_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=900)
+LOGIN_EMAIL_LIMIT = RateLimitSpec(max_count=10, window_seconds=900)
 
 
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     turnstile_token: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def check_password_strength(cls, value: str) -> str:
+        return validate_password_strength(value)
 
 
 class LoginIn(BaseModel):
@@ -188,10 +196,13 @@ def verify_email(body: VerifyEmailIn, request: Request, db: Session = Depends(ge
 @router.post("/resend-code", status_code=status.HTTP_200_OK)
 def resend_code(
     body: ResendCodeIn,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     email = normalize_email(body.email)
+    client_ip = _client_ip(request)
+    enforce_rate_limit(db, f"resend:ip:{client_ip}", RESEND_IP_LIMIT)
     enforce_rate_limit(db, f"resend:email:{email}", RESEND_EMAIL_LIMIT)
 
     pending = get_pending_by_email(db, email)
@@ -208,6 +219,7 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     email = normalize_email(body.email)
     client_ip = _client_ip(request)
     enforce_rate_limit(db, f"login:ip:{client_ip}", LOGIN_IP_LIMIT)
+    enforce_rate_limit(db, f"login:email:{email}", LOGIN_EMAIL_LIMIT)
 
     user = get_user_by_email(db, email)
     if user:

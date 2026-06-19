@@ -396,6 +396,25 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+const PASSWORD_STRENGTH_MESSAGE =
+  "Password must be at least 8 characters and include an uppercase letter, a number, and a special character.";
+
+function validatePasswordStrength(password) {
+  if (password.length < 8) {
+    return PASSWORD_STRENGTH_MESSAGE;
+  }
+  if (!/[A-Z]/.test(password)) {
+    return PASSWORD_STRENGTH_MESSAGE;
+  }
+  if (!/\d/.test(password)) {
+    return PASSWORD_STRENGTH_MESSAGE;
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return PASSWORD_STRENGTH_MESSAGE;
+  }
+  return null;
+}
+
 let authActiveTab = "login";
 let authConfig = { turnstile_site_key: null };
 let turnstileWidgetId = null;
@@ -697,6 +716,10 @@ async function login(email, password) {
 }
 
 async function register(email, password) {
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) {
+    throw new Error(passwordError);
+  }
   const body = { email, password };
   const turnstileToken = getTurnstileToken();
   if (authConfig.turnstile_site_key) {

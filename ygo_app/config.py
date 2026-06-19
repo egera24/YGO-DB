@@ -101,7 +101,9 @@ else:
             f"(length={len(DATABASE_URL)}, error={exc})"
         ) from exc
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-change-me-in-production")
+_DEFAULT_SECRET_KEY = "dev-change-me-in-production"
+_SECRET_KEY_FROM_ENV = os.getenv("SECRET_KEY")
+SECRET_KEY = _SECRET_KEY_FROM_ENV or _DEFAULT_SECRET_KEY
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))
 PORT = int(os.getenv("PORT", "8000"))
 
@@ -138,4 +140,22 @@ DEFAULT_COLLECTION_CSV = ROOT_DIR / "my_collection.csv"
 # Optional residential proxy for local Cardmarket scrape (http://user:pass@host:port).
 CARDMARKET_HTTP_PROXY = (os.getenv("CARDMARKET_HTTP_PROXY") or "").strip() or None
 
+COLLECTION_CSV_MAX_BYTES = int(os.getenv("COLLECTION_CSV_MAX_BYTES", str(20 * 1024 * 1024)))
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def validate_production_config() -> None:
+    if not IS_PRODUCTION:
+        return
+    if not _SECRET_KEY_FROM_ENV or _SECRET_KEY_FROM_ENV == _DEFAULT_SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY must be set to a unique random value when ENV=production"
+        )
+    if EMAIL_BACKEND == "console":
+        raise RuntimeError(
+            "EMAIL_BACKEND=console is not allowed when ENV=production; use brevo"
+        )
+
+
+validate_production_config()

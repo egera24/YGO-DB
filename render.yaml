@@ -18,6 +18,8 @@ services:
         generateValue: true
       - key: DATABASE_URL
         sync: false
+      - key: EMAIL_BACKEND
+        value: brevo
     healthCheckPath: /api/health
 
   # Production — deploys from main only; set DATABASE_URL to Neon *production* branch
@@ -37,4 +39,6 @@ services:
         generateValue: true
       - key: DATABASE_URL
         sync: false
+      - key: EMAIL_BACKEND
+        value: brevo
     healthCheckPath: /api/health

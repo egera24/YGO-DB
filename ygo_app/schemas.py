@@ -132,7 +132,7 @@ class CollectionFolderOut(BaseModel):
 
 
 class CollectionFolderCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=128)
 
     @field_validator("name")
     @classmethod
@@ -144,7 +144,7 @@ class CollectionFolderCreate(BaseModel):
 
 
 class CollectionFolderUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=128)
     sort_order: int | None = None
 
     @field_validator("name")
@@ -260,13 +260,13 @@ class DeckDetail(DeckOut):
 
 
 class DeckCreate(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(max_length=128)
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class DeckUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
+    name: str | None = Field(default=None, max_length=128)
+    description: str | None = Field(default=None, max_length=2000)
     preview_card_id: int | None = None
 
 
@@ -334,7 +334,7 @@ class SearchPresetOut(BaseModel):
 
 
 class SearchPresetCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=128)
     params: dict[str, str] = Field(default_factory=dict)
     overwrite: bool = False
 
@@ -353,7 +353,7 @@ class SearchPresetCreate(BaseModel):
 
 
 class SearchPresetUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=128)
     params: dict[str, str] | None = None
 
     @field_validator("name")

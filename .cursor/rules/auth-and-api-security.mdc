@@ -1,0 +1,53 @@
+---
+description: Auth, API, email, config, and deploy security guardrails
+globs: ygo_app/api/**/*.py,ygo_app/auth.py,ygo_app/email.py,ygo_app/config.py,ygo_app/verification.py,ygo_app/rate_limit.py,render.yaml
+alwaysApply: false
+---
+
+# Auth & API security
+
+Follow these when editing auth, API routes, config, or deploy files. Full audit checklist: `next_steps.md` §5.
+
+## Registration & passwords
+
+- Signup uses `RegisterIn` with `validate_password_strength()` from `ygo_app/auth.py` (8+ chars, uppercase, number, special character).
+- Mirror the same rules in `app.js` (`validatePasswordStrength`) for instant UX feedback.
+- Login does not re-validate complexity — existing users keep their passwords.
+
+## Secrets in responses & logs
+
+- Never return passwords or OTP codes in API responses (only `needs_verification`, `access_token`, or generic errors).
+- Store OTP as HMAC hash in DB (`ygo_app/verification.py`); passwords as bcrypt only.
+- `ygo_app/email.py` `_send_console`: keep `print()` for local dev; do **not** `logger.info` the plaintext code.
+
+## Production config
+
+- When `ENV=production`, `ygo_app/config.py` must fail startup if `SECRET_KEY` is missing/default or `EMAIL_BACKEND=console`.
+- `render.yaml` sets `EMAIL_BACKEND=brevo`; Brevo secrets (`BREVO_API_KEY`, `EMAIL_FROM`) belong in the Render dashboard — see `docs/DEPLOY_FREE.md`.
+
+## Auth endpoints & rate limits
+
+- New `/api/auth/*` routes: use `enforce_rate_limit` from `ygo_app/rate_limit.py`.
+- Apply **both** per-IP and per-email limits where abuse is possible (register, login, verify, resend).
+
+## Authorization (IDOR)
+
+- Collection, deck, and preset routes must scope by `user.id` from `get_current_user` — never trust a client-supplied id alone to access another user's rows.
+
+## Uploads & API surface
+
+- File uploads: enforce a size cap before reading the full body (`COLLECTION_CSV_MAX_BYTES` in collection import).
+- `ygo_app/api/main.py`: keep security headers middleware; disable `/docs` in production.
+
+## Examples
+
+```
+BAD:  return {"access_token": token, "password": body.password}
+GOOD: return TokenOut(access_token=create_access_token(user.id))
+
+BAD:  logger.info("OTP for %s: %s", email, code)
+GOOD: print(...) locally only; logger logs recipient + expiry, not the code
+
+BAD:  deck = db.get(Deck, deck_id)  # no user check
+GOOD: deck = _get_user_deck(db, deck_id, user.id)
+```

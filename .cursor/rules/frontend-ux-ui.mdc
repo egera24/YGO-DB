@@ -31,6 +31,9 @@ Vanilla HTML/CSS/JS in `ygo_app/static/`. Follow existing patterns before invent
 ## Security & DOM safety
 
 - Insert untrusted API text via `textContent`, not `innerHTML`. Default is text-only; sanitize explicitly if HTML is ever required.
+- When `innerHTML` is required, wrap API/user strings with `escapeHtml()` (see `cardImgTag`, search results, modals).
+- Signup: call `validatePasswordStrength()` before POST; keep the hint in `index.html` in sync with `ygo_app/auth.py`.
+- JWT lives in `localStorage` (`ygo_token`) — any XSS can steal the token; treat DOM injection as high impact.
 
 ## Project conventions
 

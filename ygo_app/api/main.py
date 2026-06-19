@@ -6,13 +6,55 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
 
 from ygo_app.api.routes import auth, cards, collection, decks, meta, search_presets
-from ygo_app.config import IS_PRODUCTION
+from ygo_app.config import IMAGE_BASE_URL, IS_PRODUCTION
 from ygo_app.import_data import init_db
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-app = FastAPI(title="YGO Collection & Deck Builder", version="2.0.0")
+_docs_kwargs = (
+    {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    if IS_PRODUCTION
+    else {}
+)
+
+app = FastAPI(
+    title="YGO Collection & Deck Builder",
+    version="2.0.0",
+    **_docs_kwargs,
+)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+def _build_csp() -> str:
+    img_sources = ["'self'", "data:", "https:"]
+    if IMAGE_BASE_URL and IMAGE_BASE_URL.startswith("https://"):
+        img_sources.append(IMAGE_BASE_URL)
+    directives = [
+        "default-src 'self'",
+        f"img-src {' '.join(dict.fromkeys(img_sources))}",
+        "script-src 'self' https://challenges.cloudflare.com",
+        "style-src 'self'",
+        "frame-src https://challenges.cloudflare.com",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ]
+    return "; ".join(directives)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = _build_csp()
+    if IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 @app.on_event("startup")

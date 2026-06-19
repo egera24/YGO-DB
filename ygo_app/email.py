@@ -35,7 +35,11 @@ def _send_console(to: str, code: str) -> None:
     )
     # print: uvicorn does not configure app loggers; console backend must be visible locally.
     print(message, flush=True)
-    logger.info("%s", message)
+    logger.info(
+        "Verification code sent to %s (valid %s minutes)",
+        to,
+        EMAIL_OTP_TTL_MINUTES,
+    )
 
 
 def _send_brevo(to: str, code: str) -> None:

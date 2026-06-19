@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -13,6 +14,24 @@ from ygo_app.models import User
 
 ALGORITHM = "HS256"
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_PASSWORD_RULES = (
+    (re.compile(r"[A-Z]"), "an uppercase letter"),
+    (re.compile(r"\d"), "a number"),
+    (re.compile(r"[^A-Za-z0-9]"), "a special character"),
+)
+
+PASSWORD_STRENGTH_MESSAGE = (
+    "Password must be at least 8 characters and include "
+    "an uppercase letter, a number, and a special character."
+)
+
+
+def validate_password_strength(password: str) -> str:
+    for pattern, hint in _PASSWORD_RULES:
+        if not pattern.search(password):
+            raise ValueError(PASSWORD_STRENGTH_MESSAGE)
+    return password
 
 
 def hash_password(password: str) -> str:

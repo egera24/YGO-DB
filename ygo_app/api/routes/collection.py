@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ygo_app.auth import get_current_user
 from ygo_app.collection_export import export_collection_csv, list_export_formats
+from ygo_app.config import COLLECTION_CSV_MAX_BYTES
 from ygo_app.database import get_db
 from ygo_app.import_data import CollectionImportResult, import_collection_csv
 from ygo_app.import_progress import eta_seconds
@@ -288,8 +289,11 @@ async def import_csv(
 ):
     if not file or not file.filename:
         raise HTTPException(400, "Upload a CSV file (multipart form field: file)")
+    content = await file.read(COLLECTION_CSV_MAX_BYTES + 1)
+    if len(content) > COLLECTION_CSV_MAX_BYTES:
+        max_mb = COLLECTION_CSV_MAX_BYTES // (1024 * 1024)
+        raise HTTPException(413, f"CSV file too large (max {max_mb} MB)")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-        content = await file.read()
         tmp.write(content)
         path = tmp.name
 

@@ -98,6 +98,17 @@ class TestCardDetailExtras(unittest.TestCase):
         self.assertEqual(sections[0].format, "Traditional Format")
         self.assertEqual(sections[0].tips, ["Tip one", "Tip two"])
 
+    def test_tips_empty_format_not_defaulted_to_tips(self):
+        card = Card(
+            id=2,
+            name="Test",
+            tips=json.dumps([{"format": "", "tips": ["Tip one"]}]),
+        )
+        sections = card_tips_for_api(card)
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].format, "")
+        self.assertEqual(sections[0].tips, ["Tip one"])
+
 
 if __name__ == "__main__":
     unittest.main()

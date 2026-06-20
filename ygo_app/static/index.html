@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=41" />
+  <link rel="stylesheet" href="/static/css/style.css?v=43" />
 </head>
 <body>
   <header class="app-header">
@@ -353,13 +353,21 @@
           <h2 id="modal-name"></h2>
           <p id="modal-meta" class="muted"></p>
           <p id="modal-desc"></p>
-          <div id="modal-errata-teaser" class="modal-supplement" hidden>
-            <p class="modal-supplement-text">
-              <span id="modal-errata-label"></span>
-              <button type="button" id="modal-errata-open" class="link-button">For errata information click here</button>
-            </p>
+          <div id="modal-supplements" class="modal-supplements" hidden>
+            <button type="button" id="modal-errata-open" class="icon-btn supplement-icon-btn" aria-label="Errata History" data-tooltip="Errata History" aria-haspopup="dialog" aria-controls="card-errata-modal" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </button>
+            <button type="button" id="modal-tips-trigger" class="icon-btn supplement-icon-btn" aria-label="Card Tips" data-tooltip="Card Tips" aria-haspopup="dialog" aria-controls="card-tips-modal" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 18h6" />
+                <path d="M10 22h4" />
+                <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+              </svg>
+            </button>
           </div>
-          <button type="button" id="modal-tips-trigger" class="modal-supplement link-button" hidden>Tips</button>
           <div class="modal-actions">
             <button type="button" id="modal-favorite">☆ Favorite</button>
             <input type="text" id="tag-input" placeholder="Add tag…" />
@@ -512,6 +520,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=53" type="module"></script>
+  <script src="/static/js/app.js?v=55" type="module"></script>
 </body>
 </html>

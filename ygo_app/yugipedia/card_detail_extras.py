@@ -51,7 +51,7 @@ def card_tips_for_api(card: Card) -> list[CardTipsSectionOut]:
     for item in data:
         if not isinstance(item, dict):
             continue
-        fmt = str(item.get("format") or "Tips")
+        fmt = str(item.get("format") or "").strip()
         tips = item.get("tips") or []
         if isinstance(tips, list):
             sections.append(

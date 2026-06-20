@@ -1852,41 +1852,46 @@ function formatDisplayDate(isoDate) {
 }
 
 function resetModalSupplements() {
-  const errataTeaser = $("#modal-errata-teaser");
-  const errataLabel = $("#modal-errata-label");
+  const supplements = $("#modal-supplements");
+  const errataOpen = $("#modal-errata-open");
   const tipsTrigger = $("#modal-tips-trigger");
-  if (errataTeaser) errataTeaser.hidden = true;
-  if (errataLabel) errataLabel.textContent = "";
+  if (supplements) supplements.hidden = true;
+  if (errataOpen) errataOpen.hidden = true;
   if (tipsTrigger) tipsTrigger.hidden = true;
 }
 
 function renderModalSupplements(card) {
-  const errataTeaser = $("#modal-errata-teaser");
-  const errataLabel = $("#modal-errata-label");
+  const supplements = $("#modal-supplements");
+  const errataOpen = $("#modal-errata-open");
   const tipsTrigger = $("#modal-tips-trigger");
 
-  if (card?.has_errata) {
-    const dateText = formatDisplayDate(card.last_erratum_date);
-    errataLabel.textContent = dateText
-      ? `Last erratum: ${dateText}. `
-      : "This card has errata. ";
-    errataTeaser.hidden = false;
-  } else if (errataTeaser) {
-    errataTeaser.hidden = true;
-    errataLabel.textContent = "";
-  }
+  if (supplements) supplements.hidden = !card;
+  if (errataOpen) errataOpen.hidden = !card;
+  if (tipsTrigger) tipsTrigger.hidden = !card;
+}
 
-  const hasTips = (card?.tips || []).some((s) => (s.tips || []).length > 0);
-  if (tipsTrigger) {
-    tipsTrigger.hidden = !hasTips;
-  }
+function renderSupplementEmpty(bodyEl, message) {
+  bodyEl.replaceChildren();
+  const p = document.createElement("p");
+  p.className = "supplement-empty muted";
+  p.textContent = message;
+  bodyEl.appendChild(p);
+}
+
+function cardHasTips(card) {
+  return (card?.tips || []).some((s) => (s.tips || []).length > 0);
 }
 
 function renderErrataModal(card) {
   const body = $("#card-errata-body");
   if (!body) return;
+  const versions = card.errata || [];
+  if (!versions.length) {
+    renderSupplementEmpty(body, "This card has no errata yet.");
+    return;
+  }
   body.replaceChildren();
-  for (const version of card.errata || []) {
+  for (const version of versions) {
     const block = document.createElement("section");
     block.className = "errata-version";
 
@@ -1929,15 +1934,20 @@ function renderErrataModal(card) {
 function renderTipsModal(card) {
   const body = $("#card-tips-body");
   if (!body) return;
+  if (!cardHasTips(card)) {
+    renderSupplementEmpty(body, "There are no tips for this card.");
+    return;
+  }
   body.replaceChildren();
   for (const section of card.tips || []) {
     const tips = section.tips || [];
     if (!tips.length) continue;
     const wrap = document.createElement("section");
     wrap.className = "tips-section";
-    if (section.format) {
+    const label = (section.format || "").trim();
+    if (label && label.toLowerCase() !== "tips") {
       const heading = document.createElement("h3");
-      heading.textContent = section.format;
+      heading.textContent = label;
       wrap.appendChild(heading);
     }
     const list = document.createElement("ul");
@@ -1952,7 +1962,7 @@ function renderTipsModal(card) {
 }
 
 function openCardErrataModal() {
-  if (!state.currentCard?.has_errata) return;
+  if (!state.currentCard) return;
   renderErrataModal(state.currentCard);
   const dlg = $("#card-errata-modal");
   if (!dlg) return;

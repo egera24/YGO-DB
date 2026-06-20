@@ -780,7 +780,6 @@ jobs:
       - name: Import catalog into database
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-          ENV: production
           IMAGE_BASE_URL: ${{ secrets.IMAGE_BASE_URL }}
         run: |
           ARGS=()
@@ -848,7 +847,6 @@ jobs:
       - name: Import catalog into database
         env:
           DATABASE_URL: ${{ inputs.environment == 'dev' && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-          ENV: production
           IMAGE_BASE_URL: ${{ secrets.IMAGE_BASE_URL }}
         run: |
           ARGS=()

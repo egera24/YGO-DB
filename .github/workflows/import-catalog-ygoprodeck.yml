@@ -36,5 +36,4 @@ jobs:
       - name: Import cards from YGOProDeck API
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-          ENV: production
         run: python -m ygo_app.jobs.import_catalog

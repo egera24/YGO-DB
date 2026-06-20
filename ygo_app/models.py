@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -83,11 +84,45 @@ class Card(Base):
     ygoprodeck_url: Mapped[str | None] = mapped_column(String(512))
     image_url: Mapped[str | None] = mapped_column(String(512))
     image_url_small: Mapped[str | None] = mapped_column(String(512))
+    has_errata: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_erratum_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    tips: Mapped[str | None] = mapped_column(Text)
 
     printings: Mapped[list["Printing"]] = relationship(back_populates="card")
+    errata_versions: Mapped[list["CardErrataVersion"]] = relationship(
+        back_populates="card", cascade="all, delete-orphan"
+    )
     deck_entries: Mapped[list["DeckCard"]] = relationship(back_populates="card")
     user_favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="card")
     user_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="card")
+
+
+class TcgSet(Base):
+    __tablename__ = "tcg_sets"
+
+    abbr: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    set_type: Mapped[str | None] = mapped_column(String(128))
+    series: Mapped[str | None] = mapped_column(String(256))
+    region: Mapped[str] = mapped_column(String(8), default="TCG")
+    release_date: Mapped[date | None] = mapped_column(Date)
+
+
+class CardErrataVersion(Base):
+    __tablename__ = "card_errata_versions"
+
+    card_id: Mapped[int] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
+    )
+    language: Mapped[str] = mapped_column(String(32), primary_key=True)
+    version_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version_label: Mapped[str] = mapped_column(String(64))
+    lore_text: Mapped[str | None] = mapped_column(Text)
+    set_code: Mapped[str | None] = mapped_column(String(32))
+    set_name: Mapped[str | None] = mapped_column(String(256))
+    release_date: Mapped[date | None] = mapped_column(Date)
+
+    card: Mapped["Card"] = relationship(back_populates="errata_versions")
 
 
 class Printing(Base):

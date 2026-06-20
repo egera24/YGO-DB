@@ -342,13 +342,10 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-  images:
+  set_chronology:
     needs:
       - scrape_batch_0
       - scrape_batch_5
-    # always(): runs when test_mode skips batches 1-5. Mirrors card images to the
-    # S3-compatible bucket (Cloudflare R2); skips gracefully when secrets are absent.
-    # Incremental: re-runs only fetch images missing from the bucket.
     if: |
       always() &&
       needs.scrape_batch_0.result == 'success' &&
@@ -356,6 +353,255 @@ jobs:
       (
         (github.event_name == 'workflow_dispatch' && inputs.test_mode == true) ||
         needs.scrape_batch_5.result == 'success'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape Set chronology
+        run: python -m ygo_app.jobs.scrape_yugipedia_set_chronology
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  supplements_batch_0:
+    needs: set_chronology
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download catalog state
+        uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+
+      - name: Scrape supplements batch 0
+        run: |
+          BATCH_COUNT="${{ env.BATCH_COUNT }}"
+          ARGS=(--resume --batch-index 0 --batch-count "$BATCH_COUNT")
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
+            BATCH_COUNT=1
+            ARGS=(--resume --batch-index 0 --batch-count 1 --max-cards "${{ inputs.card_limit }}")
+          fi
+          python -m ygo_app.jobs.scrape_yugipedia_supplements "${ARGS[@]}"
+
+      - name: Upload catalog state
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  supplements_batch_1:
+    needs: supplements_batch_0
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+      - run: |
+          python -m ygo_app.jobs.scrape_yugipedia_supplements --resume \
+            --batch-index 1 --batch-count ${{ env.BATCH_COUNT }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  supplements_batch_2:
+    needs: supplements_batch_1
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+      - run: |
+          python -m ygo_app.jobs.scrape_yugipedia_supplements --resume \
+            --batch-index 2 --batch-count ${{ env.BATCH_COUNT }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  supplements_batch_3:
+    needs: supplements_batch_2
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+      - run: |
+          python -m ygo_app.jobs.scrape_yugipedia_supplements --resume \
+            --batch-index 3 --batch-count ${{ env.BATCH_COUNT }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  supplements_batch_4:
+    needs: supplements_batch_3
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+      - run: |
+          python -m ygo_app.jobs.scrape_yugipedia_supplements --resume \
+            --batch-index 4 --batch-count ${{ env.BATCH_COUNT }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  supplements_batch_5:
+    needs: supplements_batch_4
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (github.event_name != 'workflow_dispatch' || inputs.test_mode != true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-state
+          path: data/catalog
+      - run: |
+          python -m ygo_app.jobs.scrape_yugipedia_supplements --resume \
+            --batch-index 5 --batch-count ${{ env.BATCH_COUNT }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-state
+          path: |
+            data/catalog/yugipedia_passcode_list.json
+            data/catalog/yugipedia_all_cards.json
+            data/catalog/yugipedia_rejected_cards.json
+            data/catalog/yugipedia_set_chronology.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  images:
+    needs:
+      - scrape_batch_0
+      - scrape_batch_5
+      - supplements_batch_0
+      - supplements_batch_5
+    # always(): runs when test_mode skips batches 1-5. Mirrors card images to the
+    # S3-compatible bucket (Cloudflare R2); skips gracefully when secrets are absent.
+    # Incremental: re-runs only fetch images missing from the bucket.
+    if: |
+      always() &&
+      needs.scrape_batch_0.result == 'success' &&
+      needs.supplements_batch_0.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.test_mode == true) ||
+        (needs.scrape_batch_5.result == 'success' && needs.supplements_batch_5.result == 'success')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 330
@@ -472,6 +718,8 @@ jobs:
       - prepare
       - scrape_batch_0
       - scrape_batch_5
+      - supplements_batch_0
+      - supplements_batch_5
       - images
     # always(): required so import runs when test_mode skips scrape_batch_5 (skipped needs skip dependents).
     # images result is intentionally not asserted - import falls back to Yugipedia URLs without a manifest.
@@ -479,10 +727,11 @@ jobs:
       always() &&
       needs.prepare.result == 'success' &&
       needs.scrape_batch_0.result == 'success' &&
+      needs.supplements_batch_0.result == 'success' &&
       (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true) &&
       (
         (github.event_name == 'workflow_dispatch' && inputs.test_mode == true) ||
-        needs.scrape_batch_5.result == 'success'
+        (needs.scrape_batch_5.result == 'success' && needs.supplements_batch_5.result == 'success')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 45

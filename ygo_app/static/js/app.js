@@ -1617,6 +1617,8 @@ function openCardModalOverlay() {
 }
 
 function closeCardModalOverlay({ fromRouter = false } = {}) {
+  closeCardErrataModal();
+  closeCardTipsModal();
   const dlg = $("#card-modal");
   dlg.hidden = true;
   state.currentCardId = null;
@@ -1642,6 +1644,8 @@ function isModalVisible(id) {
 function syncModalOpenClass() {
   if (
     isModalVisible("#card-modal") ||
+    isModalVisible("#card-errata-modal") ||
+    isModalVisible("#card-tips-modal") ||
     isModalVisible("#search-help-modal") ||
     isModalVisible("#export-collection-modal") ||
     isModalVisible("#collection-edit-modal")
@@ -1829,6 +1833,138 @@ function seedModalPreview(seed, imageToken) {
   }
 }
 
+function formatDisplayDate(isoDate) {
+  if (!isoDate) return "";
+  const parts = String(isoDate).split("-");
+  if (parts.length !== 3) return isoDate;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]) - 1;
+  const day = Number(parts[2]);
+  const dt = new Date(Date.UTC(year, month, day));
+  if (Number.isNaN(dt.getTime())) return isoDate;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(dt);
+}
+
+function renderModalSupplements(card) {
+  const errataTeaser = $("#modal-errata-teaser");
+  const errataLabel = $("#modal-errata-label");
+  const tipsTrigger = $("#modal-tips-trigger");
+
+  if (card?.has_errata) {
+    const dateText = formatDisplayDate(card.last_erratum_date);
+    errataLabel.textContent = dateText
+      ? `Last erratum: ${dateText}. `
+      : "This card has errata. ";
+    errataTeaser.hidden = false;
+  } else if (errataTeaser) {
+    errataTeaser.hidden = true;
+    errataLabel.textContent = "";
+  }
+
+  const hasTips = (card?.tips || []).some((s) => (s.tips || []).length > 0);
+  if (tipsTrigger) {
+    tipsTrigger.hidden = !hasTips;
+  }
+}
+
+function renderErrataModal(card) {
+  const body = $("#card-errata-body");
+  if (!body) return;
+  body.replaceChildren();
+  for (const version of card.errata || []) {
+    const block = document.createElement("section");
+    block.className = "errata-version";
+
+    const title = document.createElement("h3");
+    title.textContent = version.version_label || "Errata";
+    block.appendChild(title);
+
+    const metaParts = [];
+    if (version.set_name) metaParts.push(version.set_name);
+    if (version.set_code) metaParts.push(version.set_code);
+    const dateText = formatDisplayDate(version.release_date);
+    if (dateText) metaParts.push(`Release date: ${dateText}`);
+    if (metaParts.length) {
+      const meta = document.createElement("p");
+      meta.className = "errata-meta";
+      meta.textContent = metaParts.join(" · ");
+      block.appendChild(meta);
+    }
+
+    const lore = document.createElement("p");
+    lore.className = "errata-lore";
+    lore.textContent = version.lore_text || "";
+    block.appendChild(lore);
+
+    body.appendChild(block);
+  }
+}
+
+function renderTipsModal(card) {
+  const body = $("#card-tips-body");
+  if (!body) return;
+  body.replaceChildren();
+  for (const section of card.tips || []) {
+    const tips = section.tips || [];
+    if (!tips.length) continue;
+    const wrap = document.createElement("section");
+    wrap.className = "tips-section";
+    if (section.format) {
+      const heading = document.createElement("h3");
+      heading.textContent = section.format;
+      wrap.appendChild(heading);
+    }
+    const list = document.createElement("ul");
+    for (const tip of tips) {
+      const li = document.createElement("li");
+      li.textContent = tip;
+      list.appendChild(li);
+    }
+    wrap.appendChild(list);
+    body.appendChild(wrap);
+  }
+}
+
+function openCardErrataModal() {
+  if (!state.currentCard?.has_errata) return;
+  renderErrataModal(state.currentCard);
+  const dlg = $("#card-errata-modal");
+  if (!dlg) return;
+  dlg.hidden = false;
+  syncModalOpenClass();
+  $("#card-errata-close")?.focus();
+}
+
+function closeCardErrataModal() {
+  const dlg = $("#card-errata-modal");
+  if (!dlg || dlg.hidden) return;
+  dlg.hidden = true;
+  syncModalOpenClass();
+  $("#modal-errata-open")?.focus();
+}
+
+function openCardTipsModal() {
+  const dlg = $("#card-tips-modal");
+  if (!dlg || !state.currentCard) return;
+  renderTipsModal(state.currentCard);
+  dlg.hidden = false;
+  syncModalOpenClass();
+  $("#card-tips-close")?.focus();
+}
+
+function closeCardTipsModal() {
+  const dlg = $("#card-tips-modal");
+  if (!dlg || dlg.hidden) return;
+  dlg.hidden = true;
+  syncModalOpenClass();
+  $("#modal-tips-trigger")?.focus();
+}
+
 function formatMarketPrice(value) {
   if (value == null || Number.isNaN(Number(value))) return "—";
   return `${Number(value).toFixed(2).replace(".", ",")} €`;
@@ -1873,6 +2009,7 @@ function renderModalCard(card) {
       </div>`
     )
     .join("");
+  renderModalSupplements(card);
 }
 
 async function refreshModalCard() {
@@ -3464,6 +3601,16 @@ function wireEvents() {
   $("#card-modal").addEventListener("click", (e) => {
     if (e.target === $("#card-modal")) closeCardModalOverlay();
   });
+  $("#modal-errata-open")?.addEventListener("click", openCardErrataModal);
+  $("#modal-tips-trigger")?.addEventListener("click", openCardTipsModal);
+  $("#card-errata-close")?.addEventListener("click", closeCardErrataModal);
+  $("#card-tips-close")?.addEventListener("click", closeCardTipsModal);
+  $("#card-errata-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#card-errata-modal")) closeCardErrataModal();
+  });
+  $("#card-tips-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#card-tips-modal")) closeCardTipsModal();
+  });
 
   $("#search-help-btn")?.addEventListener("click", openSearchHelpModal);
   $("#search-help-close")?.addEventListener("click", closeSearchHelpModal);
@@ -3475,6 +3622,8 @@ function wireEvents() {
     if (e.key !== "Escape") return;
     if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
+    else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
+    else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
     else if (isModalVisible("#search-help-modal")) closeSearchHelpModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });

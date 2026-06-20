@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -54,6 +54,22 @@ class CardSummary(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
 
+class CardErrataVersionOut(BaseModel):
+    version_label: str
+    lore_text: str | None = None
+    set_code: str | None = None
+    set_name: str | None = None
+    release_date: date | None = None
+    source_url: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class CardTipsSectionOut(BaseModel):
+    format: str
+    tips: list[str] = Field(default_factory=list)
+
+
 class CardDetail(CardSummary):
     human_readable_type: str | None
     desc: str | None
@@ -63,6 +79,10 @@ class CardDetail(CardSummary):
     image_url: str | None
     printings: list[PrintingOut] = []
     tags: list[str] = []
+    has_errata: bool = False
+    last_erratum_date: date | None = None
+    errata: list[CardErrataVersionOut] = Field(default_factory=list)
+    tips: list[CardTipsSectionOut] = Field(default_factory=list)
 
 
 class FolderAllocationOut(BaseModel):

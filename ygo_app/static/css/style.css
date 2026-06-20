@@ -1203,6 +1203,77 @@ tr:hover td { background: var(--surface); }
   line-height: 1.5;
   white-space: pre-wrap;
 }
+.modal-supplement {
+  margin: 0.5rem 0 0.75rem;
+}
+.modal-supplement-text {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.link-button:hover {
+  color: #9ec5ff;
+}
+#modal-tips-trigger.modal-supplement {
+  display: block;
+  text-align: left;
+  font-weight: 600;
+}
+.modal-card--supplement header {
+  padding: 1rem 1rem 0.25rem;
+}
+.supplement-body {
+  padding: 0 1rem 1rem;
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+}
+.errata-version {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.errata-version:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.errata-version h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+.errata-version .errata-meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.errata-version .errata-lore {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+.tips-section {
+  margin-bottom: 1rem;
+}
+.tips-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+.tips-section ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.tips-section li {
+  margin-bottom: 0.45rem;
+  line-height: 1.4;
+}
 #card-modal input,
 #card-modal select,
 #card-modal button {

@@ -10,7 +10,7 @@ from pathlib import Path
 from ygo_app.db_migrate import ensure_db_at_head
 from ygo_app.import_data import import_cards_entries
 from ygo_app.yugipedia.card_import import yugipedia_entries_to_import
-from ygo_app.yugipedia.paths import ALL_CARDS_PATH
+from ygo_app.yugipedia.paths import ALL_CARDS_PATH, SET_CHRONOLOGY_PATH
 
 
 def load_yugipedia_cards(path: Path) -> list[dict]:
@@ -41,10 +41,12 @@ def import_from_yugipedia_json(
     entries = load_yugipedia_cards(path)
     api_entries = yugipedia_entries_to_import(entries)
     min_required = resolve_min_cards(limit=limit, min_cards=min_cards)
+    if limit is not None:
+        min_required = min(min_required, len(entries))
     if len(api_entries) < min_required:
         raise RuntimeError(
-            f"Only {len(api_entries)} cards after mapping (minimum {min_required}). "
-            "Scrape may have failed."
+            f"Only {len(api_entries)} cards after mapping (minimum {min_required}, "
+            f"{len(entries)} in JSON). Scrape may have failed."
         )
     return import_cards_entries(api_entries, limit=limit)
 
@@ -78,6 +80,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     ensure_db_at_head()
+
+    if SET_CHRONOLOGY_PATH.exists():
+        try:
+            from ygo_app.jobs.import_set_chronology import (
+                import_set_chronology_rows,
+                load_set_chronology,
+            )
+
+            set_count = import_set_chronology_rows(load_set_chronology(SET_CHRONOLOGY_PATH))
+            print(f"Imported {set_count} tcg_sets from set chronology")
+        except Exception as exc:
+            print(f"Warning: set chronology import skipped: {exc}")
 
     cards, printings = import_from_yugipedia_json(
         args.json, limit=args.limit, min_cards=args.min_cards

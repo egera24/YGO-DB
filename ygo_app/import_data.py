@@ -9,6 +9,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from datetime import date
+
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -16,7 +18,9 @@ from tqdm import tqdm
 from ygo_app.catalog import fetch_card_entries, load_card_entries
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
-from ygo_app.models import Card, CollectionItem, Printing
+from ygo_app.models import Card, CardErrataVersion, CollectionItem, Printing, TcgSet
+from ygo_app.yugipedia.date_parse import parse_yugipedia_date
+from ygo_app.yugipedia.set_chronology import set_abbr_from_code
 from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code, rarity_display
 
@@ -118,6 +122,9 @@ def _card_from_api(entry: dict) -> Card:
         ygoprodeck_url=entry.get("ygoprodeck_url"),
         image_url=img.get("image_url"),
         image_url_small=img.get("image_url_small"),
+        has_errata=bool(entry.get("has_errata")),
+        last_erratum_date=_date_or_none(entry.get("last_erratum_date")),
+        tips=entry.get("tips"),
     )
 
 
@@ -149,6 +156,74 @@ def _float_or_none(value):
         return None
 
 
+def _date_or_none(value) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return parse_yugipedia_date(value)
+    return None
+
+
+def _resolve_erratum_release_date(
+    session: Session,
+    *,
+    set_code: str | None,
+    set_name: str | None,
+    release_from_json: str | None,
+    tcg_release_cache: dict[str, date | None],
+) -> date | None:
+    parsed = _date_or_none(release_from_json)
+    if parsed:
+        return parsed
+    abbr = set_abbr_from_code(set_code)
+    if abbr:
+        if abbr not in tcg_release_cache:
+            row = session.get(TcgSet, abbr)
+            tcg_release_cache[abbr] = row.release_date if row else None
+        if tcg_release_cache[abbr]:
+            return tcg_release_cache[abbr]
+    if set_name:
+        for abbr_key, cached in tcg_release_cache.items():
+            if cached is None:
+                row = session.get(TcgSet, abbr_key)
+                tcg_release_cache[abbr_key] = row.release_date if row else None
+        for row in session.execute(select(TcgSet).where(TcgSet.name == set_name)).scalars():
+            return row.release_date
+    return None
+
+
+def _errata_rows_for_entry(
+    session: Session,
+    card_id: int,
+    entry: dict,
+    tcg_release_cache: dict[str, date | None],
+) -> list[CardErrataVersion]:
+    rows: list[CardErrataVersion] = []
+    for version in entry.get("errata") or []:
+        release = _resolve_erratum_release_date(
+            session,
+            set_code=version.get("set_code"),
+            set_name=version.get("set_name"),
+            release_from_json=version.get("release_date"),
+            tcg_release_cache=tcg_release_cache,
+        )
+        rows.append(
+            CardErrataVersion(
+                card_id=card_id,
+                language=version.get("language") or "English",
+                version_index=int(version.get("version_index", 0)),
+                version_label=version.get("version_label") or "",
+                lore_text=version.get("lore_text"),
+                set_code=version.get("set_code"),
+                set_name=version.get("set_name"),
+                release_date=release,
+            )
+        )
+    return rows
+
+
 def import_cards_entries(
     entries: list[dict],
     *,
@@ -173,6 +248,8 @@ def import_cards_entries(
 
         batch_cards: list[Card] = []
         batch_printings: list[Printing] = []
+        batch_errata: list[CardErrataVersion] = []
+        tcg_release_cache: dict[str, date | None] = {}
 
         for entry in tqdm(entries, desc="Importing cards"):
             if "category" not in entry and entry.get("frameType") is not None:
@@ -181,6 +258,9 @@ def import_cards_entries(
                 entry = enrich_ygopro_entry(entry)
             card = _card_from_api(entry)
             batch_cards.append(card)
+            batch_errata.extend(
+                _errata_rows_for_entry(session, card.id, entry, tcg_release_cache)
+            )
             seen_printings: set[tuple[str, str]] = set()
 
             for cs in entry.get("card_sets") or []:
@@ -207,16 +287,19 @@ def import_cards_entries(
                 session.add_all(batch_cards)
                 session.flush()
                 session.add_all(batch_printings)
+                session.add_all(batch_errata)
                 session.commit()
                 cards_imported += len(batch_cards)
                 printings_imported += len(batch_printings)
                 batch_cards.clear()
                 batch_printings.clear()
+                batch_errata.clear()
 
         if batch_cards:
             session.add_all(batch_cards)
             session.flush()
             session.add_all(batch_printings)
+            session.add_all(batch_errata)
             session.commit()
             cards_imported += len(batch_cards)
             printings_imported += len(batch_printings)

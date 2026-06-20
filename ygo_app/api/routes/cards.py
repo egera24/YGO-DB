@@ -17,6 +17,7 @@ from ygo_app.services import (
     summoning_condition_suggestions,
     toggle_favorite,
 )
+from ygo_app.yugipedia.card_detail_extras import card_errata_for_api, card_tips_for_api
 from ygo_app.yugipedia.images import resolve_display_image_url_small
 
 router = APIRouter(prefix="/cards", tags=["cards"])
@@ -202,6 +203,10 @@ def _build_card_detail(db: Session, card_id: int, user: User) -> CardDetail:
         image_url=card.image_url,
         printings=[_printing_out(p) for p in printings],
         tags=tags,
+        has_errata=bool(card.has_errata),
+        last_erratum_date=card.last_erratum_date,
+        errata=card_errata_for_api(card),
+        tips=card_tips_for_api(card),
     )
 
 

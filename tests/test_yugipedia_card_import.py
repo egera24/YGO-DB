@@ -71,7 +71,35 @@ class TestYugipediaCardImport(unittest.TestCase):
         self.assertEqual(json.loads(row["link_markers"]), ["Top", "Left", "Right"])
         self.assertEqual(row["link_rating"], 3)
 
-    def test_entries_without_printings_skipped(self):
+    def test_errata_and_tips_fields(self):
+        entry = {
+            "id": "84893333",
+            "name": "Abyss Dweller",
+            "typeline": ["Sea Serpent", "Xyz", "Effect"],
+            "type": "Sea Serpent",
+            "attribute": "WATER",
+            "rank": 4,
+            "atk": 1700,
+            "def": 1400,
+            "card_sets": [{"set_code": "ABYR-EN084", "set_name": "Abyss Rising", "set_rarity": "SR"}],
+            "has_errata": True,
+            "last_erratum_date": "2019-10-11",
+            "errata": [
+                {
+                    "language": "English",
+                    "version_index": 0,
+                    "version_label": "Original",
+                    "lore_text": "Original",
+                }
+            ],
+            "tips": [{"format": "Traditional Format", "tips": ["Tip one"]}],
+        }
+        row = yugipedia_entry_to_import(entry)
+        assert row is not None
+        self.assertTrue(row["has_errata"])
+        self.assertEqual(row["last_erratum_date"], "2019-10-11")
+        self.assertEqual(len(row["errata"]), 1)
+        self.assertIn("Traditional Format", row["tips"])
         entries = [
             {"id": "11111111", "name": "X", "typeline": ["Dragon"], "type": "Dragon"},
             {

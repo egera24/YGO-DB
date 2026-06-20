@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=38" />
+  <link rel="stylesheet" href="/static/css/style.css?v=39" />
 </head>
 <body>
   <header class="app-header">
@@ -353,6 +353,13 @@
           <h2 id="modal-name"></h2>
           <p id="modal-meta" class="muted"></p>
           <p id="modal-desc"></p>
+          <div id="modal-errata-teaser" class="modal-supplement" hidden>
+            <p class="modal-supplement-text">
+              <span id="modal-errata-label"></span>
+              <button type="button" id="modal-errata-open" class="link-button">For errata information click here</button>
+            </p>
+          </div>
+          <button type="button" id="modal-tips-trigger" class="modal-supplement link-button" hidden>Tips</button>
           <div class="modal-actions">
             <button type="button" id="modal-favorite">☆ Favorite</button>
             <input type="text" id="tag-input" placeholder="Add tag…" />
@@ -375,6 +382,26 @@
           </div>
         </div>
       </div>
+    </article>
+  </div>
+
+  <div id="card-errata-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="card-errata-title" hidden>
+    <article class="modal-card modal-card--narrow modal-card--supplement">
+      <button type="button" id="card-errata-close" class="modal-close" aria-label="Close">&times;</button>
+      <header>
+        <h2 id="card-errata-title">Card errata</h2>
+      </header>
+      <div id="card-errata-body" class="supplement-body"></div>
+    </article>
+  </div>
+
+  <div id="card-tips-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="card-tips-title" hidden>
+    <article class="modal-card modal-card--narrow modal-card--supplement">
+      <button type="button" id="card-tips-close" class="modal-close" aria-label="Close">&times;</button>
+      <header>
+        <h2 id="card-tips-title">Tips</h2>
+      </header>
+      <div id="card-tips-body" class="supplement-body"></div>
     </article>
   </div>
 
@@ -485,6 +512,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=50" type="module"></script>
+  <script src="/static/js/app.js?v=51" type="module"></script>
 </body>
 </html>

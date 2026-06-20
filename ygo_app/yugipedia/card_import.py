@@ -48,6 +48,15 @@ def _types_from_entry(entry: dict, *, category: str) -> list[str]:
     return _normalize_typeline(entry)
 
 
+def _tips_json(entry: dict) -> str | None:
+    tips = entry.get("tips")
+    if not tips:
+        return None
+    if isinstance(tips, str):
+        return tips
+    return json.dumps(tips, ensure_ascii=False)
+
+
 def yugipedia_entry_to_import(entry: dict) -> dict | None:
     """Build one import row (Card fields + card_sets + card_images) from scrape JSON."""
     pid = passcode_to_int(entry.get("id"))
@@ -112,6 +121,10 @@ def yugipedia_entry_to_import(entry: dict) -> dict | None:
         "summoning_condition": summoning_condition,
         "atk": _int_field(entry.get("atk")) if category == "Monster" else api.get("atk"),
         "def": _int_field(entry.get("def")) if category == "Monster" else api.get("def"),
+        "has_errata": bool(entry.get("has_errata")),
+        "last_erratum_date": entry.get("last_erratum_date"),
+        "errata": entry.get("errata") or [],
+        "tips": _tips_json(entry),
     }
 
 

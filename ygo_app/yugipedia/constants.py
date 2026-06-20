@@ -25,6 +25,9 @@ FAILED_RETRY_ROUNDS = 2
 # Per in-flight card: HTTP retries + delays; pool wait uses this ceiling.
 PER_CARD_POOL_TIMEOUT_SECONDS = 240
 SLOW_REQUEST_WARN_SECONDS = 45
+# Errata/tips probe: missing pages may 404 or hang; avoid long retry loops.
+SUPPLEMENT_PROBE_TIMEOUT = 25
+SUPPLEMENT_PROBE_RETRIES = 1
 
 # Short codes for known rarities; unknown → empty (import uses full rarity label).
 RARITY_CODES: dict[str, str] = {

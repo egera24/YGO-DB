@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-18
+> **Last updated:** 2026-06-20
 
 ---
 
@@ -84,7 +84,9 @@ flowchart TB
 |------|----------------|--------|
 | 1 | [`yugipedia/passcodes.py`](ygo_app/yugipedia/passcodes.py) | `data/catalog/yugipedia_passcode_list.json` (all `Concept:CG cards`) |
 | 2 | [`yugipedia/details.py`](ygo_app/yugipedia/details.py) + [`parsing.py`](ygo_app/yugipedia/parsing.py) | `yugipedia_all_cards.json` (metadata + `image_url`/`image_url_small`); `yugipedia_rejected_cards.json` |
-| 3 | [`jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) + [`card_import.py`](ygo_app/yugipedia/card_import.py) (+ [`adapter.py`](ygo_app/yugipedia/adapter.py) for images/legacy fields) | Neon `cards` + `printings` |
+| 2b | [`jobs/scrape_yugipedia_set_chronology.py`](ygo_app/jobs/scrape_yugipedia_set_chronology.py) | `yugipedia_set_chronology.json` → upsert `tcg_sets` |
+| 2c | [`jobs/scrape_yugipedia_supplements.py`](ygo_app/jobs/scrape_yugipedia_supplements.py) | merges `errata` + `tips` into `yugipedia_all_cards.json` |
+| 3 | [`jobs/import_catalog_yugipedia.py`](ygo_app/jobs/import_catalog_yugipedia.py) + [`card_import.py`](ygo_app/yugipedia/card_import.py) (+ [`adapter.py`](ygo_app/yugipedia/adapter.py) for images/legacy fields) | Neon `cards` + `printings` + `card_errata_versions` |
 
 **Key behaviors:**
 
@@ -386,6 +388,9 @@ git checkout main && git merge develop && git push   # promote app to prod
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
+**2026-06-20**
+- **Yugipedia errata, set chronology & tips** — Alembic `010`: `tcg_sets`, `card_errata_versions`, `cards.has_errata` / `last_erratum_date` / `tips`. Jobs: `scrape_yugipedia_set_chronology`, `scrape_yugipedia_supplements` (batched errata + tips), `import_set_chronology` (also runs from catalog import). GHA: `set_chronology` + `supplements_batch_0..5` before images/import. API `CardDetail` adds `errata[]` (English UI) + `tips[]`. Card modal: errata teaser + tips button with nested popups. Static `app.js?v=51`, `style.css?v=39`. Tests: `test_yugipedia_set_chronology.py`, `test_yugipedia_errata.py`, `test_yugipedia_tips.py`, `test_card_detail_supplements.py`.
+
 **2026-06-18**
 - **Email verification on registration** — two-step signup: `POST /api/auth/register` creates `pending_registrations` row and emails 6-digit OTP (10 min TTL, Brevo or `EMAIL_BACKEND=console` locally); `POST /api/auth/verify-email` creates `users` row with `email_verified_at`. Endpoints: `/auth/resend-code`, `/auth/config` (Turnstile site key). Neon-backed rate limits on auth routes. Alembic `009`. Frontend verify panel + resend cooldown. Env: `EMAIL_BACKEND`, `BREVO_API_KEY`, `EMAIL_FROM`, optional `TURNSTILE_*`. Tests: `test_email_verification.py`. Static `app.js?v=49`, `style.css?v=38`.
 - **Login as landing page (no anonymous access)** — catalog read APIs (`GET /api/cards/search`, card detail/printings/suggestions, `GET /api/filters`, `GET /api/status`) now require JWT via `get_current_user`. Frontend shows a login/register landing page until `/api/auth/me` succeeds; app shell (tabs, search, collection, decks) hidden until authenticated. `GET /api/health` and auth login/register stay public. Static `app.js?v=47`, `style.css?v=36`. Tests: `test_api_auth.py`.
@@ -532,4 +537,4 @@ data/catalog/                  # gitignored scrape JSON
 | `folder=__no_folder__` on list | Returns items with No Folder allocation |
 | CSV with bad set codes | `rejected_cards.csv` download; matched rows in DB; **Owned only** shows them |
 | Logged in: Search **preset** toolbar | `#search-presets-bar` visible; Save/Load/Rename/Delete; `GET /api/search-presets` returns list |
-| `alembic current` (Neon dev in `.env`) | `009 (head)` after email-verification migration |
+| `alembic current` (Neon dev in `.env`) | `010 (head)` after errata/tips migration |

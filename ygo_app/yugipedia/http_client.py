@@ -37,6 +37,17 @@ class RateLimiter:
 _rate_limiter = RateLimiter(MIN_REQUEST_INTERVAL)
 
 
+def _response_log_fields(response) -> dict:
+    if response is None:
+        return {"has_response": False, "status_code": None, "body_bytes_read": 0}
+    content = getattr(response, "content", b"") or b""
+    return {
+        "has_response": True,
+        "status_code": getattr(response, "status_code", None),
+        "body_bytes_read": len(content),
+    }
+
+
 def create_scraper() -> cloudscraper.CloudScraper:
     scraper = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "desktop": True}
@@ -45,33 +56,44 @@ def create_scraper() -> cloudscraper.CloudScraper:
     return scraper
 
 
-def fetch_page(scraper, url: str, *, retries: int = MAX_RETRIES) -> tuple[str | None, str | None]:
+def fetch_page(
+    scraper,
+    url: str,
+    *,
+    retries: int = MAX_RETRIES,
+    timeout: float = REQUEST_TIMEOUT,
+) -> tuple[str | None, str | None]:
     for attempt in range(retries):
+        started = time.monotonic()
         try:
             _rate_limiter.acquire()
-            started = time.monotonic()
-            response = scraper.get(url, timeout=REQUEST_TIMEOUT)
+            response = scraper.get(url, timeout=timeout)
             elapsed = time.monotonic() - started
+            resp_fields = _response_log_fields(response)
             if elapsed >= SLOW_REQUEST_WARN_SECONDS:
                 log_line(
-                    f"[WARN] Slow HTTP {elapsed:.1f}s (attempt {attempt + 1}/{retries}) "
-                    f"{url[:80]}"
+                    f"[WARN] Slow HTTP {elapsed:.1f}s status={resp_fields['status_code']} "
+                    f"bytes={resp_fields['body_bytes_read']} "
+                    f"(attempt {attempt + 1}/{retries}) {url[:80]}"
                 )
             response.raise_for_status()
             return response.text, None
         except cloudscraper.exceptions.CloudflareChallengeError as e:
+            elapsed = time.monotonic() - started
             error_msg = f"CloudflareError: {str(e)[:100]}"
             log_line(
                 f"[WARN] Cloudflare challenge (attempt {attempt + 1}/{retries}) "
-                f"{url[:60]}"
+                f"elapsed={elapsed:.1f}s {url[:60]}"
             )
             if attempt < retries - 1:
                 time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
                 continue
             return None, error_msg
         except Exception as e:
+            elapsed = time.monotonic() - started
             error_type = type(e).__name__
             error_str = str(e)
+            resp_fields = _response_log_fields(getattr(e, "response", None))
             is_retryable = any(
                 [
                     "502" in error_str,
@@ -85,10 +107,15 @@ def fetch_page(scraper, url: str, *, retries: int = MAX_RETRIES) -> tuple[str | 
                     "ConnectionError" in error_type,
                 ]
             )
+            status_part = (
+                f" status={resp_fields['status_code']} bytes={resp_fields['body_bytes_read']}"
+                if resp_fields["has_response"]
+                else " no_response"
+            )
             if is_retryable and attempt < retries - 1:
                 log_line(
                     f"[WARN] Retryable {error_type} (attempt {attempt + 1}/{retries}) "
-                    f"{url[:60]}"
+                    f"elapsed={elapsed:.1f}s{status_part} {url[:60]}"
                 )
                 time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
                 continue

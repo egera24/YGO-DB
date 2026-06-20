@@ -500,7 +500,14 @@ def card_to_summary(session: Session, card: Card, user_id: int | None) -> dict:
 
 
 def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card | None:
-    card = session.get(Card, card_id, options=[joinedload(Card.printings)])
+    card = session.get(
+        Card,
+        card_id,
+        options=[
+            joinedload(Card.printings),
+            joinedload(Card.errata_versions),
+        ],
+    )
     if not card:
         return None
 

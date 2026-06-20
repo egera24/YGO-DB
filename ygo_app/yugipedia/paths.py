@@ -9,6 +9,7 @@ CATALOG_DIR = DATA_DIR / "catalog"
 PASSCODE_LIST_PATH = CATALOG_DIR / "yugipedia_passcode_list.json"
 ALL_CARDS_PATH = CATALOG_DIR / "yugipedia_all_cards.json"
 REJECTED_PATH = CATALOG_DIR / "yugipedia_rejected_cards.json"
+SET_CHRONOLOGY_PATH = CATALOG_DIR / "yugipedia_set_chronology.json"
 
 
 def ensure_catalog_dir() -> Path:

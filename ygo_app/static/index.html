@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=46" />
+  <link rel="stylesheet" href="/static/css/style.css?v=48" />
 </head>
 <body>
   <header class="app-header">
@@ -358,43 +358,78 @@
         </div>
         <div class="modal-info">
           <h2 id="modal-name"></h2>
+          <p id="modal-passcode" class="modal-passcode muted" hidden>
+            <span class="modal-passcode-label">Passcode:</span>
+            <span id="modal-passcode-text" class="modal-passcode-digits"></span>
+            <button type="button" id="modal-passcode-copy" class="icon-btn modal-passcode-copy" aria-label="Copy passcode" title="Copy passcode" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+              </svg>
+            </button>
+          </p>
           <p id="modal-meta" class="muted"></p>
           <p id="modal-desc"></p>
-          <div id="modal-supplements" class="modal-supplements" hidden>
-            <button type="button" id="modal-errata-open" class="icon-btn supplement-icon-btn" aria-label="Errata History" data-tooltip="Errata History" aria-haspopup="dialog" aria-controls="card-errata-modal" hidden>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-            </button>
-            <button type="button" id="modal-tips-trigger" class="icon-btn supplement-icon-btn" aria-label="Card Tips" data-tooltip="Card Tips" aria-haspopup="dialog" aria-controls="card-tips-modal" hidden>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M9 18h6" />
-                <path d="M10 22h4" />
-                <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
-              </svg>
-            </button>
-          </div>
-          <div class="modal-actions">
+          <div class="modal-quick-actions">
             <button type="button" id="modal-favorite">☆ Favorite</button>
+            <div id="modal-supplements" class="modal-supplements" hidden>
+              <button type="button" id="modal-errata-open" class="icon-btn supplement-icon-btn" aria-label="Errata History" data-tooltip="Errata History" aria-haspopup="dialog" aria-controls="card-errata-modal" hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              </button>
+              <button type="button" id="modal-tips-trigger" class="icon-btn supplement-icon-btn" aria-label="Card Tips" data-tooltip="Card Tips" aria-haspopup="dialog" aria-controls="card-tips-modal" hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 18h6" />
+                  <path d="M10 22h4" />
+                  <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="modal-tags-row">
+            <label for="tag-input" class="sr-only">Add tag</label>
             <input type="text" id="tag-input" list="tag-datalist" placeholder="Add tag…" autocomplete="off" />
             <button type="button" id="tag-add-btn">Add tag</button>
           </div>
           <div id="modal-tags" class="tag-list"></div>
-          <h3>Printings (set code)</h3>
-          <div id="modal-printings" class="printings-list"></div>
-          <div class="add-owned">
-            <h3>Mark as owned</h3>
-            <select id="owned-printing"></select>
-            <input type="number" id="owned-qty" min="1" value="1" />
-            <button type="button" id="owned-add-btn">Add to collection</button>
-          </div>
-          <div class="deck-add-row">
-            <h3>Add to active deck</h3>
-            <select id="deck-target" aria-label="Deck"></select>
-            <select id="deck-zone"><option value="main">Main</option><option value="extra">Extra</option><option value="side">Side</option></select>
-            <button type="button" id="deck-add-card-btn">Add Card</button>
-          </div>
+          <section class="modal-section modal-section--printings" aria-labelledby="modal-printings-heading">
+            <div class="modal-section-header">
+              <h3 id="modal-printings-heading">All printings</h3>
+              <span id="modal-price-legend" class="printings-price-legend muted" hidden>Low / Avg / Trend</span>
+            </div>
+            <div id="modal-printings" class="printings-list"></div>
+          </section>
+          <section class="modal-section modal-section--owned" aria-labelledby="modal-owned-heading">
+            <h3 id="modal-owned-heading">Mark as owned</h3>
+            <p id="owned-single-printing" class="owned-single-printing muted" hidden></p>
+            <div class="modal-action-grid">
+              <div class="owned-printing-wrap" id="owned-printing-wrap">
+                <label for="owned-printing">Printing</label>
+                <select id="owned-printing"></select>
+              </div>
+              <div class="owned-qty-wrap">
+                <label for="owned-qty">Quantity</label>
+                <input type="number" id="owned-qty" min="1" value="1" />
+              </div>
+              <button type="button" id="owned-add-btn" class="primary modal-action-submit">Add to collection</button>
+            </div>
+          </section>
+          <section class="modal-section modal-section--deck" aria-labelledby="modal-deck-heading">
+            <h3 id="modal-deck-heading">Add to active deck</h3>
+            <div class="modal-action-grid">
+              <div class="deck-target-wrap">
+                <label for="deck-target">Deck</label>
+                <select id="deck-target"></select>
+              </div>
+              <div class="deck-zone-wrap">
+                <label for="deck-zone">Zone</label>
+                <select id="deck-zone"><option value="main">Main</option><option value="extra">Extra</option><option value="side">Side</option></select>
+              </div>
+              <button type="button" id="deck-add-card-btn" class="primary modal-action-submit">Add Card</button>
+            </div>
+          </section>
         </div>
       </div>
     </article>
@@ -552,6 +587,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=62" type="module"></script>
+  <script src="/static/js/app.js?v=64" type="module"></script>
 </body>
 </html>

@@ -1628,6 +1628,7 @@ function applyModalReadableColors() {
   setLight($("#modal-desc"), MODAL_TEXT);
   dlg.querySelectorAll(".modal-info h3").forEach((el) => setLight(el, MODAL_TEXT));
   setLight($("#modal-meta"), MODAL_MUTED);
+  setLight($("#modal-passcode"), MODAL_MUTED);
   dlg.querySelectorAll(".printing-row .set-code").forEach((el) => setLight(el, "#d4a017"));
 }
 
@@ -1839,6 +1840,7 @@ function findModalSeed(cardId) {
 
 function renderModalSkeleton() {
   resetModalSupplements();
+  renderModalPasscode(null);
   $("#modal-desc").innerHTML = `
     <div class="skeleton skeleton-line"></div>
     <div class="skeleton skeleton-line"></div>
@@ -1850,6 +1852,17 @@ function renderModalSkeleton() {
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>`;
+  const priceLegend = $("#modal-price-legend");
+  if (priceLegend) priceLegend.hidden = true;
+  const printingWrap = $("#owned-printing-wrap");
+  const singlePrintingEl = $("#owned-single-printing");
+  const ownedSection = document.querySelector(".modal-section--owned");
+  if (printingWrap) printingWrap.hidden = false;
+  if (singlePrintingEl) {
+    singlePrintingEl.hidden = true;
+    singlePrintingEl.textContent = "";
+  }
+  ownedSection?.classList.remove("is-single-printing");
   const printingSel = $("#owned-printing");
   if (printingSel) {
     printingSel.innerHTML = '<option value="">Loading…</option>';
@@ -1880,6 +1893,7 @@ function setModalLoadingState(loading) {
 function seedModalPreview(seed, imageToken) {
   $("#modal-name").textContent = seed.name || "Loading…";
   $("#modal-meta").textContent = formatModalStats(seed);
+  renderModalPasscode(seed.id ?? state.currentCardId);
   if (seed.is_favorite != null) {
     $("#modal-favorite").textContent = seed.is_favorite ? "★ Favorited" : "☆ Favorite";
   } else {
@@ -2057,8 +2071,64 @@ function formatMarketPrice(value) {
   return `${Number(value).toFixed(2).replace(".", ",")} €`;
 }
 
+function printingHasMarketPrices(p) {
+  return [p.low_price, p.avg_price, p.trend_price].some(
+    (value) => value != null && !Number.isNaN(Number(value))
+  );
+}
+
 function formatMarketPrices(p) {
-  return `${formatMarketPrice(p.low_price)} / ${formatMarketPrice(p.avg_price)} / ${formatMarketPrice(p.trend_price)}`;
+  if (!printingHasMarketPrices(p)) {
+    return '<span class="printing-prices-unavailable">Prices unavailable</span>';
+  }
+  const low = formatMarketPrice(p.low_price);
+  const avg = formatMarketPrice(p.avg_price);
+  const trend = formatMarketPrice(p.trend_price);
+  return `<span aria-label="Low ${low}, Average ${avg}, Trend ${trend}">${low} / ${avg} / ${trend}</span>`;
+}
+
+function formatPasscode(cardId) {
+  if (cardId == null) return "";
+  return String(cardId).padStart(8, "0");
+}
+
+function renderModalPasscode(cardId) {
+  const wrap = $("#modal-passcode");
+  const text = $("#modal-passcode-text");
+  const copyBtn = $("#modal-passcode-copy");
+  if (!wrap || !text) return;
+  if (cardId == null) {
+    wrap.hidden = true;
+    wrap.removeAttribute("aria-label");
+    text.textContent = "";
+    if (copyBtn) copyBtn.hidden = true;
+    return;
+  }
+  const code = formatPasscode(cardId);
+  text.textContent = code;
+  wrap.setAttribute("aria-label", `Passcode ${code}`);
+  wrap.hidden = false;
+  if (copyBtn) copyBtn.hidden = false;
+}
+
+function updateOwnedPrintingUi(printings) {
+  const printingWrap = $("#owned-printing-wrap");
+  const singlePrintingEl = $("#owned-single-printing");
+  const ownedSection = document.querySelector(".modal-section--owned");
+  const isSingle = printings.length === 1;
+
+  if (printingWrap) printingWrap.hidden = isSingle;
+  if (singlePrintingEl) {
+    if (isSingle) {
+      const p = printings[0];
+      singlePrintingEl.textContent = `${p.set_code} ${p.set_rarity}`;
+      singlePrintingEl.hidden = false;
+    } else {
+      singlePrintingEl.hidden = true;
+      singlePrintingEl.textContent = "";
+    }
+  }
+  ownedSection?.classList.toggle("is-single-printing", isSingle);
 }
 
 function renderModalTags(tags) {
@@ -2082,6 +2152,7 @@ async function searchByTag(tag) {
 
 function renderModalCard(card) {
   $("#modal-name").textContent = card.name;
+  renderModalPasscode(card.id);
   $("#modal-meta").textContent = formatModalStats(card);
   $("#modal-desc").textContent = card.desc || "";
   $("#modal-desc").classList.remove("modal-load-error");
@@ -2089,8 +2160,9 @@ function renderModalCard(card) {
 
   renderModalTags(card.tags);
 
+  const printings = card.printings || [];
   const printingSel = $("#owned-printing");
-  printingSel.innerHTML = (card.printings || [])
+  printingSel.innerHTML = printings
     .map(
       (p) =>
         `<option value="${escapeHtml(p.set_code)}|${escapeHtml(p.set_rarity_code)}">
@@ -2099,8 +2171,12 @@ function renderModalCard(card) {
     )
     .join("");
   printingSel.disabled = false;
+  updateOwnedPrintingUi(printings);
 
-  $("#modal-printings").innerHTML = (card.printings || [])
+  const priceLegend = $("#modal-price-legend");
+  if (priceLegend) priceLegend.hidden = !printings.some(printingHasMarketPrices);
+
+  $("#modal-printings").innerHTML = printings
     .map(
       (p) => `
       <div class="printing-row ${p.owned_quantity ? "owned" : ""}">
@@ -2146,6 +2222,7 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
   }
 
   renderModalSkeleton();
+  renderModalPasscode(state.currentCardId);
   setModalLoadingState(true);
   openCardModalOverlay();
   populateDeckSelect();
@@ -3710,6 +3787,16 @@ function wireEvents() {
   $("#card-modal").addEventListener("click", (e) => {
     if (e.target === $("#card-modal")) closeCardModalOverlay();
   });
+  $("#modal-passcode-copy")?.addEventListener("click", async () => {
+    if (state.currentCardId == null) return;
+    const code = formatPasscode(state.currentCardId);
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast("Passcode copied");
+    } catch {
+      showToast("Could not copy passcode", { variant: "error" });
+    }
+  });
   $("#modal-errata-open")?.addEventListener("click", openCardErrataModal);
   $("#modal-tips-trigger")?.addEventListener("click", openCardTipsModal);
   $("#card-errata-close")?.addEventListener("click", closeCardErrataModal);
@@ -3851,7 +3938,7 @@ function wireEvents() {
 
   $("#owned-add-btn").addEventListener("click", async () => {
     if (!state.token) {
-      alert("Log in to add to your collection.");
+      showToast("Log in to add to your collection.", { variant: "error" });
       return;
     }
     const val = $("#owned-printing").value;
@@ -3881,12 +3968,12 @@ function wireEvents() {
 
   $("#deck-add-card-btn").addEventListener("click", async () => {
     if (!state.token) {
-      alert("Log in to add cards to a deck.");
+      showToast("Log in to add cards to a deck.", { variant: "error" });
       return;
     }
     const deckId = Number($("#deck-target").value);
     if (!deckId) {
-      alert("Create a deck first (Decks tab → New deck).");
+      showToast("Create a deck first (Decks tab → New deck).", { variant: "error", durationMs: 5000 });
       return;
     }
     const zone = $("#deck-zone").value;

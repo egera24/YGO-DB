@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 import threading
+import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -28,6 +29,38 @@ from ygo_app.yugipedia.related_links import (
 from ygo_app.yugipedia.scrape_progress import ScrapeProgressMonitor, log_line
 
 from ygo_app.yugipedia.tips import parse_tips_html
+
+_DEBUG_LOG = Path("debug-4967ed.log")
+
+
+def _agent_debug_log(*, location: str, message: str, data: dict, hypothesis_id: str) -> None:
+    # region agent log
+    try:
+        payload = {
+            "sessionId": "4967ed",
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "hypothesisId": hypothesis_id,
+        }
+        with _DEBUG_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    # endregion
+
+
+def _supplement_page_url(
+    card: dict,
+    field: str,
+    name: str,
+    builder,
+) -> tuple[str | None, str]:
+    """Return (url, source) where source is stored|legacy|absent."""
+    if field in card:
+        return card.get(field), "stored"
+    return builder(name), "legacy"
 
 
 def _load_json_list(path: Path) -> list[dict]:
@@ -103,43 +136,74 @@ def _process_supplements(
     update: dict = {}
 
     if scrape_errata:
-        errata_url = card.get("errata_url") or errata_url_for_card_name(name)
-        html, error = _fetch_supplement_html(scraper, errata_url)
-        if html and "card-errata" in html:
-            versions = parse_errata_html(html, set_release_lookup=set_release_lookup)
-            if versions:
-                update["errata"] = versions
-                has_errata, last_date = compute_errata_flags(versions)
-                update["has_errata"] = has_errata
-                if last_date:
-                    update["last_erratum_date"] = last_date
+        errata_url, errata_source = _supplement_page_url(
+            card, "errata_url", name, errata_url_for_card_name
+        )
+        # region agent log
+        _agent_debug_log(
+            location="scrape_yugipedia_supplements.py:_process_supplements",
+            message="errata url resolved",
+            data={
+                "card": name,
+                "source": errata_source,
+                "url": errata_url,
+                "has_errata_url_key": "errata_url" in card,
+            },
+            hypothesis_id="H1-stored-vs-legacy",
+        )
+        # endregion
+        if not errata_url:
+            update["errata"] = []
+            update["has_errata"] = False
+        else:
+            html, error = _fetch_supplement_html(scraper, errata_url)
+            if html and "card-errata" in html:
+                versions = parse_errata_html(html, set_release_lookup=set_release_lookup)
+                if versions:
+                    update["errata"] = versions
+                    has_errata, last_date = compute_errata_flags(versions)
+                    update["has_errata"] = has_errata
+                    if last_date:
+                        update["last_erratum_date"] = last_date
+                    else:
+                        update["has_errata"] = len(versions) > 1 or any(
+                            v.get("version_index", 0) > 0 for v in versions
+                        )
                 else:
-                    update["has_errata"] = len(versions) > 1 or any(
-                        v.get("version_index", 0) > 0 for v in versions
-                    )
+                    update["errata"] = []
+                    update["has_errata"] = False
+            elif error and not is_missing_supplement_page_error(error):
+                return {"success": False, "card": card, "error": error}
             else:
                 update["errata"] = []
                 update["has_errata"] = False
-        elif error and not is_missing_supplement_page_error(error):
-            return {"success": False, "card": card, "error": error}
-        else:
-            if error:
-                log_line(f"[SUPPLEMENTS SKIP] {name} errata unavailable ({error[:80]})")
-            update["errata"] = []
-            update["has_errata"] = False
 
     if scrape_tips:
-        tips_url = card.get("tips_url") or tips_url_for_card_name(name)
-        html, error = _fetch_supplement_html(scraper, tips_url)
-        if html and 'id="mw-content-text"' in html:
-            tips = parse_tips_html(html)
-            update["tips"] = tips
-        elif error and not is_missing_supplement_page_error(error):
-            return {"success": False, "card": card, "error": error}
-        else:
-            if error:
-                log_line(f"[SUPPLEMENTS SKIP] {name} tips unavailable ({error[:80]})")
+        tips_url, tips_source = _supplement_page_url(card, "tips_url", name, tips_url_for_card_name)
+        # region agent log
+        _agent_debug_log(
+            location="scrape_yugipedia_supplements.py:_process_supplements",
+            message="tips url resolved",
+            data={
+                "card": name,
+                "source": tips_source,
+                "url": tips_url,
+                "has_tips_url_key": "tips_url" in card,
+            },
+            hypothesis_id="H1-stored-vs-legacy",
+        )
+        # endregion
+        if not tips_url:
             update["tips"] = []
+        else:
+            html, error = _fetch_supplement_html(scraper, tips_url)
+            if html and 'id="mw-content-text"' in html:
+                tips = parse_tips_html(html)
+                update["tips"] = tips
+            elif error and not is_missing_supplement_page_error(error):
+                return {"success": False, "card": card, "error": error}
+            else:
+                update["tips"] = []
 
     return {"success": True, "card": card, "update": update}
 

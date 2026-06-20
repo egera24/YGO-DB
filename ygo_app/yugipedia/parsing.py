@@ -17,6 +17,12 @@ from ygo_app.yugipedia.images import (
     is_yugipedia_card_art_filename,
     yugipedia_image_urls_from_src,
 )
+from ygo_app.yugipedia.related_links import extract_related_links
+
+
+def _merge_related_links(card_data: dict, soup: BeautifulSoup) -> None:
+    """Record Errata/Tips wiki URLs from the card page (null when absent or redlink)."""
+    card_data.update(extract_related_links(soup))
 
 
 def extract_text_only(element) -> str:
@@ -361,6 +367,7 @@ def parse_monster_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | No
         if card_sets:
             card_data["card_sets"] = card_sets
         _merge_card_image(card_data, soup)
+        _merge_related_links(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing monster card: {e}"
@@ -392,6 +399,7 @@ def parse_spell_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
         if card_sets:
             card_data["card_sets"] = card_sets
         _merge_card_image(card_data, soup)
+        _merge_related_links(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing spell card: {e}"
@@ -423,6 +431,7 @@ def parse_trap_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None,
         if card_sets:
             card_data["card_sets"] = card_sets
         _merge_card_image(card_data, soup)
+        _merge_related_links(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing trap card: {e}"
@@ -454,6 +463,7 @@ def parse_skill_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
         if card_sets:
             card_data["card_sets"] = card_sets
         _merge_card_image(card_data, soup)
+        _merge_related_links(card_data, soup)
         return card_data, None
     except Exception as e:
         return None, f"Error parsing skill card: {e}"

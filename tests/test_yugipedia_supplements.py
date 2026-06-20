@@ -98,6 +98,31 @@ class TestProcessSupplementsSkip(unittest.TestCase):
         self.assertFalse(result["update"]["has_errata"])
         self.assertEqual(result["update"]["tips"], [])
 
+    @patch("ygo_app.jobs.scrape_yugipedia_supplements._fetch_supplement_html")
+    def test_no_http_when_detail_scrape_recorded_no_errata_page(self, mock_fetch):
+        card = {
+            "id": "483",
+            "name": "Parallel Teleport",
+            "errata_url": None,
+            "tips_url": "https://yugipedia.com/wiki/Card_Tips:Parallel_Teleport",
+        }
+        mock_fetch.return_value = (
+            '<div id="mw-content-text"><ul><li>tip</li></ul></div>',
+            None,
+        )
+        result = _process_supplements(
+            MagicMock(),
+            card,
+            set_release_lookup={},
+            scrape_errata=True,
+            scrape_tips=True,
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["update"]["errata"], [])
+        self.assertFalse(result["update"]["has_errata"])
+        mock_fetch.assert_called_once()
+        self.assertIn("Card_Tips", mock_fetch.call_args[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,49 +6,65 @@ alwaysApply: false
 
 # Frontend — UX/UI standards
 
-Vanilla HTML/CSS/JS in `ygo_app/static/`. Follow existing patterns before inventing new ones.
+Vanilla HTML/CSS/JS in `ygo_app/static/`. Follow existing patterns in `app.js`, `index.html`, `style.css` before inventing new ones.
 
 ## Design system
 
-- Use CSS variables from `:root` in `style.css`: `--bg`, `--surface`, `--accent`, `--muted`, `--radius`, etc.
-- Reuse existing classes (`.tab`, `.secondary`, `.hidden`, `.filter-group--compact`, modal patterns) before adding one-off styles.
-- Keep the dark theme; do not introduce light-only colors without `color-scheme` consideration.
+- CSS variables from `:root`: `--bg`, `--surface`, `--accent`, `--muted`, `--radius`, `--danger`.
+- Reuse classes: `.tab`, `.secondary`, `.hidden`, `.filter-group--compact`, `.modal-overlay`, `.icon-btn`, `.empty-msg`, `.supplement-icon-btn`.
+- Dark theme; `color-scheme: dark` in `index.html`. Responsive: `viewport` meta, flex/wrap, no mobile-breaking fixed widths.
 
 ## Accessibility
 
-- Match patterns in `index.html`: `role="tablist"`, `aria-label`, `aria-expanded`, `aria-controls`, `aria-labelledby`.
-- Every interactive control needs a visible label or `aria-label`; icon-only buttons must have `aria-label`.
-- Preserve keyboard use: focusable elements, logical tab order, `:focus-visible` styles.
-- Use semantic HTML (`button` for actions, `label` + `for` for inputs, `main`/`nav`/`section`).
+- Tabs/panels: `role="tablist"` / `tab` / `tabpanel`, `aria-selected`, `aria-controls`, `hidden`, `tabindex`.
+- Modals: `role="dialog"`, `aria-modal`, `aria-labelledby`; Escape closes topmost; focus `#modal-close` on card open.
+- Icon-only: `aria-label` (+ `data-tooltip` on `.supplement-icon-btn`). Live/async: `#auth-error`, `#auth-checking`, `aria-busy`.
+- Semantic HTML (`button`, `label`+`for`); `:focus-visible` on interactive controls.
 
-## UX patterns
+## Loading & perceived speed
 
-- **Loading:** immediate feedback — skeleton/shimmer for modals, `#import-progress` for long ops.
-- **Empty / error:** user-facing messages, not silent failures; disable actions until data is ready.
-- **Responsive:** keep `viewport` meta; use flex/wrap patterns; avoid fixed widths that break on mobile.
-- **Destructive actions:** confirm before delete; use `--danger` and existing delete button styling.
+- Immediate feedback: `renderModalSkeleton`, `#import-progress`, `setButtonBusy`, `.loading-spinner`, `runModalAction`.
+- Card modal: open overlay first; seed preview (`findModalSeed`); disable actions until API load completes.
+- Stale guards: `*RequestSeq` before fetch; ignore outdated responses. Performance: event delegation, tab caches, lazy `cardImgTag`.
 
-## Security & DOM safety
+## Empty, error & feedback
 
-- Insert untrusted API text via `textContent`, not `innerHTML`. Default is text-only; sanitize explicitly if HTML is ever required.
-- When `innerHTML` is required, wrap API/user strings with `escapeHtml()` (see `cardImgTag`, search results, modals).
-- Signup: call `validatePasswordStrength()` before POST; keep the hint in `index.html` in sync with `ygo_app/auth.py`.
-- JWT lives in `localStorage` (`ygo_token`) — any XSS can steal the token; treat DOM injection as high impact.
+- Empty states: `.empty-msg`, `renderSupplementEmpty` — never blank panels or silent failures.
+- Errors: `showToast` + inline `#auth-error`; avoid `alert()` for routine API failures.
+- Destructive/replace: `confirm()` before delete, preset delete, CSV import with `replace=true`.
 
-## Project conventions
+## Modals, navigation & state
 
-- After editing CSS or JS, bump the `?v=` query string on the matching `<link>` / `<script>` in `index.html`.
-- Prefer `app.js` patterns (event delegation, stale-response guards, tab memory cache) over per-row listeners.
+- Card modal: reset supplements, tag chips, and **uncommitted** `#tag-input` on open/switch/close — no draft carry-over.
+- Hash routing: `syncRouteHash` + `{ fromRouter: true }`; card route is overlay — do **not** switch background tab to Search.
+- Avoid double loads: `lastAppliedRouteHash`, `tabRouteAlreadyApplied`, `suppressHashSync`. Modal close: `history.back()` only with in-app history; else `replace`. Update `document.title`.
+
+## Forms & auth
+
+- Tabbed Sign in / Create account; `#auth-checking` while validating token (no login flash for returning users).
+- `validatePasswordStrength()` before register; hint sync with `ygo_app/auth.py`; `autocomplete`; accent primary submit.
+
+## Content & display
+
+- Search tiles compact (name + type). Metadata strip must not duplicate description or summoning condition.
+- Tags: removable chips (`aria-label` on remove), `#filter-tag` + `#tag-datalist`, chip click → tag search.
+- Errata/tips: icon-only buttons; explicit empty copy in supplement popups.
+- **Sanitized HTML only:** errata `lore_html` (server-sanitized) is the routine `innerHTML` exception; else `textContent` / `escapeHtml()`.
+
+## Security & conventions
+
+- JWT in `localStorage` — treat DOM injection as high impact. Never sync secrets into URL hash; allowlist `ROUTE_SEARCH_KEYS`, cap param length/count.
+- Bump `?v=` on edited `<link>` / `<script>` in `index.html`.
 
 ## Examples
 
 ```
 BAD:  el.innerHTML = card.name
 GOOD: el.textContent = card.name
-
-BAD:  New purple button styles ignoring --accent
-GOOD: Reuse .secondary / .tab and CSS variables
-
-BAD:  Clickable <div> with no keyboard support
-GOOD: <button type="button"> with aria-label if icon-only
+BAD:  Tag draft persists when opening another card
+GOOD: Clear #tag-input in renderModalSkeleton and closeCardModalOverlay
+BAD:  alert(err.message) on login failure
+GOOD: showAuthError + showToast(..., { variant: "error" })
+BAD:  switchView("search") behind #/card/{id} from Collection
+GOOD: openCardModal(id, { fromRouter: true }) — background tab unchanged
 ```

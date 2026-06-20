@@ -326,6 +326,7 @@ SEARCH_PRESET_PARAM_KEYS = frozenset(
         "def_max",
         "owned_only",
         "favorites_only",
+        "tag",
     }
 )
 

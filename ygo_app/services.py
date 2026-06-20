@@ -241,6 +241,24 @@ def get_user_tags(session: Session, user_id: int | None, card_id: int) -> list[s
     )
 
 
+def list_user_tags(
+    session: Session,
+    user_id: int,
+    q: str | None = None,
+    limit: int = 200,
+) -> list[str]:
+    stmt = (
+        select(UserCardTag.tag)
+        .where(UserCardTag.user_id == user_id)
+        .distinct()
+        .order_by(UserCardTag.tag)
+    )
+    if q and q.strip():
+        stmt = stmt.where(UserCardTag.tag.ilike(f"{q.strip()}%"))
+    stmt = stmt.limit(limit)
+    return list(session.execute(stmt).scalars().all())
+
+
 def search_cards(
     session: Session,
     *,

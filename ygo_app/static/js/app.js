@@ -689,7 +689,7 @@ async function bootstrapAuthenticatedApp() {
   setupLinkMarkerGrid();
   setupSummoningSuggestions();
 
-  await Promise.all([loadStatus(), loadFilters(), loadSearchPresets()]);
+  await Promise.all([loadStatus(), loadFilters(), loadSearchPresets(), loadUserTags()]);
   await applyRouteFromHash({ initial: true });
 }
 
@@ -770,6 +770,7 @@ function logout() {
   state.activePresetId = null;
   state.searchPresets = [];
   localStorage.removeItem("ygo_token");
+  setDatalist("#tag-datalist", []);
   clearAuthForms();
   switchAuthTab("login");
   setAuthenticatedShell(false);
@@ -1171,6 +1172,8 @@ function resetSearchFilters() {
   if (ownedEl) ownedEl.checked = false;
   const favEl = $("#favorites-only");
   if (favEl) favEl.checked = false;
+  const tagEl = $("#filter-tag");
+  if (tagEl) tagEl.value = "";
 
   document.querySelectorAll(".filter-multi").forEach((root) => {
     root
@@ -1261,6 +1264,8 @@ function buildSearchParams() {
 
   if ($("#owned-only").checked) params.set("owned_only", "true");
   if ($("#favorites-only").checked) params.set("favorites_only", "true");
+  const tag = $("#filter-tag")?.value.trim();
+  if (tag) params.set("tag", tag);
   return params;
 }
 
@@ -1324,6 +1329,10 @@ function applySearchParams(snapshot) {
 
   if (s.owned_only === "true") $("#owned-only").checked = true;
   if (s.favorites_only === "true") $("#favorites-only").checked = true;
+  if (s.tag) {
+    const el = $("#filter-tag");
+    if (el) el.value = s.tag;
+  }
 }
 
 function clearActivePreset() {
@@ -1365,6 +1374,19 @@ async function loadSearchPresets() {
   } catch {
     state.searchPresets = [];
     renderSearchPresetSelect();
+  }
+}
+
+async function loadUserTags() {
+  if (!state.token) {
+    setDatalist("#tag-datalist", []);
+    return;
+  }
+  try {
+    const data = await api("/cards/tags");
+    setDatalist("#tag-datalist", data.tags || []);
+  } catch {
+    setDatalist("#tag-datalist", []);
   }
 }
 
@@ -1623,6 +1645,8 @@ function closeCardModalOverlay({ fromRouter = false } = {}) {
   dlg.hidden = true;
   state.currentCardId = null;
   state.currentCard = null;
+  const tagInput = $("#tag-input");
+  if (tagInput) tagInput.value = "";
   syncModalOpenClass();
   updateRouteDocumentTitle();
   if (fromRouter) return;
@@ -1820,6 +1844,8 @@ function renderModalSkeleton() {
     <div class="skeleton skeleton-line"></div>
     <div class="skeleton skeleton-line skeleton-line--short"></div>`;
   $("#modal-tags").innerHTML = "";
+  const tagInput = $("#tag-input");
+  if (tagInput) tagInput.value = "";
   $("#modal-printings").innerHTML = `
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>
@@ -2035,6 +2061,25 @@ function formatMarketPrices(p) {
   return `${formatMarketPrice(p.low_price)} / ${formatMarketPrice(p.avg_price)} / ${formatMarketPrice(p.trend_price)}`;
 }
 
+function renderModalTags(tags) {
+  $("#modal-tags").innerHTML = (tags || [])
+    .map(
+      (t) => `<span class="tag">
+  <button type="button" class="tag-label" title="Search by this tag">${escapeHtml(t)}</button>
+  <button type="button" class="tag-remove" aria-label="Remove tag ${escapeHtml(t)}">×</button>
+</span>`
+    )
+    .join("");
+}
+
+async function searchByTag(tag) {
+  const filterEl = $("#filter-tag");
+  if (filterEl) filterEl.value = tag;
+  if (state.activeView !== "search") switchView("search");
+  closeCardModalOverlay();
+  await runSearch();
+}
+
 function renderModalCard(card) {
   $("#modal-name").textContent = card.name;
   $("#modal-meta").textContent = formatModalStats(card);
@@ -2042,9 +2087,7 @@ function renderModalCard(card) {
   $("#modal-desc").classList.remove("modal-load-error");
   $("#modal-favorite").textContent = card.is_favorite ? "★ Favorited" : "☆ Favorite";
 
-  $("#modal-tags").innerHTML = (card.tags || [])
-    .map((t) => `<span class="tag">${escapeHtml(t)}</span>`)
-    .join("");
+  renderModalTags(card.tags);
 
   const printingSel = $("#owned-printing");
   printingSel.innerHTML = (card.printings || [])
@@ -3746,16 +3789,63 @@ function wireEvents() {
             const tags = state.currentCard.tags || [];
             if (!tags.includes(tag)) {
               state.currentCard.tags = [...tags, tag];
-              $("#modal-tags").innerHTML = state.currentCard.tags
-                .map((t) => `<span class="tag">${escapeHtml(t)}</span>`)
-                .join("");
+              renderModalTags(state.currentCard.tags);
             }
           }
+          await loadUserTags();
         },
         { busyLabel: "Adding…", successMessage: `Tag "${tag}" added` }
       );
     } catch {
       // runModalAction already surfaced the error toast
+    }
+  });
+
+  $("#tag-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      $("#tag-add-btn")?.click();
+    }
+  });
+
+  $("#modal-tags")?.addEventListener("click", async (e) => {
+    const removeBtn = e.target.closest(".tag-remove");
+    if (removeBtn) {
+      if (!state.token) {
+        alert("Log in to manage tags.");
+        return;
+      }
+      const tagEl = removeBtn.closest(".tag");
+      const labelBtn = tagEl?.querySelector(".tag-label");
+      const tag = labelBtn?.textContent?.trim();
+      if (!tag || !state.currentCardId) return;
+      if (removeBtn.disabled) return;
+      try {
+        await runModalAction(
+          removeBtn,
+          async () => {
+            await api(
+              `/cards/${state.currentCardId}/tags/${encodeURIComponent(tag)}`,
+              { method: "DELETE" }
+            );
+            if (state.currentCard) {
+              state.currentCard.tags = (state.currentCard.tags || []).filter((t) => t !== tag);
+              renderModalTags(state.currentCard.tags);
+            }
+            await loadUserTags();
+          },
+          { busyLabel: "Removing…", successMessage: `Tag "${tag}" removed` }
+        );
+      } catch {
+        // runModalAction already surfaced the error toast
+      }
+      return;
+    }
+
+    const labelBtn = e.target.closest(".tag-label");
+    if (labelBtn) {
+      const tag = labelBtn.textContent?.trim();
+      if (tag) await searchByTag(tag);
     }
   });
 

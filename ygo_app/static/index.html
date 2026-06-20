@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=44" />
+  <link rel="stylesheet" href="/static/css/style.css?v=45" />
 </head>
 <body>
   <header class="app-header">
@@ -99,6 +99,8 @@
             <button type="button" id="search-help-btn" class="icon-btn search-help-btn" aria-label="Search syntax help" aria-haspopup="dialog" aria-controls="search-help-modal" aria-expanded="false">?</button>
           </div>
           <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
+          <input type="text" id="filter-tag" list="tag-datalist" placeholder="Tag" aria-label="Filter by tag" autocomplete="off" />
+          <datalist id="tag-datalist"></datalist>
           <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
           <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
           <button type="button" id="search-reset" class="secondary">Reset</button>
@@ -370,7 +372,7 @@
           </div>
           <div class="modal-actions">
             <button type="button" id="modal-favorite">☆ Favorite</button>
-            <input type="text" id="tag-input" placeholder="Add tag…" />
+            <input type="text" id="tag-input" list="tag-datalist" placeholder="Add tag…" autocomplete="off" />
             <button type="button" id="tag-add-btn">Add tag</button>
           </div>
           <div id="modal-tags" class="tag-list"></div>
@@ -520,6 +522,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=57" type="module"></script>
+  <script src="/static/js/app.js?v=62" type="module"></script>
 </body>
 </html>

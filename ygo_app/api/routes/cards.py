@@ -12,6 +12,7 @@ from ygo_app.services import (
     add_user_tag,
     card_summaries_batch,
     get_card_detail,
+    list_user_tags,
     remove_user_tag,
     search_cards,
     summoning_condition_suggestions,
@@ -149,6 +150,16 @@ def summoning_suggestions(
     user: User = Depends(get_current_user),
 ):
     return {"suggestions": summoning_condition_suggestions(db, q=q, limit=limit)}
+
+
+@router.get("/tags")
+def user_tags(
+    q: str = "",
+    limit: int = Query(200, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return {"tags": list_user_tags(db, user.id, q=q or None, limit=limit)}
 
 
 @router.get("/by-set-code/{set_code}", response_model=CardDetail)

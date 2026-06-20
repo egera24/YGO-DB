@@ -6,7 +6,6 @@ import argparse
 import json
 import sys
 import threading
-import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -30,37 +29,17 @@ from ygo_app.yugipedia.scrape_progress import ScrapeProgressMonitor, log_line
 
 from ygo_app.yugipedia.tips import parse_tips_html
 
-_DEBUG_LOG = Path("debug-4967ed.log")
-
-
-def _agent_debug_log(*, location: str, message: str, data: dict, hypothesis_id: str) -> None:
-    # region agent log
-    try:
-        payload = {
-            "sessionId": "4967ed",
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-            "hypothesisId": hypothesis_id,
-        }
-        with _DEBUG_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-    # endregion
-
 
 def _supplement_page_url(
     card: dict,
     field: str,
     name: str,
     builder,
-) -> tuple[str | None, str]:
-    """Return (url, source) where source is stored|legacy|absent."""
+) -> str | None:
+    """Return stored link from detail scrape, or legacy canonical URL if key absent."""
     if field in card:
-        return card.get(field), "stored"
-    return builder(name), "legacy"
+        return card.get(field)
+    return builder(name)
 
 
 def _load_json_list(path: Path) -> list[dict]:
@@ -136,22 +115,7 @@ def _process_supplements(
     update: dict = {}
 
     if scrape_errata:
-        errata_url, errata_source = _supplement_page_url(
-            card, "errata_url", name, errata_url_for_card_name
-        )
-        # region agent log
-        _agent_debug_log(
-            location="scrape_yugipedia_supplements.py:_process_supplements",
-            message="errata url resolved",
-            data={
-                "card": name,
-                "source": errata_source,
-                "url": errata_url,
-                "has_errata_url_key": "errata_url" in card,
-            },
-            hypothesis_id="H1-stored-vs-legacy",
-        )
-        # endregion
+        errata_url = _supplement_page_url(card, "errata_url", name, errata_url_for_card_name)
         if not errata_url:
             update["errata"] = []
             update["has_errata"] = False
@@ -179,20 +143,7 @@ def _process_supplements(
                 update["has_errata"] = False
 
     if scrape_tips:
-        tips_url, tips_source = _supplement_page_url(card, "tips_url", name, tips_url_for_card_name)
-        # region agent log
-        _agent_debug_log(
-            location="scrape_yugipedia_supplements.py:_process_supplements",
-            message="tips url resolved",
-            data={
-                "card": name,
-                "source": tips_source,
-                "url": tips_url,
-                "has_tips_url_key": "tips_url" in card,
-            },
-            hypothesis_id="H1-stored-vs-legacy",
-        )
-        # endregion
+        tips_url = _supplement_page_url(card, "tips_url", name, tips_url_for_card_name)
         if not tips_url:
             update["tips"] = []
         else:

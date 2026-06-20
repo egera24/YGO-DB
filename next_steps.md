@@ -2,7 +2,7 @@
 
 Working list of upcoming topics. Companion to [`future_must_have_features.md`](future_must_have_features.md) (long-term roadmap) — items here are nearer-term and get checked off / moved to the changelog in [`agent_handoff.md`](agent_handoff.md) when done.
 
-> **Last updated:** 2026-06-18
+> **Last updated:** 2026-06-20
 
 ---
 
@@ -59,3 +59,68 @@ Implemented 2026-06-13 — see changelog in [`agent_handoff.md`](agent_handoff.m
 - [ ] **XSS:** `app.js` builds DOM from API data — confirm card names/descriptions/notes are inserted via `textContent` (not `innerHTML`) everywhere.
 - [ ] **Secrets hygiene:** `.env` + `DO NOT DELETE/SECRETS/` are gitignored — periodically verify nothing leaked into git history.
 - [ ] Optional: run `pip-audit` / `bandit` for dependency and static analysis checks.
+
+## 6. Errata & tips — bugs to fix
+
+**Current state:** Yugipedia supplements (migrations 010/011) power `has_errata`, `errata[]`, `tips[]` on card detail; card modal teasers + nested modals in [`app.js`](ygo_app/static/js/app.js). Parser in [`errata.py`](ygo_app/yugipedia/errata.py); API helpers in [`card_detail_extras.py`](ygo_app/yugipedia/card_detail_extras.py).
+
+### 6.1 Stale Tips/Errata buttons on card navigation
+
+**Symptom:** Opening another card from the search pane leaves the previous card's Tips button and errata teaser visible until the new card loads (or after an API error).
+
+**Root cause:** `renderModalSupplements()` only runs after a successful `GET /api/cards/{id}`. `openCardModal()` resets name/skeleton but never hides `#modal-errata-teaser` / `#modal-tips-trigger` at navigation start.
+
+- [x] Add `resetModalSupplements()`; call from `openCardModal()`, `renderModalSkeleton()`, and the error catch
+- [x] Close errata/tips child modals when switching cards in `openCardModal()`
+- [x] Dim supplement controls under `.modal-card.modal-loading`
+- [x] Bump static `?v=` in `index.html`
+
+**Verify:** Open card with errata + tips → click search result without either → buttons hidden immediately during skeleton. Open errata popup → switch card → popup closes.
+
+### 6.2 English-only errata (no Japanese fallback)
+
+**Symptom:** Cards with only Japanese errata on Yugipedia show Japanese text in the errata modal; set codes are EN TCG.
+
+**Root cause:** `card_errata_for_api()` and `compute_errata_flags()` fall back to all languages when English is missing; scrape/import store every language.
+
+- [x] Filter to `language == "English"` in scrape job before writing JSON
+- [x] Skip non-English rows in `_errata_rows_for_entry()` on import
+- [x] Remove API and `compute_errata_flags` fallbacks
+- [x] Tests for no-English case
+- [ ] Re-scrape supplements + re-import catalog on dev/prod (user/GHA — see §6.3)
+
+### 6.3 Complete `<del>` errata text (Castle of Dark Illusions)
+
+**Symptom:** First erratum columns with deletion-only `<del>` tags (no nested `<ins>`) show incomplete text when `lore_text` is used.
+
+**Root cause:** `_lore_text_from_node` only kept text inside `<del><ins>…</ins></del>`, dropping bare `<del>` content.
+
+- [x] Fix `_lore_text_from_node` to walk all `<del>` children
+- [x] Extend Castle fixture test assertions on `lore_text`
+- [ ] `alembic upgrade head` (migration 011) + supplements re-scrape + `import_catalog_yugipedia` to backfill `lore_html` on existing DB rows
+
+### 6.4 Yugipedia-faithful errata display (strikethrough, bold, italic)
+
+**Goal:** Errata modal lore should match Yugipedia table cells — `<del>` strikethrough, `<ins>` underline, `<b>` bold, `<i>` italic, nested markup preserved.
+
+**Pipeline:** Yugipedia HTML → `lore_html` in DB → API → `renderErrataModal()` `innerHTML` + `.errata-lore` CSS.
+
+- [x] Treat `lore_html` as primary display path; show muted note when only `lore_text` available
+- [x] Parser: normalize `strong`→`b`, `em`→`i` in `_serialize_lore_node`
+- [x] Tests asserting `lore_html` for `del`/`ins`/`b`/`i` nesting (Castle, Abyss Dweller, Amazoness fixtures)
+- [x] CSS: explicit `.errata-lore b` / `.errata-lore i`; nested `del ins` underline + strikethrough
+- [ ] Manual side-by-side compare with Yugipedia for Castle of Dark Illusions (`33420043`), Abyss Dweller, Amazoness Paladin (after data backfill)
+
+**Test command:**
+
+```powershell
+python -m unittest tests.test_yugipedia_errata tests.test_card_detail_supplements -v
+```
+
+**Data backfill (required for formatted display in production):**
+
+```powershell
+alembic upgrade head
+python -m ygo_app.jobs.scrape_yugipedia_supplements
+python -m ygo_app.jobs.import_catalog_yugipedia
+```

@@ -1898,7 +1898,12 @@ function renderErrataModal(card) {
 
     const lore = document.createElement("p");
     lore.className = "errata-lore";
-    lore.textContent = version.lore_text || "";
+    // lore_html is server-sanitized (del/ins/b/i/br only); safe for innerHTML.
+    if (version.lore_html) {
+      lore.innerHTML = version.lore_html;
+    } else {
+      lore.textContent = version.lore_text || "";
+    }
     block.appendChild(lore);
 
     body.appendChild(block);

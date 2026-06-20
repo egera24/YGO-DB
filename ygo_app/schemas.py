@@ -57,6 +57,7 @@ class CardSummary(BaseModel):
 class CardErrataVersionOut(BaseModel):
     version_label: str
     lore_text: str | None = None
+    lore_html: str | None = None
     set_code: str | None = None
     set_name: str | None = None
     release_date: date | None = None

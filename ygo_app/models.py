@@ -118,6 +118,7 @@ class CardErrataVersion(Base):
     version_index: Mapped[int] = mapped_column(Integer, primary_key=True)
     version_label: Mapped[str] = mapped_column(String(64))
     lore_text: Mapped[str | None] = mapped_column(Text)
+    lore_html: Mapped[str | None] = mapped_column(Text)
     set_code: Mapped[str | None] = mapped_column(String(32))
     set_name: Mapped[str | None] = mapped_column(String(256))
     release_date: Mapped[date | None] = mapped_column(Date)

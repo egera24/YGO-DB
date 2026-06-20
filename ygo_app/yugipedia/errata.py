@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import html as html_module
 import re
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from ygo_app.yugipedia.date_parse import date_to_iso
 from ygo_app.yugipedia.set_chronology import set_abbr_from_code
+
+_ALLOWED_LORE_TAGS = frozenset({"del", "ins", "b", "i", "br"})
 
 
 def _headline_language(h2: Tag) -> str:
@@ -17,29 +19,52 @@ def _headline_language(h2: Tag) -> str:
     return h2.get_text(strip=True)
 
 
-def _lore_text_from_cell(cell: Tag) -> str:
-    parts: list[str] = []
-    for child in cell.children:
-        if isinstance(child, NavigableString):
-            text = str(child).strip()
-            if text:
-                parts.append(text)
-        elif child.name == "br":
-            if parts and parts[-1]:
-                parts.append("")
-        elif child.name in ("del",):
-            continue
-        elif child.name in ("ins", "b", "i", "a", "span"):
-            text = child.get_text(strip=True)
-            if text:
-                parts.append(text)
-        else:
-            text = child.get_text(strip=True)
-            if text:
-                parts.append(text)
-    text = "\n".join(line for line in parts if line is not None)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+def _serialize_lore_node(node) -> str:
+    if isinstance(node, NavigableString):
+        return html_module.escape(str(node))
+    if not isinstance(node, Tag):
+        return ""
+    name = node.name
+    if name == "br":
+        return "<br>"
+    if name in _ALLOWED_LORE_TAGS:
+        inner = "".join(_serialize_lore_node(child) for child in node.children)
+        return f"<{name}>{inner}</{name}>"
+    return "".join(_serialize_lore_node(child) for child in node.children)
+
+
+def _lore_html_from_cell(cell: Tag | None) -> str:
+    if not cell:
+        return ""
+    return "".join(_serialize_lore_node(child) for child in cell.children).strip()
+
+
+def _lore_text_from_node(node) -> str:
+    if isinstance(node, NavigableString):
+        return str(node)
+    if not isinstance(node, Tag):
+        return ""
+    if node.name == "br":
+        return "\n"
+    if node.name == "del":
+        return "".join(
+            _lore_text_from_node(child)
+            for child in node.children
+            if isinstance(child, Tag) and child.name == "ins"
+        )
+    return "".join(_lore_text_from_node(child) for child in node.children)
+
+
+def _lore_text_from_cell(cell: Tag | None) -> str:
+    if not cell:
+        return ""
+    raw = _lore_text_from_node(cell)
+    lines: list[str] = []
+    for line in raw.split("\n"):
+        normalized = re.sub(r"[^\S\n]+", " ", line).strip()
+        if normalized:
+            lines.append(normalized)
+    return "\n".join(lines)
 
 
 def _printing_from_image_cell(cell: Tag) -> tuple[str | None, str | None]:
@@ -56,11 +81,15 @@ def _printing_from_image_cell(cell: Tag) -> tuple[str | None, str | None]:
             continue
         if "/wiki/File:" in href:
             continue
-        if re.match(r"^[A-Z0-9]+-[A-Z]{2}\d+", text):
+        if re.match(r"^[A-Z0-9]+-[A-Z0-9]+$", text):
             set_code = text
         elif not set_name:
             set_name = text
     return set_code, set_name
+
+
+def _is_header_row(tr: Tag) -> bool:
+    return bool(tr.find_all("th")) and not tr.find_all("td")
 
 
 def _parse_errata_table(
@@ -70,44 +99,46 @@ def _parse_errata_table(
     set_release_lookup: dict[str, str] | None = None,
 ) -> list[dict]:
     set_release_lookup = set_release_lookup or {}
-    thead = table.find("tr")
-    if not thead:
-        return []
-    headers = [th.get_text(strip=True) for th in thead.find_all("th")]
-    if not headers:
-        return []
-
-    lores_row = table.find("tr", class_="lores")
-    images_row = table.find("tr", class_="images")
-    if not lores_row:
-        return []
-
-    lore_cells = lores_row.find_all("td")
-    image_cells = images_row.find_all("td") if images_row else []
-
     versions: list[dict] = []
-    for idx, header in enumerate(headers):
-        lore_cell = lore_cells[idx] if idx < len(lore_cells) else None
-        image_cell = image_cells[idx] if idx < len(image_cells) else None
-        lore_text = _lore_text_from_cell(lore_cell) if lore_cell else ""
-        set_code, set_name = (
-            _printing_from_image_cell(image_cell) if image_cell else (None, None)
+    pending_headers: list[str] = []
+
+    for tr in table.find_all("tr"):
+        if _is_header_row(tr):
+            pending_headers = [th.get_text(strip=True) for th in tr.find_all("th")]
+            continue
+
+        row_class = tr.get("class") or []
+        if "lores" not in row_class or not pending_headers:
+            continue
+
+        images_tr = tr.find_next_sibling(
+            "tr", class_=lambda c: c and "images" in c
         )
-        release_date = None
-        abbr = set_abbr_from_code(set_code)
-        if abbr and abbr in set_release_lookup:
-            release_date = set_release_lookup[abbr]
-        versions.append(
-            {
-                "language": language,
-                "version_index": idx,
-                "version_label": header,
-                "lore_text": lore_text,
-                "set_code": set_code,
-                "set_name": set_name,
-                "release_date": release_date,
-            }
-        )
+        lore_cells = tr.find_all("td")
+        image_cells = images_tr.find_all("td") if images_tr else []
+
+        for idx, header in enumerate(pending_headers):
+            lore_cell = lore_cells[idx] if idx < len(lore_cells) else None
+            image_cell = image_cells[idx] if idx < len(image_cells) else None
+            set_code, set_name = (
+                _printing_from_image_cell(image_cell) if image_cell else (None, None)
+            )
+            release_date = None
+            abbr = set_abbr_from_code(set_code)
+            if abbr and abbr in set_release_lookup:
+                release_date = set_release_lookup[abbr]
+            versions.append(
+                {
+                    "language": language,
+                    "version_index": len(versions),
+                    "version_label": header,
+                    "lore_text": _lore_text_from_cell(lore_cell),
+                    "lore_html": _lore_html_from_cell(lore_cell),
+                    "set_code": set_code,
+                    "set_name": set_name,
+                    "release_date": release_date,
+                }
+            )
     return versions
 
 
@@ -128,9 +159,6 @@ def parse_errata_html(
         table = h2.find_next("table", class_=lambda c: c and "card-errata" in c)
         if table is None:
             continue
-        next_h2 = h2.find_next_sibling("h2")
-        if table and next_h2 and table.sourceline and next_h2.sourceline:
-            pass
         versions.extend(
             _parse_errata_table(
                 table,

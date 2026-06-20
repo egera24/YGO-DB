@@ -1259,6 +1259,13 @@ tr:hover td { background: var(--surface); }
   white-space: pre-wrap;
   line-height: 1.45;
 }
+.errata-lore del {
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+.errata-lore ins {
+  text-decoration: underline;
+}
 .tips-section {
   margin-bottom: 1rem;
 }

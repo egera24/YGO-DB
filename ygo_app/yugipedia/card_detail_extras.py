@@ -29,6 +29,7 @@ def card_errata_for_api(card: Card) -> list[CardErrataVersionOut]:
         CardErrataVersionOut(
             version_label=v.version_label,
             lore_text=v.lore_text,
+            lore_html=v.lore_html,
             set_code=v.set_code,
             set_name=v.set_name,
             release_date=v.release_date,

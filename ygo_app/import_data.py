@@ -216,6 +216,7 @@ def _errata_rows_for_entry(
                 version_index=int(version.get("version_index", 0)),
                 version_label=version.get("version_label") or "",
                 lore_text=version.get("lore_text"),
+                lore_html=version.get("lore_html"),
                 set_code=version.get("set_code"),
                 set_name=version.get("set_name"),
                 release_date=release,

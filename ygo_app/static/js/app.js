@@ -1733,22 +1733,52 @@ function setModalImage(url, alt, token) {
   }
 }
 
+function cardTypesList(card) {
+  return Array.isArray(card?.types) ? card.types : [];
+}
+
+function formatCardTypeline(card) {
+  const types = cardTypesList(card);
+  const category = card?.category || null;
+
+  const typesLabel = types.length ? types.join(" / ") : null;
+  const categoryRedundant = category && types.length === 1 && types[0] === category;
+
+  const parts = [];
+  if (category && !categoryRedundant) parts.push(category);
+  if (typesLabel && !(categoryRedundant && typesLabel === category)) parts.push(typesLabel);
+
+  if (!parts.length && card?.type) parts.push(card.type);
+
+  return parts.join(" · ");
+}
+
+function formatMechanicLabel(mechanic, types) {
+  if (!mechanic) return null;
+  const remaining = mechanic
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((part) => !types.includes(part));
+  return remaining.length ? remaining.join(", ") : null;
+}
+
 function formatModalStats(card) {
+  const types = cardTypesList(card);
+  const typeline = formatCardTypeline(card);
+
   return [
-    card.category,
-    (card.types || []).join(" / "),
-    card.mechanic,
+    typeline || null,
     card.attribute,
-    card.archetype,
     card.level != null ? `Level ${card.level}` : null,
     card.rank != null ? `Rank ${card.rank}` : null,
     card.link_rating != null ? `Link-${card.link_rating}` : null,
     card.pendulum_scale != null ? `Scale ${card.pendulum_scale}` : null,
-    (card.link_markers || []).length ? `Markers: ${card.link_markers.join(", ")}` : null,
-    card.summoning_condition,
+    formatMechanicLabel(card.mechanic, types),
+    card.archetype,
     card.atk != null ? `ATK ${card.atk}` : null,
     card.def != null ? `DEF ${card.def}` : null,
-    card.type,
+    (card.link_markers || []).length ? `Markers: ${card.link_markers.join(", ")}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

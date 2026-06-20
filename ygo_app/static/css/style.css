@@ -1203,6 +1203,10 @@ tr:hover td { background: var(--surface); }
 #card-modal #modal-meta {
   color: #94a3b8 !important;
 }
+#card-modal #modal-meta {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 #card-modal .printing-row .set-code {
   color: #d4a017 !important;
 }

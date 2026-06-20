@@ -1359,9 +1359,42 @@ tr:hover td { background: var(--surface); }
   top: 0.5rem;
   right: 0.5rem;
   z-index: 2;
-  width: 2rem;
-  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
   border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.modal-close svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.modal-close:hover,
+.modal-close:focus-visible {
+  color: var(--accent);
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#card-modal .modal-close {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+#card-modal .modal-close:hover,
+#card-modal .modal-close:focus-visible {
+  color: var(--accent);
+  background: var(--surface2);
+  border-color: var(--border);
 }
 .modal-body { display: grid; grid-template-columns: 280px 1fr; gap: 1rem; padding: 1rem; }
 

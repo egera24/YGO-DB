@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "yugipedia"
+
 from ygo_app.jobs.scrape_yugipedia_supplements import (
     _cards_with_supplements_done,
     _process_supplements,
@@ -122,6 +124,28 @@ class TestProcessSupplementsSkip(unittest.TestCase):
         self.assertFalse(result["update"]["has_errata"])
         mock_fetch.assert_called_once()
         self.assertIn("Card_Tips", mock_fetch.call_args[0][1])
+
+    @patch("ygo_app.jobs.scrape_yugipedia_supplements._fetch_supplement_html")
+    def test_empty_tips_page_stores_empty_list(self, mock_fetch):
+        empty_html = (
+            FIXTURES / "tips_empty.html"
+        ).read_text(encoding="utf-8")
+        mock_fetch.return_value = (empty_html, None)
+        card = {
+            "id": "99999999",
+            "name": "No Tips Card",
+            "errata_url": None,
+            "tips_url": "https://yugipedia.com/wiki/Card_Tips:No_Tips_Card",
+        }
+        result = _process_supplements(
+            MagicMock(),
+            card,
+            set_release_lookup={},
+            scrape_errata=False,
+            scrape_tips=True,
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["update"]["tips"], [])
 
 
 if __name__ == "__main__":

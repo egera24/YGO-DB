@@ -33,6 +33,11 @@ class TestTipsParse(unittest.TestCase):
         self.assertIn("generic searchers", tips[0])
         self.assertNotIn("Level 7 or lower", tips[0])
 
+    def test_empty_page_returns_no_sections(self):
+        html = (FIXTURES / "tips_empty.html").read_text(encoding="utf-8")
+        sections = parse_tips_html(html)
+        self.assertEqual(sections, [])
+
 
 if __name__ == "__main__":
     unittest.main()

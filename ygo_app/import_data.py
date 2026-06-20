@@ -20,6 +20,7 @@ from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CardErrataVersion, CollectionItem, Printing, TcgSet
 from ygo_app.yugipedia.date_parse import parse_yugipedia_date
+from ygo_app.yugipedia.errata import ERRATA_UI_LANGUAGE
 from ygo_app.yugipedia.set_chronology import set_abbr_from_code
 from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code, rarity_display
@@ -202,6 +203,8 @@ def _errata_rows_for_entry(
 ) -> list[CardErrataVersion]:
     rows: list[CardErrataVersion] = []
     for version in entry.get("errata") or []:
+        if version.get("language", ERRATA_UI_LANGUAGE) != ERRATA_UI_LANGUAGE:
+            continue
         release = _resolve_erratum_release_date(
             session,
             set_code=version.get("set_code"),

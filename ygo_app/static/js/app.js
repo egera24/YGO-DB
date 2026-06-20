@@ -1784,6 +1784,7 @@ function findModalSeed(cardId) {
 }
 
 function renderModalSkeleton() {
+  resetModalSupplements();
   $("#modal-desc").innerHTML = `
     <div class="skeleton skeleton-line"></div>
     <div class="skeleton skeleton-line"></div>
@@ -1850,6 +1851,15 @@ function formatDisplayDate(isoDate) {
   }).format(dt);
 }
 
+function resetModalSupplements() {
+  const errataTeaser = $("#modal-errata-teaser");
+  const errataLabel = $("#modal-errata-label");
+  const tipsTrigger = $("#modal-tips-trigger");
+  if (errataTeaser) errataTeaser.hidden = true;
+  if (errataLabel) errataLabel.textContent = "";
+  if (tipsTrigger) tipsTrigger.hidden = true;
+}
+
 function renderModalSupplements(card) {
   const errataTeaser = $("#modal-errata-teaser");
   const errataLabel = $("#modal-errata-label");
@@ -1902,6 +1912,12 @@ function renderErrataModal(card) {
     if (version.lore_html) {
       lore.innerHTML = version.lore_html;
     } else {
+      if (version.lore_text) {
+        const note = document.createElement("p");
+        note.className = "errata-lore-fallback muted";
+        note.textContent = "Formatted errata unavailable; showing plain text.";
+        block.appendChild(note);
+      }
       lore.textContent = version.lore_text || "";
     }
     block.appendChild(lore);
@@ -2031,6 +2047,10 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
   state.currentCardId = cardId;
   state.currentCard = null;
 
+  closeCardErrataModal();
+  closeCardTipsModal();
+  resetModalSupplements();
+
   $("#modal-name").textContent = "Loading…";
   $("#modal-meta").textContent = "";
   $("#modal-favorite").textContent = "☆ Favorite";
@@ -2061,6 +2081,7 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
     updateRouteDocumentTitle();
   } catch (err) {
     if (state.currentCardId !== cardId) return;
+    resetModalSupplements();
     $("#modal-desc").textContent = err.message || "Failed to load card details.";
     $("#modal-desc").classList.add("modal-load-error");
     $("#modal-printings").innerHTML = "";

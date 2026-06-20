@@ -87,7 +87,7 @@ Implemented 2026-06-13 — see changelog in [`agent_handoff.md`](agent_handoff.m
 - [x] Skip non-English rows in `_errata_rows_for_entry()` on import
 - [x] Remove API and `compute_errata_flags` fallbacks
 - [x] Tests for no-English case
-- [ ] Re-scrape supplements + re-import catalog on dev/prod (user/GHA — see §6.3)
+- [ ] Re-scrape supplements + re-import catalog on dev/prod (user/GHA — see §6.6)
 
 ### 6.3 Complete `<del>` errata text (Castle of Dark Illusions)
 
@@ -97,7 +97,7 @@ Implemented 2026-06-13 — see changelog in [`agent_handoff.md`](agent_handoff.m
 
 - [x] Fix `_lore_text_from_node` to walk all `<del>` children
 - [x] Extend Castle fixture test assertions on `lore_text`
-- [ ] `alembic upgrade head` (migration 011) + supplements re-scrape + `import_catalog_yugipedia` to backfill `lore_html` on existing DB rows
+- [ ] `alembic upgrade head` (migration 011) + supplements re-scrape + `import_catalog_yugipedia` to backfill `lore_html` on existing DB rows (see §6.6)
 
 ### 6.4 Yugipedia-faithful errata display (strikethrough, bold, italic)
 
@@ -111,16 +111,36 @@ Implemented 2026-06-13 — see changelog in [`agent_handoff.md`](agent_handoff.m
 - [x] CSS: explicit `.errata-lore b` / `.errata-lore i`; nested `del ins` underline + strikethrough
 - [ ] Manual side-by-side compare with Yugipedia for Castle of Dark Illusions (`33420043`), Abyss Dweller, Amazoness Paladin (after data backfill)
 
-**Test command:**
+### 6.5 Empty Tips pages
 
-```powershell
-python -m unittest tests.test_yugipedia_errata tests.test_card_detail_supplements -v
-```
+**Expected:** When Yugipedia's Card_Tips page has no `<ul><li>` tips (404, timeout, or empty content), **no tips are stored in the DB** and the Tips button stays hidden.
 
-**Data backfill (required for formatted display in production):**
+| Stage | Result |
+|-------|--------|
+| Parse | `parse_tips_html()` → `[]` |
+| Catalog JSON | `"tips": []` (marks card done on `--resume`) |
+| Import | `_tips_json()` → `None` → `cards.tips` NULL |
+| API / UI | `tips: []`, Tips button hidden |
+
+The empty `tips: []` in catalog JSON is intentional — it distinguishes "scraped, none found" from "not yet scraped".
+
+- [x] Document behavior (this section)
+- [x] Fixture `tips_empty.html` + parser/scraper/import tests
+
+### 6.6 Data backfill (user / GHA)
+
+Required for `lore_html` and English-only errata on existing Neon rows:
 
 ```powershell
 alembic upgrade head
 python -m ygo_app.jobs.scrape_yugipedia_supplements
 python -m ygo_app.jobs.import_catalog_yugipedia
+```
+
+Or GHA **Import Yugipedia catalog** on `develop` + `environment=dev` first.
+
+**Test command:**
+
+```powershell
+python -m unittest tests.test_yugipedia_errata tests.test_yugipedia_tips tests.test_yugipedia_supplements tests.test_card_detail_supplements -v
 ```

@@ -9,7 +9,10 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ygo_app.yugipedia.set_chronology import set_abbr_from_code
 
+ERRATA_UI_LANGUAGE = "English"
+
 _ALLOWED_LORE_TAGS = frozenset({"del", "ins", "b", "i", "br"})
+_TAG_NORMALIZE = {"strong": "b", "em": "i"}
 
 
 def _headline_language(h2: Tag) -> str:
@@ -24,7 +27,7 @@ def _serialize_lore_node(node) -> str:
         return html_module.escape(str(node))
     if not isinstance(node, Tag):
         return ""
-    name = node.name
+    name = _TAG_NORMALIZE.get(node.name, node.name)
     if name == "br":
         return "<br>"
     if name in _ALLOWED_LORE_TAGS:
@@ -47,11 +50,7 @@ def _lore_text_from_node(node) -> str:
     if node.name == "br":
         return "\n"
     if node.name == "del":
-        return "".join(
-            _lore_text_from_node(child)
-            for child in node.children
-            if isinstance(child, Tag) and child.name == "ins"
-        )
+        return "".join(_lore_text_from_node(child) for child in node.children)
     return "".join(_lore_text_from_node(child) for child in node.children)
 
 
@@ -169,11 +168,22 @@ def parse_errata_html(
     return versions
 
 
-def compute_errata_flags(versions: list[dict], *, language: str = "English") -> tuple[bool, str | None]:
+def filter_errata_by_language(
+    versions: list[dict], *, language: str = ERRATA_UI_LANGUAGE
+) -> list[dict]:
+    """Keep only errata rows for the given language (re-index version_index)."""
+    filtered = [v for v in versions if v.get("language") == language]
+    return [
+        {**v, "version_index": idx}
+        for idx, v in enumerate(filtered)
+    ]
+
+
+def compute_errata_flags(versions: list[dict], *, language: str = ERRATA_UI_LANGUAGE) -> tuple[bool, str | None]:
     """Return has_errata and last_erratum_date ISO for the given language."""
     lang_versions = [v for v in versions if v.get("language") == language]
     if not lang_versions:
-        lang_versions = versions
+        return False, None
     if len(lang_versions) < 2:
         return False, None
     erratum_dates = [

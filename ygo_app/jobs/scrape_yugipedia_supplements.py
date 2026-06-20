@@ -17,7 +17,11 @@ from ygo_app.yugipedia.constants import (
     SUPPLEMENT_PROBE_TIMEOUT,
 )
 from ygo_app.yugipedia.details import slice_input_cards_for_batch
-from ygo_app.yugipedia.errata import compute_errata_flags, parse_errata_html
+from ygo_app.yugipedia.errata import (
+    compute_errata_flags,
+    filter_errata_by_language,
+    parse_errata_html,
+)
 from ygo_app.yugipedia.http_client import create_scraper, fetch_page
 from ygo_app.yugipedia.paths import ALL_CARDS_PATH, SET_CHRONOLOGY_PATH, ensure_catalog_dir
 from ygo_app.yugipedia.related_links import (
@@ -122,7 +126,9 @@ def _process_supplements(
         else:
             html, error = _fetch_supplement_html(scraper, errata_url)
             if html and "card-errata" in html:
-                versions = parse_errata_html(html, set_release_lookup=set_release_lookup)
+                versions = filter_errata_by_language(
+                    parse_errata_html(html, set_release_lookup=set_release_lookup)
+                )
                 if versions:
                     update["errata"] = versions
                     has_errata, last_date = compute_errata_flags(versions)

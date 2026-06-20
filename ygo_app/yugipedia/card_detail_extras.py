@@ -7,9 +7,9 @@ from urllib.parse import quote
 
 from ygo_app.models import Card
 from ygo_app.schemas import CardErrataVersionOut, CardTipsSectionOut
+from ygo_app.yugipedia.errata import ERRATA_UI_LANGUAGE
 
 YUGIPEDIA_BASE = "https://yugipedia.com"
-ERRATA_UI_LANGUAGE = "English"
 
 
 def errata_source_url(card_name: str) -> str:
@@ -22,8 +22,6 @@ def card_errata_for_api(card: Card) -> list[CardErrataVersionOut]:
         [v for v in card.errata_versions if v.language == ERRATA_UI_LANGUAGE],
         key=lambda v: v.version_index,
     )
-    if not versions and card.errata_versions:
-        versions = sorted(card.errata_versions, key=lambda v: (v.language, v.version_index))
     source = errata_source_url(card.name)
     return [
         CardErrataVersionOut(

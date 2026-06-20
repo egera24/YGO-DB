@@ -6,6 +6,7 @@ from datetime import date
 
 from ygo_app.models import Card, CardErrataVersion
 from ygo_app.yugipedia.card_detail_extras import card_errata_for_api, card_tips_for_api
+from ygo_app.yugipedia.card_import import _tips_json
 
 
 class TestCardDetailExtras(unittest.TestCase):
@@ -49,6 +50,35 @@ class TestCardDetailExtras(unittest.TestCase):
         self.assertEqual(len(out), 2)
         self.assertEqual(out[1].version_label, "First erratum")
         self.assertIn("Card_Errata", out[0].source_url or "")
+
+    def test_errata_japanese_only_returns_empty(self):
+        card = Card(
+            id=12345678,
+            name="Test Card",
+            has_errata=True,
+            last_erratum_date=date(2019, 10, 11),
+        )
+        card.errata_versions = [
+            CardErrataVersion(
+                card_id=12345678,
+                language="Japanese",
+                version_index=0,
+                version_label="Original",
+                lore_text="日本語",
+            ),
+            CardErrataVersion(
+                card_id=12345678,
+                language="Japanese",
+                version_index=1,
+                version_label="First erratum",
+                lore_text="更新",
+            ),
+        ]
+        self.assertEqual(card_errata_for_api(card), [])
+
+    def test_tips_json_empty_list_is_none(self):
+        self.assertIsNone(_tips_json({"tips": []}))
+        self.assertIsNone(_tips_json({"tips": None}))
 
     def test_tips_json(self):
         card = Card(

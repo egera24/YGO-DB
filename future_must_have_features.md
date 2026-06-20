@@ -2,7 +2,7 @@
 
 Agent-readable backlog of planned work. Not scheduled for implementation yet. Use this document when scoping or implementing a feature — each section follows **Goal / Current state / Required change / Open research** where applicable.
 
-**Last updated:** 2026-06-13
+**Last updated:** 2026-06-20
 
 ---
 
@@ -14,6 +14,7 @@ Agent-readable backlog of planned work. Not scheduled for implementation yet. Us
 | [B. Card details UI](#b-card-details-ui) | Passcode display, errata on card modal |
 | [C. Format and banlist](#c-format-and-banlist) | Banlist module, deck format, rules engine, per-format card data |
 | [D. Search and deck conversion](#d-search-and-deck-conversion) | Format-aware search, conversion between formats |
+| [F. Database architecture](#f-database-architecture-olap--analytics) | OLAP read store, supervised data engineering, denormalization |
 | [E. Meta](#e-meta) | Implementation phases, open decisions, relation to codebase |
 
 ---
@@ -283,11 +284,46 @@ Design for N formats; avoid Genesys-only hard-coding.
 
 ---
 
+## F. Database architecture (OLAP / analytics)
+
+### F.1 Supervised OLAP serving layer
+
+#### Goal
+
+- Database architecture is **explicitly designed and supervised** — not an accidental OLTP schema reused for analytics.
+- Primary purpose: **serve analytical and read-heavy workloads** (search, filters, collection browse, format/banlist views, future aggregations).
+- **OLAP, not OLTP**: favor star/snowflake or wide denormalized tables, pre-joined dimensions, materialized aggregates; separate or clearly layered from small transactional user writes if needed.
+- **Read speed over normalization**: denormalization, redundant columns, precomputed fields, and duplicate storage are **acceptable** when they reduce join depth or query latency.
+- Follow **data engineering best practices**: batch ingest, idempotent loads, clear lineage (scrape → staging → serving layer), versioning/`catalog_updated_at`, indexes/partitioning tuned for read patterns, documented refresh SLAs.
+
+#### Current state
+
+- Single Neon Postgres; normalized `cards` + `printings`; full catalog replace on import ([`import_data.py`](ygo_app/import_data.py)).
+- API reads and user CRUD share the same tables ([`services.py`](ygo_app/services.py), [`search_query.py`](ygo_app/search_query.py)).
+- No separate serving/analytics layer, materialized views, or columnar store.
+
+#### Required change
+
+- Define **layers**: e.g. raw/staging (pipeline artifacts) → **serving OLAP store** (app reads) → optional small OLTP pocket for user mutations synced into serving layer.
+- Catalog import becomes **ETL into read-optimized shapes** (wide card rows, pre-resolved printings summaries, search facets as columns or side tables).
+- Indexing and schema reviews driven by **read query profiles** (search filters, collection joins, banlist lookups from [C.1](#c1-banlist-and-limit-list-module)).
+- Document refresh model: batch rebuild acceptable; incremental upsert where it reduces downtime ([A.2](#a2-incremental-vs-full-scrape) incremental import aligns here).
+- Explicit **non-goals**: optimizing for high-frequency row-level writes or strict 3NF normalization.
+
+#### Open research
+
+- [ ] Keep OLAP in **Neon Postgres** (materialized views, denormalized tables) vs add a dedicated analytics engine later.
+- [ ] Split **catalog OLAP** vs **per-user data** (collection/decks) — same DB with schemas vs separate stores.
+- [ ] How much denormalization on `cards` vs companion `card_search` / `card_printings_flat` tables.
+- [ ] Refresh cadence vs API consistency guarantees during import.
+
+---
+
 ## E. Meta
 
 ### E.1 Implementation phases
 
-Two parallel tracks (catalog freshness can proceed independently of format work):
+Two parallel tracks (catalog freshness can proceed independently of format work). **OLAP serving design** ([F.1](#f1-supervised-olap-serving-layer)) should precede or accompany incremental import and format-aware search to avoid rework.
 
 ```mermaid
 flowchart TB
@@ -306,6 +342,14 @@ flowchart TB
     F4[Search format views]
     F1 --> F2 --> F3 --> F4
   end
+  subgraph trackData [Track 3 Database OLAP]
+    D1[Define serving layers and read shapes]
+    D2[ETL import into denormalized tables]
+    D3[Index and tune for search and collection reads]
+    D1 --> D2 --> D3
+  end
+  C3 -.-> D1
+  F4 -.-> D3
 ```
 
 **Track 1 — Catalog**
@@ -321,6 +365,12 @@ flowchart TB
 2. Deck `format_id` + banlist-only validation.
 3. Rules engine (sizes, copies) + per-format card data (Genesys points).
 4. Search format views + filters; optional conversion wizard ([C.3](#c3-format-rules-engine-and-deck-conversion)).
+
+**Track 3 — Database (OLAP)**
+
+1. Define serving layers and read-optimized shapes ([F.1](#f1-supervised-olap-serving-layer)).
+2. ETL catalog import into denormalized / wide tables (align with [A.2](#a2-incremental-vs-full-scrape) incremental upsert).
+3. Index and tune for search, collection browse, and banlist reads.
 
 ---
 
@@ -342,6 +392,12 @@ flowchart TB
 - [ ] Fandom formats in v1 or official-only first
 - [ ] Historical banlists (Edison/Goat) vs current-only (Advanced)
 
+**Database / analytics**
+
+- [ ] OLAP within Postgres vs separate analytics store ([F.1](#f1-supervised-olap-serving-layer))
+- [ ] User data vs catalog data layering
+- [ ] Materialized views vs permanently denormalized tables
+
 ---
 
 ### E.3 Relation to current codebase
@@ -360,6 +416,7 @@ flowchart TB
 | Search | Yugipedia filters | Format view + banlist/point badges |
 | API | `/api/decks/*` | `/api/formats/*`, format-scoped banlist and card fields |
 | R2 | Images only (`cards/*.webp`) | Optional `catalog/` JSON checkpoint — not runtime |
+| Database | Single normalized Neon; shared read/write | Supervised OLAP serving layer; read-optimized, redundancy OK |
 
 ---
 

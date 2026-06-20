@@ -389,7 +389,11 @@ jobs:
 
   supplements_batch_0:
     needs: set_chronology
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true }}
+    # always(): required when test_mode skips scrape_batch_1-5 (transitive skip taints the chain).
+    if: |
+      always() &&
+      needs.set_chronology.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.skip_scrape != true)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

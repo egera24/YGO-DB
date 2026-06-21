@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=52" />
+  <link rel="stylesheet" href="/static/css/style.css?v=53" />
 </head>
 <body>
   <header class="app-header">
@@ -90,63 +90,35 @@
 
   <main class="app-shell hidden" aria-hidden="true">
     <section id="view-search" class="view active" role="tabpanel" aria-labelledby="tab-search" tabindex="0">
-      <form id="search-form" class="search-panel">
-        <div class="search-primary">
-          <div class="search-primary-inputs">
-            <div class="search-field search-field--grow">
-              <label for="q" class="search-field-label">Search</label>
-              <div class="search-q-wrap search-input-adorned">
-                <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
-                <button type="button" id="search-help-btn" class="icon-btn supplement-icon-btn search-help-btn" aria-label="Search syntax help" data-tooltip="Search syntax" aria-haspopup="dialog" aria-controls="search-help-popover" aria-expanded="false">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 16v-4" />
-                    <path d="M12 8h.01" />
-                  </svg>
-                </button>
+      <div class="search-layout" id="search-layout">
+        <div id="search-filters-backdrop" class="search-filters-backdrop hidden" hidden aria-hidden="true"></div>
+        <aside
+          id="search-filters-drawer"
+          class="search-filters-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="search-filters-drawer-title"
+          hidden
+        >
+          <div class="search-filters-drawer-header">
+            <h2 id="search-filters-drawer-title" class="search-filters-drawer-title">Filters</h2>
+            <button type="button" id="search-filters-close" class="icon-btn secondary search-filters-close" aria-label="Close filters">×</button>
+          </div>
+          <div class="search-filters-drawer-scroll">
+            <section class="search-presets-drawer hidden" id="search-presets-drawer" aria-labelledby="search-presets-drawer-title">
+              <h3 id="search-presets-drawer-title" class="search-presets-drawer-title">Saved searches</h3>
+              <div class="search-presets-drawer-actions">
+                <button type="button" id="search-preset-save-drawer" class="secondary">Save current</button>
+                <div class="preset-menu-wrap">
+                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Saved search options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
+                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
+                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
+                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="search-field">
-              <label for="set-code" class="search-field-label">Set code</label>
-              <input type="text" id="set-code" placeholder="e.g. 25LP-EN001" autocomplete="off" />
-            </div>
-            <div class="search-field search-field--tag">
-              <label for="filter-tag" class="search-field-label">Tag</label>
-              <input type="text" id="filter-tag" list="tag-datalist" placeholder="Filter by tag" autocomplete="off" />
-              <datalist id="tag-datalist"></datalist>
-            </div>
-          </div>
-          <div class="search-primary-actions">
-            <div class="search-toggles">
-              <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
-              <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
-            </div>
-            <div class="search-buttons">
-              <button type="button" id="search-reset" class="secondary">Reset</button>
-              <button type="submit">Search</button>
-            </div>
-          </div>
-        </div>
-        <div class="search-presets hidden" id="search-presets-bar">
-          <label for="search-preset-select">Preset</label>
-          <select id="search-preset-select"><option value="">— None —</option></select>
-          <button type="button" id="search-preset-save" class="secondary">Save</button>
-          <div class="preset-menu-wrap">
-            <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
-            <div id="search-preset-menu" class="preset-menu" hidden role="menu">
-              <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
-              <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
-            </div>
-          </div>
-        </div>
-        <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
-          <span class="search-active-filters-label">Active filters</span>
-          <div id="search-active-filters-chips" class="search-filter-chips"></div>
-          <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
-        </div>
-        <details id="advanced-filters" class="advanced-filters">
-          <summary>Advanced filters</summary>
-          <div class="advanced-filters-body">
+            </section>
+            <div class="advanced-filters-body" id="search-filters-body">
             <div class="filter-group filter-group--compact">
               <span class="filter-group-heading" id="filter-category-label">Category</span>
               <div class="filter-multi" id="filter-category">
@@ -283,11 +255,77 @@
               </div>
             </div>
           </div>
-        </details>
-      </form>
-      <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
-      <div id="search-pagination" class="search-pagination hidden"></div>
-      <div id="search-results" class="card-grid"></div>
+          <div class="search-filters-drawer-footer">
+            <button type="button" id="search-filters-clear-advanced" class="secondary">Clear advanced</button>
+            <button type="button" id="search-filters-apply">Apply filters</button>
+          </div>
+        </aside>
+        <div class="search-main">
+          <form id="search-form" class="search-panel">
+            <div class="search-primary">
+              <div class="search-primary-inputs">
+                <div class="search-field search-field--grow">
+                  <label for="q" class="search-field-label">Search</label>
+                  <div class="search-q-wrap search-input-adorned">
+                    <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+                    <button type="button" id="search-help-btn" class="icon-btn supplement-icon-btn search-help-btn" aria-label="Search syntax help" data-tooltip="Search syntax" aria-haspopup="dialog" aria-controls="search-help-popover" aria-expanded="false">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 16v-4" />
+                        <path d="M12 8h.01" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="search-field">
+                  <label for="set-code" class="search-field-label">Set code</label>
+                  <input type="text" id="set-code" placeholder="e.g. 25LP-EN001" autocomplete="off" />
+                </div>
+                <div class="search-field search-field--tag">
+                  <label for="filter-tag" class="search-field-label">Tag</label>
+                  <input type="text" id="filter-tag" list="tag-datalist" placeholder="Filter by tag" autocomplete="off" />
+                  <datalist id="tag-datalist"></datalist>
+                </div>
+              </div>
+              <div class="search-primary-actions">
+                <div class="search-toggles">
+                  <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
+                  <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
+                </div>
+                <div class="search-toolbar-extras">
+                  <button
+                    type="button"
+                    id="search-filters-toggle"
+                    class="secondary search-filters-toggle"
+                    aria-expanded="false"
+                    aria-controls="search-filters-drawer"
+                  >
+                    Filters
+                    <span id="search-filters-badge" class="search-filters-badge hidden" aria-hidden="true">0</span>
+                  </button>
+                  <div class="search-saved-toolbar hidden" id="search-saved-toolbar">
+                    <label for="search-preset-select" class="search-saved-label">Saved</label>
+                    <select id="search-preset-select" aria-label="Saved searches"><option value="">— None —</option></select>
+                    <button type="button" id="search-preset-save" class="secondary">Save</button>
+                  </div>
+                </div>
+                <div class="search-buttons">
+                  <button type="button" id="search-reset" class="secondary">Reset</button>
+                  <button type="submit">Search</button>
+                </div>
+              </div>
+            </div>
+            <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
+              <span class="search-active-filters-label">Active filters</span>
+              <div id="search-active-filters-chips" class="search-filter-chips"></div>
+              <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
+            </div>
+          </form>
+          <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
+          <div id="search-pagination" class="search-pagination hidden"></div>
+          <div id="search-results" class="card-grid"></div>
+        </div>
+      </div>
     </section>
 
     <section id="view-collection" class="view" role="tabpanel" aria-labelledby="tab-collection" hidden tabindex="0">
@@ -571,6 +609,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=68" type="module"></script>
+  <script src="/static/js/app.js?v=69" type="module"></script>
 </body>
 </html>

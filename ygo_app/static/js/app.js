@@ -673,7 +673,8 @@ function updateAuthUI() {
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
   $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
   $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
-  $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
+  $("#search-saved-toolbar")?.classList.toggle("hidden", !loggedIn);
+  $("#search-presets-drawer")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
   if (loggedIn) {
     userEl.textContent = state.user.email;
@@ -1316,12 +1317,144 @@ function hasAdvancedSearchFilters() {
   return collectActiveSearchFilterChips().some((chip) => !PRIMARY_SEARCH_FILTER_IDS.has(chip.id));
 }
 
-function syncAdvancedFiltersOpen() {
-  const details = $("#advanced-filters");
-  if (details && hasAdvancedSearchFilters()) details.open = true;
+let filterDrawerTrigger = null;
+
+function isMobileFilterDrawer() {
+  return window.matchMedia("(max-width: 899px)").matches;
+}
+
+function isFilterDrawerOpen() {
+  return $("#search-layout")?.classList.contains("drawer-open") ?? false;
+}
+
+function openFilterDrawer({ focusDrawer = false } = {}) {
+  const layout = $("#search-layout");
+  const drawer = $("#search-filters-drawer");
+  const backdrop = $("#search-filters-backdrop");
+  const toggle = $("#search-filters-toggle");
+  if (!layout || !drawer || !toggle) return;
+
+  filterDrawerTrigger = document.activeElement;
+  drawer.hidden = false;
+  layout.classList.add("drawer-open");
+  toggle.setAttribute("aria-expanded", "true");
+
+  if (isMobileFilterDrawer()) {
+    drawer.setAttribute("aria-modal", "true");
+    backdrop.hidden = false;
+    backdrop.removeAttribute("aria-hidden");
+    document.body.classList.add("search-drawer-open");
+  } else {
+    drawer.removeAttribute("aria-modal");
+  }
+
+  if (focusDrawer) $("#search-filters-close")?.focus();
+}
+
+function closeFilterDrawer({ restoreFocus = true } = {}) {
+  const layout = $("#search-layout");
+  const drawer = $("#search-filters-drawer");
+  const backdrop = $("#search-filters-backdrop");
+  const toggle = $("#search-filters-toggle");
+  if (!layout || !drawer || !toggle) return;
+  if (!layout.classList.contains("drawer-open")) return;
+
+  closeAllFilterMultiPanels();
+  closePresetMenu();
+  drawer.hidden = true;
+  layout.classList.remove("drawer-open");
+  toggle.setAttribute("aria-expanded", "false");
+  backdrop.hidden = true;
+  backdrop.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("search-drawer-open");
+
+  if (restoreFocus && filterDrawerTrigger && typeof filterDrawerTrigger.focus === "function") {
+    filterDrawerTrigger.focus();
+  }
+  filterDrawerTrigger = null;
+}
+
+function toggleFilterDrawer() {
+  if (isFilterDrawerOpen()) closeFilterDrawer();
+  else openFilterDrawer({ focusDrawer: isMobileFilterDrawer() });
+}
+
+function countAdvancedFilterChips() {
+  return collectActiveSearchFilterChips().filter((chip) => !PRIMARY_SEARCH_FILTER_IDS.has(chip.id))
+    .length;
+}
+
+function renderSearchFiltersBadge() {
+  const badge = $("#search-filters-badge");
+  const toggle = $("#search-filters-toggle");
+  if (!badge || !toggle) return;
+  const count = countAdvancedFilterChips();
+  if (count > 0) {
+    badge.textContent = String(count);
+    badge.classList.remove("hidden");
+    badge.removeAttribute("aria-hidden");
+    toggle.setAttribute("aria-label", `Filters, ${count} active`);
+  } else {
+    badge.textContent = "0";
+    badge.classList.add("hidden");
+    badge.setAttribute("aria-hidden", "true");
+    toggle.removeAttribute("aria-label");
+  }
+}
+
+function resetAdvancedSearchFilters() {
+  document.querySelectorAll(".filter-multi").forEach((root) => {
+    root
+      .querySelectorAll('.filter-multi-panel input[type="checkbox"]')
+      .forEach((cb) => {
+        cb.checked = false;
+      });
+    updateFilterMultiSummary(root);
+  });
+
+  const archetypeEl = $("#filter-archetype");
+  if (archetypeEl) archetypeEl.value = "";
+  const summoningEl = $("#filter-summoning");
+  if (summoningEl) summoningEl.value = "";
+
+  for (const sel of [
+    "#level-min",
+    "#level-max",
+    "#rank-min",
+    "#rank-max",
+    "#link-rating-min",
+    "#link-rating-max",
+    "#pendulum-scale-min",
+    "#pendulum-scale-max",
+    "#atk-min",
+    "#atk-max",
+    "#def-min",
+    "#def-max",
+  ]) {
+    const el = $(sel);
+    if (el) el.value = "";
+  }
+
+  document.querySelectorAll(".link-marker-btn.selected").forEach((btn) => {
+    btn.classList.remove("selected");
+    btn.setAttribute("aria-pressed", "false");
+  });
+
+  closeAllFilterMultiPanels();
+  renderActiveSearchFilters();
+}
+
+function syncFilterDrawerOpen() {
+  if (hasAdvancedSearchFilters() && !isFilterDrawerOpen()) {
+    openFilterDrawer();
+  }
 }
 
 function removeSearchFilterChip(chipId) {
+  if (chipId === "preset") {
+    clearActivePreset();
+    return;
+  }
   if (chipId === "q") $("#q").value = "";
   else if (chipId === "set_code") $("#set-code").value = "";
   else if (chipId === "tag") $("#filter-tag").value = "";
@@ -1358,10 +1491,18 @@ function renderActiveSearchFilters() {
   const container = $("#search-active-filters-chips");
   if (!bar || !container) return;
 
-  const chips = collectActiveSearchFilterChips();
+  let chips = collectActiveSearchFilterChips();
+  const activePreset = state.activePresetId
+    ? state.searchPresets.find((p) => p.id === state.activePresetId)
+    : null;
+  if (activePreset) {
+    chips = [{ id: "preset", label: `Saved: ${activePreset.name}` }, ...chips];
+  }
+
   if (!chips.length) {
     bar.classList.add("hidden");
     container.innerHTML = "";
+    renderSearchFiltersBadge();
     return;
   }
 
@@ -1376,7 +1517,7 @@ function renderActiveSearchFilters() {
     )
     .join("");
 
-  syncAdvancedFiltersOpen();
+  renderSearchFiltersBadge();
 }
 
 function setupSearchFilterChipDelegation() {
@@ -1556,6 +1697,7 @@ function clearActivePreset() {
   state.activePresetId = null;
   const select = $("#search-preset-select");
   if (select) select.value = "";
+  renderActiveSearchFilters();
 }
 
 function renderSearchPresetSelect() {
@@ -1613,6 +1755,7 @@ async function loadSearchPresetById(presetId) {
   applySearchParams(preset.params);
   state.activePresetId = preset.id;
   renderSearchPresetSelect();
+  if (hasAdvancedSearchFilters()) syncFilterDrawerOpen();
   await runSearch();
 }
 
@@ -1639,6 +1782,7 @@ async function saveSearchPreset() {
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
     showToast("Preset saved.");
+    renderActiveSearchFilters();
     return;
   }
 
@@ -1656,6 +1800,7 @@ async function saveSearchPreset() {
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
     showToast("Preset saved.");
+    renderActiveSearchFilters();
   } catch (err) {
     if (err.status !== 409) {
       showToast(err.message, { variant: "error", durationMs: 5000 });
@@ -1682,6 +1827,7 @@ async function saveSearchPreset() {
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
     showToast("Preset saved.");
+    renderActiveSearchFilters();
   }
 }
 
@@ -1710,6 +1856,7 @@ async function renameSearchPreset() {
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
     showToast("Preset renamed.");
+    renderActiveSearchFilters();
   } catch (err) {
     showToast(
       err.status === 409 ? "That name is already in use." : err.message,
@@ -1734,6 +1881,7 @@ async function deleteSearchPreset() {
   await api(`/search-presets/${presetId}`, { method: "DELETE" });
   if (state.activePresetId === presetId) state.activePresetId = null;
   await loadSearchPresets();
+  renderActiveSearchFilters();
   showToast("Preset deleted.");
 }
 
@@ -4001,9 +4149,23 @@ function wireEvents() {
   $("#search-form").addEventListener("submit", runSearch);
   $("#search-form").addEventListener("input", () => renderActiveSearchFilters());
   $("#search-form").addEventListener("change", () => renderActiveSearchFilters());
+  $("#search-filters-drawer")?.addEventListener("input", () => renderActiveSearchFilters());
+  $("#search-filters-drawer")?.addEventListener("change", () => renderActiveSearchFilters());
+  $("#search-filters-toggle")?.addEventListener("click", () => toggleFilterDrawer());
+  $("#search-filters-close")?.addEventListener("click", () => closeFilterDrawer());
+  $("#search-filters-backdrop")?.addEventListener("click", () => closeFilterDrawer());
+  $("#search-filters-apply")?.addEventListener("click", async () => {
+    await runSearch();
+    if (isMobileFilterDrawer()) closeFilterDrawer();
+  });
+  $("#search-filters-clear-advanced")?.addEventListener("click", async () => {
+    resetAdvancedSearchFilters();
+    await runSearch();
+  });
   $("#search-reset")?.addEventListener("click", async () => {
     resetSearchFilters();
     clearActivePreset();
+    closeFilterDrawer({ restoreFocus: false });
     await runSearch();
   });
   $("#search-clear-filters")?.addEventListener("click", async () => {
@@ -4017,6 +4179,11 @@ function wireEvents() {
     else clearActivePreset();
   });
   $("#search-preset-save")?.addEventListener("click", () => {
+    saveSearchPreset().catch((err) =>
+      showToast(err.message, { variant: "error", durationMs: 5000 })
+    );
+  });
+  $("#search-preset-save-drawer")?.addEventListener("click", () => {
     saveSearchPreset().catch((err) =>
       showToast(err.message, { variant: "error", durationMs: 5000 })
     );
@@ -4287,6 +4454,7 @@ function wireEvents() {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (!$("#search-preset-menu")?.hidden) closePresetMenu();
+    else if (isFilterDrawerOpen()) closeFilterDrawer();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();

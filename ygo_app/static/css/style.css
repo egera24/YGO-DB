@@ -372,7 +372,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 }
 .search-secondary-preset-controls {
   display: grid;
-  grid-template-columns: minmax(10rem, 14rem) auto auto auto;
+  grid-template-columns: minmax(10rem, 14rem) auto auto;
   align-items: center;
   gap: 0.5rem;
   width: fit-content;
@@ -2054,7 +2054,7 @@ tr:hover td { background: var(--surface); }
   .search-primary-actions { flex-direction: column; align-items: stretch; }
   .search-buttons { margin-left: 0; justify-content: flex-end; }
   .search-secondary-preset-controls {
-    grid-template-columns: minmax(10rem, 14rem) auto auto auto;
+    grid-template-columns: minmax(10rem, 14rem) auto auto;
   }
   .filter-group--wide { grid-column: span 1; }
   .search-help-table thead th { font-size: 0.75rem; }

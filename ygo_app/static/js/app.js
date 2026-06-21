@@ -1683,12 +1683,6 @@ function clearActivePreset() {
   state.activePresetId = null;
   const select = $("#search-preset-select");
   if (select) select.value = "";
-  updatePresetActionStates();
-}
-
-function updatePresetActionStates() {
-  const hasPreset = Boolean($("#search-preset-select")?.value);
-  $("#search-preset-clear")?.toggleAttribute("disabled", !hasPreset);
 }
 
 function renderSearchPresetSelect() {
@@ -1703,7 +1697,6 @@ function renderSearchPresetSelect() {
           `<option value="${p.id}"${p.id === activeId ? " selected" : ""}>${escapeHtml(p.name)}</option>`
       )
       .join("");
-  updatePresetActionStates();
 }
 
 async function loadSearchPresets() {
@@ -1754,6 +1747,88 @@ function currentSearchSnapshot() {
   return searchParamsToSnapshot(buildSearchParams());
 }
 
+let presetSaveChoiceResolve = null;
+let presetSaveChoiceTrigger = null;
+
+function closeSearchPresetSaveModal(choice = null) {
+  const dlg = $("#search-preset-save-modal");
+  if (!dlg || dlg.hidden) {
+    if (presetSaveChoiceResolve) {
+      const resolve = presetSaveChoiceResolve;
+      presetSaveChoiceResolve = null;
+      resolve(choice);
+    }
+    return;
+  }
+  dlg.hidden = true;
+  syncModalOpenClass();
+  (presetSaveChoiceTrigger ?? $("#search-preset-save"))?.focus();
+  presetSaveChoiceTrigger = null;
+  if (presetSaveChoiceResolve) {
+    const resolve = presetSaveChoiceResolve;
+    presetSaveChoiceResolve = null;
+    resolve(choice);
+  }
+}
+
+function promptPresetSaveChoice(presetName) {
+  const dlg = $("#search-preset-save-modal");
+  if (!dlg) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    presetSaveChoiceResolve = resolve;
+    presetSaveChoiceTrigger = $("#search-preset-save");
+    const titleEl = $("#search-preset-save-title");
+    if (titleEl) {
+      titleEl.textContent = `Update "${presetName}" or save as a new preset?`;
+    }
+    dlg.hidden = false;
+    syncModalOpenClass();
+    $("#search-preset-save-overwrite")?.focus();
+  });
+}
+
+async function finishPresetSave(preset) {
+  state.activePresetId = preset.id;
+  await loadSearchPresets();
+  renderSearchPresetSelect();
+  $("#search-preset-select").value = String(preset.id);
+  showToast("Preset saved.");
+}
+
+async function patchActiveSearchPreset(snapshot) {
+  const preset = await api(`/search-presets/${state.activePresetId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ params: snapshot }),
+  });
+  await finishPresetSave(preset);
+}
+
+async function createSearchPresetByName(snapshot, name) {
+  try {
+    const preset = await api("/search-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, params: snapshot }),
+    });
+    await finishPresetSave(preset);
+  } catch (err) {
+    if (err.status !== 409) {
+      showToast(err.message, { variant: "error", durationMs: 5000 });
+      return;
+    }
+    if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) {
+      return;
+    }
+    const preset = await api("/search-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, params: snapshot, overwrite: true }),
+    });
+    await finishPresetSave(preset);
+  }
+}
+
 async function saveSearchPreset() {
   if (!state.token) {
     showToast("Log in to save presets.", { variant: "error" });
@@ -1763,60 +1838,22 @@ async function saveSearchPreset() {
   const snapshot = currentSearchSnapshot();
 
   if (state.activePresetId) {
-    const preset = await api(`/search-presets/${state.activePresetId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ params: snapshot }),
-    });
-    state.activePresetId = preset.id;
-    await loadSearchPresets();
-    renderSearchPresetSelect();
-    $("#search-preset-select").value = String(preset.id);
-    showToast("Preset saved.");
+    const current = state.searchPresets.find((p) => p.id === state.activePresetId);
+    const choice = await promptPresetSaveChoice(current?.name || "preset");
+    if (!choice) return;
+    if (choice === "overwrite") {
+      await patchActiveSearchPreset(snapshot);
+      return;
+    }
+    const name = prompt("Preset name:");
+    if (!name?.trim()) return;
+    await createSearchPresetByName(snapshot, name.trim());
     return;
   }
 
   const name = prompt("Preset name:");
   if (!name?.trim()) return;
-
-  try {
-    const preset = await api("/search-presets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), params: snapshot }),
-    });
-    state.activePresetId = preset.id;
-    await loadSearchPresets();
-    renderSearchPresetSelect();
-    $("#search-preset-select").value = String(preset.id);
-    showToast("Preset saved.");
-  } catch (err) {
-    if (err.status !== 409) {
-      showToast(err.message, { variant: "error", durationMs: 5000 });
-      return;
-    }
-    if (
-      !confirm(
-        `A preset named "${name.trim()}" already exists. Overwrite it?`
-      )
-    ) {
-      return;
-    }
-    const preset = await api("/search-presets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: name.trim(),
-        params: snapshot,
-        overwrite: true,
-      }),
-    });
-    state.activePresetId = preset.id;
-    await loadSearchPresets();
-    renderSearchPresetSelect();
-    $("#search-preset-select").value = String(preset.id);
-    showToast("Preset saved.");
-  }
+  await createSearchPresetByName(snapshot, name.trim());
 }
 
 async function renameSearchPreset() {
@@ -2035,6 +2072,7 @@ function syncModalOpenClass() {
     isModalVisible("#card-tips-modal") ||
     isModalVisible("#search-help-modal") ||
     isModalVisible("#export-collection-modal") ||
+    isModalVisible("#search-preset-save-modal") ||
     isModalVisible("#collection-edit-modal")
   ) {
     document.body.classList.add("modal-open");
@@ -4149,10 +4187,6 @@ function wireEvents() {
     const presetId = Number($("#search-preset-select")?.value);
     if (presetId) await loadSearchPresetById(presetId);
     else clearActivePreset();
-    updatePresetActionStates();
-  });
-  $("#search-preset-clear")?.addEventListener("click", () => {
-    clearActivePreset();
   });
   $("#search-preset-save")?.addEventListener("click", () => {
     saveSearchPreset().catch((err) =>
@@ -4302,6 +4336,22 @@ function wireEvents() {
     if (e.target === $("#export-collection-modal")) closeExportCollectionModal();
   });
 
+  $("#search-preset-save-cancel")?.addEventListener("click", () =>
+    closeSearchPresetSaveModal(null)
+  );
+  $("#search-preset-save-close")?.addEventListener("click", () =>
+    closeSearchPresetSaveModal(null)
+  );
+  $("#search-preset-save-overwrite")?.addEventListener("click", () =>
+    closeSearchPresetSaveModal("overwrite")
+  );
+  $("#search-preset-save-new")?.addEventListener("click", () =>
+    closeSearchPresetSaveModal("new")
+  );
+  $("#search-preset-save-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
+  });
+
   $("#collection-edit-cancel")?.addEventListener("click", closeCollectionEditModal);
   $("#collection-edit-close")?.addEventListener("click", closeCollectionEditModal);
   $("#collection-edit-modal")?.addEventListener("click", (e) => {
@@ -4425,6 +4475,7 @@ function wireEvents() {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (!$("#search-preset-menu")?.hidden) closePresetMenu();
+    else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();

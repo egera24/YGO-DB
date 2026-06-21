@@ -154,6 +154,14 @@ def delete_search_preset(session: Session, preset_id: int, user_id: int) -> bool
     return True
 
 
+def _normalize_int_range(
+    lo: int | None, hi: int | None
+) -> tuple[int | None, int | None]:
+    if lo is not None and hi is not None and lo > hi:
+        return hi, lo
+    return lo, hi
+
+
 def _apply_int_range(column, min_val: int | None, max_val: int | None):
     clauses = []
     if min_val is not None:
@@ -394,6 +402,17 @@ def search_cards(
         for clause in marker_clauses:
             stmt = stmt.where(clause)
             count_stmt = count_stmt.where(clause)
+
+    atk_min, atk_max = _normalize_int_range(atk_min, atk_max)
+    def_min, def_max = _normalize_int_range(def_min, def_max)
+    level_min, level_max = _normalize_int_range(level_min, level_max)
+    rank_min, rank_max = _normalize_int_range(rank_min, rank_max)
+    link_rating_min, link_rating_max = _normalize_int_range(
+        link_rating_min, link_rating_max
+    )
+    pendulum_scale_min, pendulum_scale_max = _normalize_int_range(
+        pendulum_scale_min, pendulum_scale_max
+    )
 
     for column, lo, hi in (
         (Card.atk, atk_min, atk_max),

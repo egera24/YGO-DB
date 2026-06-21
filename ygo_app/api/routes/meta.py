@@ -25,6 +25,27 @@ def invalidate_catalog_filters_cache() -> None:
     _catalog_filters_cached_at = 0.0
 
 
+def _column_min_max(db: Session, column) -> dict[str, int] | None:
+    row = db.execute(
+        select(func.min(column), func.max(column)).where(column.isnot(None))
+    ).one()
+    lo, hi = row[0], row[1]
+    if lo is None or hi is None:
+        return None
+    return {"min": int(lo), "max": int(hi)}
+
+
+def _catalog_stat_ranges(db: Session) -> dict[str, dict[str, int] | None]:
+    return {
+        "level": _column_min_max(db, Card.level),
+        "rank": _column_min_max(db, Card.rank),
+        "link_rating": _column_min_max(db, Card.link_rating),
+        "pendulum_scale": _column_min_max(db, Card.pendulum_scale),
+        "atk": _column_min_max(db, Card.atk),
+        "def": _column_min_max(db, Card.def_),
+    }
+
+
 def _load_catalog_filters(db: Session) -> dict:
     global _catalog_filters_cache, _catalog_filters_cached_at
     now = time.monotonic()
@@ -61,6 +82,7 @@ def _load_catalog_filters(db: Session) -> dict:
         "mechanics": list(mechanics),
         "attributes": list(attributes),
         "archetypes": list(archetypes),
+        "stat_ranges": _catalog_stat_ranges(db),
     }
     _catalog_filters_cache = payload
     _catalog_filters_cached_at = now

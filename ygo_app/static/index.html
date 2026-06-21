@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=52" />
+  <link rel="stylesheet" href="/static/css/style.css?v=56" />
 </head>
 <body>
   <header class="app-header">
@@ -122,31 +122,41 @@
               <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
             </div>
             <div class="search-buttons">
-              <button type="button" id="search-reset" class="secondary">Reset</button>
+              <button type="button" id="search-reset" class="secondary">Clear all</button>
               <button type="submit">Search</button>
             </div>
           </div>
         </div>
-        <div class="search-presets hidden" id="search-presets-bar">
-          <label for="search-preset-select">Preset</label>
-          <select id="search-preset-select"><option value="">— None —</option></select>
-          <button type="button" id="search-preset-save" class="secondary">Save</button>
-          <div class="preset-menu-wrap">
-            <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
-            <div id="search-preset-menu" class="preset-menu" hidden role="menu">
-              <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
-              <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
-            </div>
+        <div class="search-secondary">
+          <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
+            <span class="search-active-filters-label">Active filters</span>
+            <div id="search-active-filters-chips" class="search-filter-chips"></div>
+            <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
           </div>
-        </div>
-        <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
-          <span class="search-active-filters-label">Active filters</span>
-          <div id="search-active-filters-chips" class="search-filter-chips"></div>
-          <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
-        </div>
-        <details id="advanced-filters" class="advanced-filters">
-          <summary>Advanced filters</summary>
-          <div class="advanced-filters-body">
+          <details id="advanced-filters" class="advanced-filters">
+            <summary class="advanced-filters-summary">
+              <span class="advanced-filters-summary-label">Advanced filters</span>
+              <span class="advanced-filters-summary-meta">
+                <span id="advanced-filters-count" class="filter-count-badge hidden" aria-hidden="true"></span>
+                <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+              </span>
+            </summary>
+            <div class="advanced-filters-body">
+            <div class="search-secondary-presets hidden" id="search-presets-bar">
+              <label for="search-preset-select" class="search-field-label">Search Presets</label>
+              <div class="search-secondary-preset-controls">
+                <select id="search-preset-select"><option value="">— None —</option></select>
+                <button type="button" id="search-preset-clear" class="secondary" disabled>Clear preset</button>
+                <button type="button" id="search-preset-save" class="secondary">Save</button>
+                <div class="preset-menu-wrap">
+                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
+                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
+                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
+                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="filter-group filter-group--compact">
               <span class="filter-group-heading" id="filter-category-label">Category</span>
               <div class="filter-multi" id="filter-category">
@@ -284,6 +294,7 @@
             </div>
           </div>
         </details>
+        </div>
       </form>
       <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
       <div id="search-pagination" class="search-pagination hidden"></div>
@@ -571,6 +582,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=68" type="module"></script>
+  <script src="/static/js/app.js?v=70" type="module"></script>
 </body>
 </html>

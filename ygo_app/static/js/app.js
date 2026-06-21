@@ -685,7 +685,6 @@ function updateAuthUI() {
 
 async function bootstrapAuthenticatedApp() {
   initFilterMultiWidgets();
-  initStatRangeSelects();
   setupLinkMarkerGrid();
   setupSummoningSuggestions();
 
@@ -1041,6 +1040,7 @@ async function loadFilters() {
   setFilterMultiOptions("filter-mechanic", data.mechanics || []);
   setFilterMultiOptions("filter-attribute", data.attributes || []);
   setDatalist("#archetype-datalist", data.archetypes || []);
+  applyStatRangesFromFilters(data.stat_ranges || {});
 }
 
 function selectedLinkMarkers() {
@@ -1056,36 +1056,142 @@ function appendRangeParam(params, keyMin, keyMax, minEl, maxEl) {
   if (maxVal !== "" && maxVal != null) params.set(keyMax, maxVal);
 }
 
-function initStatRangeSelects() {
-  const ranges = [
-    { min: "#level-min", max: "#level-max", lo: 1, hi: 12 },
-    { min: "#rank-min", max: "#rank-max", lo: 1, hi: 13 },
-    { min: "#link-rating-min", max: "#link-rating-max", lo: 1, hi: 6 },
-    { min: "#pendulum-scale-min", max: "#pendulum-scale-max", lo: 0, hi: 13 },
-  ];
-  for (const { min, max, lo, hi } of ranges) {
-    for (const sel of [min, max]) {
-      const el = $(sel);
-      if (!el) continue;
-      for (let v = lo; v <= hi; v++) {
-        const opt = document.createElement("option");
-        opt.value = String(v);
-        opt.textContent = String(v);
-        el.appendChild(opt);
-      }
+const STAT_RANGE_DEFS = [
+  { key: "level", min: "#level-min", max: "#level-max", select: true },
+  { key: "rank", min: "#rank-min", max: "#rank-max", select: true },
+  { key: "link_rating", min: "#link-rating-min", max: "#link-rating-max", select: true },
+  {
+    key: "pendulum_scale",
+    min: "#pendulum-scale-min",
+    max: "#pendulum-scale-max",
+    select: true,
+  },
+  { key: "atk", min: "#atk-min", max: "#atk-max", select: false },
+  { key: "def", min: "#def-min", max: "#def-max", select: false },
+];
+
+let statRangeListenersBound = false;
+
+function clampStatFieldValue(el, bounds) {
+  if (!bounds || el.value === "") return;
+  const n = Number(el.value);
+  if (Number.isNaN(n)) {
+    el.value = "";
+    return;
+  }
+  if (n < bounds.min) el.value = String(bounds.min);
+  else if (n > bounds.max) el.value = String(bounds.max);
+}
+
+function syncFilterRangePair(minEl, maxEl, bounds, source) {
+  if (bounds) {
+    clampStatFieldValue(minEl, bounds);
+    clampStatFieldValue(maxEl, bounds);
+  }
+  const minVal = minEl.value;
+  const maxVal = maxEl.value;
+  if (minVal === "" || maxVal === "") return;
+  if (Number(minVal) > Number(maxVal)) {
+    if (source === "min") maxEl.value = minVal;
+    else minEl.value = maxVal;
+  }
+}
+
+function populateStatRangeSelect(el, bounds) {
+  const placeholder = el.querySelector('option[value=""]');
+  el.innerHTML = "";
+  if (placeholder) el.appendChild(placeholder);
+  else {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = el.id.endsWith("-min") ? "min" : "max";
+    el.appendChild(opt);
+  }
+  if (!bounds) return;
+  for (let v = bounds.min; v <= bounds.max; v++) {
+    const opt = document.createElement("option");
+    opt.value = String(v);
+    opt.textContent = String(v);
+    el.appendChild(opt);
+  }
+}
+
+function setupNumericRangeSpinFallback(el) {
+  if (el.dataset.spinFallbackBound) return;
+  el.dataset.spinFallbackBound = "1";
+  el.addEventListener("keydown", (e) => {
+    if (el.value !== "") return;
+    if (el.min === "" || el.max === "") return;
+    const lo = Number(el.min);
+    const hi = Number(el.max);
+    if (Number.isNaN(lo) || Number.isNaN(hi)) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      el.value = String(hi);
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      el.value = String(lo);
+      el.dispatchEvent(new Event("change", { bubbles: true }));
     }
+  });
+}
+
+function applyStatRangesFromFilters(statRanges) {
+  for (const { key, min, max, select } of STAT_RANGE_DEFS) {
+    const bounds = statRanges[key] || null;
     const minEl = $(min);
     const maxEl = $(max);
     if (!minEl || !maxEl) continue;
-    const syncMax = () => {
-      const minVal = minEl.value;
-      const maxVal = maxEl.value;
-      if (minVal !== "" && maxVal !== "" && Number(minVal) > Number(maxVal)) {
-        maxEl.value = minVal;
-      }
+
+    const fieldset = minEl.closest("fieldset");
+    if (fieldset) {
+      fieldset.disabled = !bounds;
+    }
+
+    if (select) {
+      populateStatRangeSelect(minEl, bounds);
+      populateStatRangeSelect(maxEl, bounds);
+    } else if (bounds) {
+      minEl.min = String(bounds.min);
+      minEl.max = String(bounds.max);
+      maxEl.min = String(bounds.min);
+      maxEl.max = String(bounds.max);
+      setupNumericRangeSpinFallback(minEl);
+      setupNumericRangeSpinFallback(maxEl);
+    } else {
+      minEl.removeAttribute("min");
+      minEl.removeAttribute("max");
+      maxEl.removeAttribute("min");
+      maxEl.removeAttribute("max");
+    }
+  }
+
+  if (statRangeListenersBound) return;
+  statRangeListenersBound = true;
+
+  for (const { key, min, max, select } of STAT_RANGE_DEFS) {
+    const minEl = $(min);
+    const maxEl = $(max);
+    if (!minEl || !maxEl) continue;
+
+    const getBounds = () => state.filters?.stat_ranges?.[key] || null;
+
+    const onMinChange = () => {
+      syncFilterRangePair(minEl, maxEl, getBounds(), "min");
+      renderActiveSearchFilters();
     };
-    minEl.addEventListener("change", syncMax);
-    maxEl.addEventListener("change", syncMax);
+    const onMaxChange = () => {
+      syncFilterRangePair(minEl, maxEl, getBounds(), "max");
+      renderActiveSearchFilters();
+    };
+
+    minEl.addEventListener("change", onMinChange);
+    maxEl.addEventListener("change", onMaxChange);
+    if (!select) {
+      minEl.addEventListener("input", onMinChange);
+      maxEl.addEventListener("input", onMaxChange);
+    }
   }
 }
 
@@ -1321,6 +1427,25 @@ function syncAdvancedFiltersOpen() {
   if (details && hasAdvancedSearchFilters()) details.open = true;
 }
 
+function countAdvancedSearchFilters() {
+  return collectActiveSearchFilterChips().filter(
+    (chip) => !PRIMARY_SEARCH_FILTER_IDS.has(chip.id)
+  ).length;
+}
+
+function syncAdvancedFiltersSummary() {
+  const badge = $("#advanced-filters-count");
+  if (!badge) return;
+  const count = countAdvancedSearchFilters();
+  if (count > 0) {
+    badge.textContent = `· ${count}`;
+    badge.classList.remove("hidden");
+  } else {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+  }
+}
+
 function removeSearchFilterChip(chipId) {
   if (chipId === "q") $("#q").value = "";
   else if (chipId === "set_code") $("#set-code").value = "";
@@ -1362,6 +1487,7 @@ function renderActiveSearchFilters() {
   if (!chips.length) {
     bar.classList.add("hidden");
     container.innerHTML = "";
+    syncAdvancedFiltersSummary();
     return;
   }
 
@@ -1377,6 +1503,7 @@ function renderActiveSearchFilters() {
     .join("");
 
   syncAdvancedFiltersOpen();
+  syncAdvancedFiltersSummary();
 }
 
 function setupSearchFilterChipDelegation() {
@@ -1556,6 +1683,12 @@ function clearActivePreset() {
   state.activePresetId = null;
   const select = $("#search-preset-select");
   if (select) select.value = "";
+  updatePresetActionStates();
+}
+
+function updatePresetActionStates() {
+  const hasPreset = Boolean($("#search-preset-select")?.value);
+  $("#search-preset-clear")?.toggleAttribute("disabled", !hasPreset);
 }
 
 function renderSearchPresetSelect() {
@@ -1570,6 +1703,7 @@ function renderSearchPresetSelect() {
           `<option value="${p.id}"${p.id === activeId ? " selected" : ""}>${escapeHtml(p.name)}</option>`
       )
       .join("");
+  updatePresetActionStates();
 }
 
 async function loadSearchPresets() {
@@ -4015,6 +4149,10 @@ function wireEvents() {
     const presetId = Number($("#search-preset-select")?.value);
     if (presetId) await loadSearchPresetById(presetId);
     else clearActivePreset();
+    updatePresetActionStates();
+  });
+  $("#search-preset-clear")?.addEventListener("click", () => {
+    clearActivePreset();
   });
   $("#search-preset-save")?.addEventListener("click", () => {
     saveSearchPreset().catch((err) =>

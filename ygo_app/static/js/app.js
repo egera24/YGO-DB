@@ -1013,6 +1013,7 @@ function initFilterMultiWidgets() {
     panel.addEventListener("change", (e) => {
       if (e.target.matches('input[type="checkbox"]')) {
         updateFilterMultiSummary(root);
+        renderActiveSearchFilters();
       }
     });
 
@@ -1114,6 +1115,7 @@ function setupLinkMarkerGrid() {
     btn.addEventListener("click", () => {
       btn.classList.toggle("selected");
       btn.setAttribute("aria-pressed", btn.classList.contains("selected"));
+      renderActiveSearchFilters();
     });
   });
 }
@@ -1213,6 +1215,220 @@ function resetSearchFilters() {
   });
 
   closeAllFilterMultiPanels();
+  renderActiveSearchFilters();
+}
+
+function removeFilterMultiValue(id, value) {
+  const root = getFilterMultiRoot(id);
+  if (!root) return;
+  const cb = root.querySelector(
+    `.filter-multi-panel input[type="checkbox"][value="${CSS.escape(value)}"]`
+  );
+  if (cb) {
+    cb.checked = false;
+    updateFilterMultiSummary(root);
+  }
+}
+
+function clearFilterRange(minSel, maxSel) {
+  const minEl = $(minSel);
+  const maxEl = $(maxSel);
+  if (minEl) minEl.value = "";
+  if (maxEl) maxEl.value = "";
+}
+
+function formatFilterRangeLabel(name, minVal, maxVal) {
+  if (minVal && maxVal) return `${name} ${minVal}–${maxVal}`;
+  if (minVal) return `${name} ≥ ${minVal}`;
+  if (maxVal) return `${name} ≤ ${maxVal}`;
+  return name;
+}
+
+function collectActiveSearchFilterChips() {
+  const chips = [];
+  const q = $("#q")?.value.trim();
+  if (q) chips.push({ id: "q", label: `Search: ${q}` });
+
+  const setCode = $("#set-code")?.value.trim();
+  if (setCode) chips.push({ id: "set_code", label: `Set: ${setCode}` });
+
+  const tag = $("#filter-tag")?.value.trim();
+  if (tag) chips.push({ id: "tag", label: `Tag: ${tag}` });
+
+  if ($("#owned-only")?.checked) chips.push({ id: "owned_only", label: "Owned only" });
+  if ($("#favorites-only")?.checked) chips.push({ id: "favorites_only", label: "Favorites" });
+
+  for (const val of getFilterMultiValues("filter-category")) {
+    chips.push({ id: `category:${val}`, label: val });
+  }
+  for (const val of getFilterMultiValues("filter-types")) {
+    chips.push({ id: `types:${val}`, label: val });
+  }
+  for (const val of getFilterMultiValues("filter-mechanic")) {
+    chips.push({ id: `mechanic:${val}`, label: val });
+  }
+  for (const val of getFilterMultiValues("filter-attribute")) {
+    chips.push({ id: `attribute:${val}`, label: val });
+  }
+
+  const archetype = $("#filter-archetype")?.value.trim();
+  if (archetype) chips.push({ id: "archetype", label: `Archetype: ${archetype}` });
+
+  const summoning = $("#filter-summoning")?.value.trim();
+  if (summoning) chips.push({ id: "summoning", label: `Summoning: ${summoning}` });
+
+  for (const marker of selectedLinkMarkers()) {
+    chips.push({ id: `link_marker:${marker}`, label: `Link: ${marker}` });
+  }
+
+  const rangeDefs = [
+    { id: "level", name: "Level", min: "#level-min", max: "#level-max" },
+    { id: "rank", name: "Rank", min: "#rank-min", max: "#rank-max" },
+    { id: "link_rating", name: "Link", min: "#link-rating-min", max: "#link-rating-max" },
+    {
+      id: "pendulum_scale",
+      name: "Pendulum",
+      min: "#pendulum-scale-min",
+      max: "#pendulum-scale-max",
+    },
+    { id: "atk", name: "ATK", min: "#atk-min", max: "#atk-max" },
+    { id: "def", name: "DEF", min: "#def-min", max: "#def-max" },
+  ];
+  for (const { id, name, min, max } of rangeDefs) {
+    const minVal = $(min)?.value;
+    const maxVal = $(max)?.value;
+    if (minVal || maxVal) {
+      chips.push({ id, label: formatFilterRangeLabel(name, minVal, maxVal) });
+    }
+  }
+  return chips;
+}
+
+const PRIMARY_SEARCH_FILTER_IDS = new Set([
+  "q",
+  "set_code",
+  "tag",
+  "owned_only",
+  "favorites_only",
+]);
+
+function hasAdvancedSearchFilters() {
+  return collectActiveSearchFilterChips().some((chip) => !PRIMARY_SEARCH_FILTER_IDS.has(chip.id));
+}
+
+function syncAdvancedFiltersOpen() {
+  const details = $("#advanced-filters");
+  if (details && hasAdvancedSearchFilters()) details.open = true;
+}
+
+function removeSearchFilterChip(chipId) {
+  if (chipId === "q") $("#q").value = "";
+  else if (chipId === "set_code") $("#set-code").value = "";
+  else if (chipId === "tag") $("#filter-tag").value = "";
+  else if (chipId === "owned_only") $("#owned-only").checked = false;
+  else if (chipId === "favorites_only") $("#favorites-only").checked = false;
+  else if (chipId === "archetype") $("#filter-archetype").value = "";
+  else if (chipId === "summoning") $("#filter-summoning").value = "";
+  else if (chipId.startsWith("category:")) {
+    removeFilterMultiValue("filter-category", chipId.slice("category:".length));
+  } else if (chipId.startsWith("types:")) {
+    removeFilterMultiValue("filter-types", chipId.slice("types:".length));
+  } else if (chipId.startsWith("mechanic:")) {
+    removeFilterMultiValue("filter-mechanic", chipId.slice("mechanic:".length));
+  } else if (chipId.startsWith("attribute:")) {
+    removeFilterMultiValue("filter-attribute", chipId.slice("attribute:".length));
+  } else if (chipId.startsWith("link_marker:")) {
+    const marker = chipId.slice("link_marker:".length);
+    const btn = document.querySelector(`.link-marker-btn[data-marker="${marker}"]`);
+    if (btn) {
+      btn.classList.remove("selected");
+      btn.setAttribute("aria-pressed", "false");
+    }
+  } else if (chipId === "level") clearFilterRange("#level-min", "#level-max");
+  else if (chipId === "rank") clearFilterRange("#rank-min", "#rank-max");
+  else if (chipId === "link_rating") clearFilterRange("#link-rating-min", "#link-rating-max");
+  else if (chipId === "pendulum_scale") {
+    clearFilterRange("#pendulum-scale-min", "#pendulum-scale-max");
+  } else if (chipId === "atk") clearFilterRange("#atk-min", "#atk-max");
+  else if (chipId === "def") clearFilterRange("#def-min", "#def-max");
+}
+
+function renderActiveSearchFilters() {
+  const bar = $("#search-active-filters");
+  const container = $("#search-active-filters-chips");
+  if (!bar || !container) return;
+
+  const chips = collectActiveSearchFilterChips();
+  if (!chips.length) {
+    bar.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+
+  bar.classList.remove("hidden");
+  container.innerHTML = chips
+    .map(
+      (chip) => `
+    <span class="search-filter-chip">
+      <span>${escapeHtml(chip.label)}</span>
+      <button type="button" class="search-filter-chip-remove" data-chip-id="${escapeHtml(chip.id)}" aria-label="Remove ${escapeHtml(chip.label)}">×</button>
+    </span>`
+    )
+    .join("");
+
+  syncAdvancedFiltersOpen();
+}
+
+function setupSearchFilterChipDelegation() {
+  const container = $("#search-active-filters-chips");
+  if (!container || container.dataset.delegationBound) return;
+  container.dataset.delegationBound = "1";
+  container.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".search-filter-chip-remove");
+    if (!btn?.dataset.chipId) return;
+    removeSearchFilterChip(btn.dataset.chipId);
+    renderActiveSearchFilters();
+    await runSearch();
+  });
+}
+
+function renderSearchResultsSummary({ loading = false } = {}) {
+  const el = $("#search-results-summary");
+  if (!el) return;
+  if (loading) {
+    el.textContent = "Searching…";
+    el.classList.remove("hidden");
+    return;
+  }
+  const total = state.searchTotal;
+  if (total == null) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
+  }
+  const cardWord = total === 1 ? "card" : "cards";
+  el.textContent = `${total.toLocaleString()} ${cardWord}`;
+  el.classList.remove("hidden");
+}
+
+function closePresetMenu() {
+  const menu = $("#search-preset-menu");
+  const btn = $("#search-preset-menu-btn");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  btn?.setAttribute("aria-expanded", "false");
+}
+
+function togglePresetMenu() {
+  const menu = $("#search-preset-menu");
+  const btn = $("#search-preset-menu-btn");
+  if (!menu || !btn) return;
+  if (!menu.hidden) {
+    closePresetMenu();
+    return;
+  }
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
 }
 
 function buildSearchParams() {
@@ -1333,6 +1549,7 @@ function applySearchParams(snapshot) {
     const el = $("#filter-tag");
     if (el) el.value = s.tag;
   }
+  renderActiveSearchFilters();
 }
 
 function clearActivePreset() {
@@ -1405,7 +1622,7 @@ function currentSearchSnapshot() {
 
 async function saveSearchPreset() {
   if (!state.token) {
-    alert("Log in to save presets.");
+    showToast("Log in to save presets.", { variant: "error" });
     return;
   }
 
@@ -1421,6 +1638,7 @@ async function saveSearchPreset() {
     await loadSearchPresets();
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
+    showToast("Preset saved.");
     return;
   }
 
@@ -1437,9 +1655,10 @@ async function saveSearchPreset() {
     await loadSearchPresets();
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
+    showToast("Preset saved.");
   } catch (err) {
     if (err.status !== 409) {
-      alert(err.message);
+      showToast(err.message, { variant: "error", durationMs: 5000 });
       return;
     }
     if (
@@ -1462,17 +1681,18 @@ async function saveSearchPreset() {
     await loadSearchPresets();
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
+    showToast("Preset saved.");
   }
 }
 
 async function renameSearchPreset() {
   if (!state.token) {
-    alert("Log in to rename presets.");
+    showToast("Log in to rename presets.", { variant: "error" });
     return;
   }
   const presetId = Number($("#search-preset-select")?.value);
   if (!presetId) {
-    alert("Select a preset to rename.");
+    showToast("Select a preset to rename.", { variant: "error" });
     return;
   }
   const current = state.searchPresets.find((p) => p.id === presetId);
@@ -1489,19 +1709,23 @@ async function renameSearchPreset() {
     await loadSearchPresets();
     renderSearchPresetSelect();
     $("#search-preset-select").value = String(preset.id);
+    showToast("Preset renamed.");
   } catch (err) {
-    alert(err.status === 409 ? "That name is already in use." : err.message);
+    showToast(
+      err.status === 409 ? "That name is already in use." : err.message,
+      { variant: "error", durationMs: 5000 }
+    );
   }
 }
 
 async function deleteSearchPreset() {
   if (!state.token) {
-    alert("Log in to delete presets.");
+    showToast("Log in to delete presets.", { variant: "error" });
     return;
   }
   const presetId = Number($("#search-preset-select")?.value);
   if (!presetId) {
-    alert("Select a preset to delete.");
+    showToast("Select a preset to delete.", { variant: "error" });
     return;
   }
   const current = state.searchPresets.find((p) => p.id === presetId);
@@ -1510,6 +1734,7 @@ async function deleteSearchPreset() {
   await api(`/search-presets/${presetId}`, { method: "DELETE" });
   if (state.activePresetId === presetId) state.activePresetId = null;
   await loadSearchPresets();
+  showToast("Preset deleted.");
 }
 
 function renderSearchPagination() {
@@ -1525,13 +1750,10 @@ function renderSearchPagination() {
     return;
   }
 
-  const start = page * SEARCH_PAGE_SIZE + 1;
-  const end = Math.min((page + 1) * SEARCH_PAGE_SIZE, total);
-
   bar.classList.remove("hidden");
   bar.innerHTML = `
     <button type="button" id="search-prev" class="secondary"${page === 0 ? " disabled" : ""}>← Previous</button>
-    <span class="search-page-info">Page ${page + 1} of ${totalPages} · ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}</span>
+    <span class="search-page-info">Page ${page + 1} of ${totalPages}</span>
     <button type="button" id="search-next" class="secondary"${page >= totalPages - 1 ? " disabled" : ""}>Next →</button>`;
 
   $("#search-prev")?.addEventListener("click", () => {
@@ -1549,6 +1771,7 @@ function renderSearchResults(cards) {
     grid.innerHTML = '<p class="empty-msg">No cards found.</p>';
     $("#search-pagination")?.classList.add("hidden");
     state.searchResultsById = {};
+    renderSearchResultsSummary();
     return;
   }
   state.searchResultsById = {};
@@ -1568,6 +1791,7 @@ function renderSearchResults(cards) {
       </article>`
       )
       .join("");
+  renderSearchResultsSummary();
 }
 
 function setupSearchResultsDelegation() {
@@ -1588,6 +1812,7 @@ async function loadSearchPage(pageIndex) {
   const grid = $("#search-results");
   grid.innerHTML = '<p class="empty-msg">Searching…</p>';
   $("#search-pagination")?.classList.add("hidden");
+  renderSearchResultsSummary({ loading: true });
 
   try {
     const page = await fetchSearchPage(state.searchParams, offset);
@@ -1595,10 +1820,13 @@ async function loadSearchPage(pageIndex) {
     state.searchTotal = page.total;
     renderSearchResults(page.items);
     renderSearchPagination();
+    renderActiveSearchFilters();
     $("#search-pagination")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
     if (seq !== searchRequestSeq) return;
     grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;
+    state.searchTotal = null;
+    renderSearchResultsSummary();
   }
 }
 
@@ -1682,26 +1910,254 @@ function syncModalOpenClass() {
 }
 
 let searchHelpTrigger = null;
+let searchHelpContentRendered = false;
+let searchHelpOutsideHandler = null;
+let searchHelpRepositionHandler = null;
+
+const SEARCH_HELP_DESKTOP_MQ = "(min-width: 800px)";
+
+const SEARCH_SYNTAX_ROWS = [
+  { example: "reveal", description: "Anywhere in name, description, or archetype" },
+  { example: '"You can reveal"', description: "Exact phrase (words adjacent)" },
+  { example: "reveal hand", description: "Both terms (AND)" },
+  { example: "reveal OR hand", description: "Either term" },
+  { example: "reveal -hand", description: "Include first term, exclude second" },
+  {
+    example: "reveal NOT hand",
+    description: "Include first term, exclude second (alternate)",
+  },
+  {
+    example: "millenn?um",
+    description: "<code>?</code> matches one character",
+    descriptionIsHtml: true,
+  },
+  {
+    example: "reveal*",
+    description: "<code>*</code> matches any characters",
+    descriptionIsHtml: true,
+  },
+  { example: "12345678", description: "Passcode (digits only)" },
+];
+
+function prefersSearchHelpPopover() {
+  return window.matchMedia(SEARCH_HELP_DESKTOP_MQ).matches;
+}
+
+function isSearchHelpPopoverOpen() {
+  const popover = $("#search-help-popover");
+  return popover && !popover.hidden;
+}
+
+function searchHelpDismissButtonHtml() {
+  return `<button type="button" class="search-help-dismiss" aria-label="Close">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
+      </svg>
+    </button>`;
+}
+
+function renderSearchHelpContent(container, titleId) {
+  if (!container) return;
+  const rows = SEARCH_SYNTAX_ROWS.map(
+    (row) => `
+    <tr>
+      <td class="search-help-example" data-example="${escapeHtml(row.example)}" tabindex="0" role="button" title="Use this example">
+        <code>${escapeHtml(row.example)}</code>
+      </td>
+      <td>${row.descriptionIsHtml ? row.description : escapeHtml(row.description)}</td>
+    </tr>`
+  ).join("");
+
+  container.innerHTML = `
+    <div class="search-help-shell">
+      <div class="search-help-topbar">
+        <header class="search-help-header">
+          <h2 id="${escapeHtml(titleId)}">Search syntax</h2>
+          <p class="muted">Search name, description, and archetype. Not case-sensitive.</p>
+        </header>
+        ${searchHelpDismissButtonHtml()}
+      </div>
+      <div class="search-help-table-wrap">
+        <table class="search-help-table">
+          <thead>
+            <tr>
+              <th scope="col">Example</th>
+              <th scope="col">Description</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <p class="search-help-footnote">Click an example to insert it, then press Enter or Search to run.</p>
+    </div>`;
+
+  if (!container.dataset.examplesBound) {
+    container.dataset.examplesBound = "1";
+    container.addEventListener("click", (e) => {
+      if (e.target.closest(".search-help-dismiss")) {
+        closeSearchHelp();
+        return;
+      }
+      const cell = e.target.closest(".search-help-example");
+      if (!cell?.dataset.example) return;
+      insertSearchExample(cell.dataset.example);
+    });
+    container.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const cell = e.target.closest(".search-help-example");
+      if (!cell?.dataset.example) return;
+      e.preventDefault();
+      insertSearchExample(cell.dataset.example);
+    });
+  }
+}
+
+function ensureSearchHelpContent() {
+  if (searchHelpContentRendered) return;
+  renderSearchHelpContent($("#search-help-modal-body"), "search-help-title");
+  renderSearchHelpContent($("#search-help-popover-body"), "search-help-popover-title");
+  searchHelpContentRendered = true;
+}
+
+function insertSearchExample(example) {
+  const q = $("#q");
+  if (!q || !example) return;
+  q.value = example;
+  closeSearchHelp();
+  q.focus();
+  renderActiveSearchFilters();
+}
+
+function positionSearchHelpPopover() {
+  const popover = $("#search-help-popover");
+  const anchor = document.querySelector(".search-field--grow");
+  if (!popover || popover.hidden || !anchor) return;
+
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(480, Math.max(rect.width, 320));
+
+  popover.style.width = `${width}px`;
+  popover.style.top = `${rect.bottom + 6}px`;
+  popover.style.left = `${Math.max(8, rect.left)}px`;
+}
+
+function attachSearchHelpPopoverListeners() {
+  if (searchHelpOutsideHandler) return;
+
+  searchHelpOutsideHandler = (e) => {
+    if (!isSearchHelpPopoverOpen()) return;
+    if (
+      e.target.closest("#search-help-popover") ||
+      e.target.closest("#search-help-btn")
+    ) {
+      return;
+    }
+    closeSearchHelp();
+  };
+
+  searchHelpRepositionHandler = () => {
+    if (isSearchHelpPopoverOpen()) positionSearchHelpPopover();
+  };
+
+  document.addEventListener("click", searchHelpOutsideHandler);
+  window.addEventListener("resize", searchHelpRepositionHandler);
+  window.addEventListener("scroll", searchHelpRepositionHandler, true);
+}
+
+function detachSearchHelpPopoverListeners() {
+  if (searchHelpOutsideHandler) {
+    document.removeEventListener("click", searchHelpOutsideHandler);
+    searchHelpOutsideHandler = null;
+  }
+  if (searchHelpRepositionHandler) {
+    window.removeEventListener("resize", searchHelpRepositionHandler);
+    window.removeEventListener("scroll", searchHelpRepositionHandler, true);
+    searchHelpRepositionHandler = null;
+  }
+}
 
 function openSearchHelpModal() {
   const dlg = $("#search-help-modal");
   const trigger = $("#search-help-btn");
   if (!dlg) return;
+  ensureSearchHelpContent();
   searchHelpTrigger = trigger;
   dlg.hidden = false;
   trigger?.setAttribute("aria-expanded", "true");
+  trigger?.setAttribute("aria-controls", "search-help-modal");
   syncModalOpenClass();
-  $("#search-help-close")?.focus();
+  $("#search-help-modal-body")?.querySelector(".search-help-dismiss")?.focus();
 }
 
-function closeSearchHelpModal() {
+function closeSearchHelpModal({ silent = false } = {}) {
   const dlg = $("#search-help-modal");
   if (!dlg || dlg.hidden) return;
   dlg.hidden = true;
-  $("#search-help-btn")?.setAttribute("aria-expanded", "false");
   syncModalOpenClass();
-  (searchHelpTrigger ?? $("#search-help-btn"))?.focus();
+  if (!silent) {
+    $("#search-help-btn")?.setAttribute("aria-expanded", "false");
+    (searchHelpTrigger ?? $("#search-help-btn"))?.focus();
+    searchHelpTrigger = null;
+  }
+}
+
+function openSearchHelpPopover() {
+  const popover = $("#search-help-popover");
+  const trigger = $("#search-help-btn");
+  if (!popover) return;
+  ensureSearchHelpContent();
+  searchHelpTrigger = trigger;
+  popover.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  trigger?.setAttribute("aria-controls", "search-help-popover");
+  positionSearchHelpPopover();
+  attachSearchHelpPopoverListeners();
+  $("#search-help-popover-body")?.querySelector(".search-help-dismiss")?.focus();
+}
+
+function closeSearchHelpPopover({ silent = false } = {}) {
+  const popover = $("#search-help-popover");
+  if (!popover || popover.hidden) return;
+  popover.hidden = true;
+  detachSearchHelpPopoverListeners();
+  if (!silent) {
+    $("#search-help-btn")?.setAttribute("aria-expanded", "false");
+    (searchHelpTrigger ?? $("#search-help-btn"))?.focus();
+    searchHelpTrigger = null;
+  }
+}
+
+function openSearchHelp() {
+  if (prefersSearchHelpPopover()) {
+    closeSearchHelpModal({ silent: true });
+    if (isSearchHelpPopoverOpen()) {
+      closeSearchHelpPopover();
+      return;
+    }
+    openSearchHelpPopover();
+    return;
+  }
+  closeSearchHelpPopover({ silent: true });
+  if (isModalVisible("#search-help-modal")) {
+    closeSearchHelpModal();
+    return;
+  }
+  openSearchHelpModal();
+}
+
+function closeSearchHelp() {
+  const wasOpen =
+    isSearchHelpPopoverOpen() || isModalVisible("#search-help-modal");
+  closeSearchHelpPopover({ silent: true });
+  closeSearchHelpModal({ silent: true });
+  $("#search-help-btn")?.setAttribute("aria-expanded", "false");
+  if (wasOpen) (searchHelpTrigger ?? $("#search-help-btn"))?.focus();
   searchHelpTrigger = null;
+}
+
+function isSearchHelpOpen() {
+  return isSearchHelpPopoverOpen() || isModalVisible("#search-help-modal");
 }
 
 let modalImageToken = 0;
@@ -3522,6 +3978,7 @@ async function selectDeck(deckId) {
 
 function wireEvents() {
   setupSearchResultsDelegation();
+  setupSearchFilterChipDelegation();
   setupCollectionTableDelegation();
 
   document.querySelectorAll(".tab[data-view]").forEach((tab) => {
@@ -3542,32 +3999,46 @@ function wireEvents() {
   });
 
   $("#search-form").addEventListener("submit", runSearch);
+  $("#search-form").addEventListener("input", () => renderActiveSearchFilters());
+  $("#search-form").addEventListener("change", () => renderActiveSearchFilters());
   $("#search-reset")?.addEventListener("click", async () => {
     resetSearchFilters();
     clearActivePreset();
     await runSearch();
   });
-  $("#search-preset-load")?.addEventListener("click", async () => {
-    const presetId = Number($("#search-preset-select")?.value);
-    if (!presetId) {
-      alert("Select a preset to load.");
-      return;
-    }
-    await loadSearchPresetById(presetId);
+  $("#search-clear-filters")?.addEventListener("click", async () => {
+    resetSearchFilters();
+    clearActivePreset();
+    await runSearch();
   });
-  $("#search-preset-select")?.addEventListener("change", () => {
+  $("#search-preset-select")?.addEventListener("change", async () => {
     const presetId = Number($("#search-preset-select")?.value);
-    if (presetId) state.activePresetId = presetId;
+    if (presetId) await loadSearchPresetById(presetId);
     else clearActivePreset();
   });
   $("#search-preset-save")?.addEventListener("click", () => {
-    saveSearchPreset().catch((err) => alert(err.message));
+    saveSearchPreset().catch((err) =>
+      showToast(err.message, { variant: "error", durationMs: 5000 })
+    );
+  });
+  $("#search-preset-menu-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    togglePresetMenu();
   });
   $("#search-preset-rename")?.addEventListener("click", () => {
-    renameSearchPreset().catch((err) => alert(err.message));
+    closePresetMenu();
+    renameSearchPreset().catch((err) =>
+      showToast(err.message, { variant: "error", durationMs: 5000 })
+    );
   });
   $("#search-preset-delete")?.addEventListener("click", () => {
-    deleteSearchPreset().catch((err) => alert(err.message));
+    closePresetMenu();
+    deleteSearchPreset().catch((err) =>
+      showToast(err.message, { variant: "error", durationMs: 5000 })
+    );
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".preset-menu-wrap")) closePresetMenu();
   });
   $("#auth-tab-login")?.addEventListener("click", () => {
     switchAuthTab("login");
@@ -3808,19 +4279,19 @@ function wireEvents() {
     if (e.target === $("#card-tips-modal")) closeCardTipsModal();
   });
 
-  $("#search-help-btn")?.addEventListener("click", openSearchHelpModal);
-  $("#search-help-close")?.addEventListener("click", closeSearchHelpModal);
+  $("#search-help-btn")?.addEventListener("click", openSearchHelp);
   $("#search-help-modal")?.addEventListener("click", (e) => {
-    if (e.target === $("#search-help-modal")) closeSearchHelpModal();
+    if (e.target === $("#search-help-modal")) closeSearchHelp();
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
+    if (!$("#search-preset-menu")?.hidden) closePresetMenu();
+    else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
-    else if (isModalVisible("#search-help-modal")) closeSearchHelpModal();
+    else if (isSearchHelpOpen()) closeSearchHelp();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });
 

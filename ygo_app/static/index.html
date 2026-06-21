@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=48" />
+  <link rel="stylesheet" href="/static/css/style.css?v=52" />
 </head>
 <body>
   <header class="app-header">
@@ -26,8 +26,6 @@
     </nav>
     <div id="auth-panel" class="auth-panel app-shell hidden" aria-hidden="true">
       <span id="auth-user" class="auth-user hidden"></span>
-      <button type="button" id="import-collection-btn" class="secondary hidden">Import my collection</button>
-      <button type="button" id="export-collection-btn" class="secondary hidden">Export my collection</button>
       <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
     </div>
@@ -94,25 +92,57 @@
     <section id="view-search" class="view active" role="tabpanel" aria-labelledby="tab-search" tabindex="0">
       <form id="search-form" class="search-panel">
         <div class="search-primary">
-          <div class="search-q-wrap">
-            <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
-            <button type="button" id="search-help-btn" class="icon-btn search-help-btn" aria-label="Search syntax help" aria-haspopup="dialog" aria-controls="search-help-modal" aria-expanded="false">?</button>
+          <div class="search-primary-inputs">
+            <div class="search-field search-field--grow">
+              <label for="q" class="search-field-label">Search</label>
+              <div class="search-q-wrap search-input-adorned">
+                <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+                <button type="button" id="search-help-btn" class="icon-btn supplement-icon-btn search-help-btn" aria-label="Search syntax help" data-tooltip="Search syntax" aria-haspopup="dialog" aria-controls="search-help-popover" aria-expanded="false">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="search-field">
+              <label for="set-code" class="search-field-label">Set code</label>
+              <input type="text" id="set-code" placeholder="e.g. 25LP-EN001" autocomplete="off" />
+            </div>
+            <div class="search-field search-field--tag">
+              <label for="filter-tag" class="search-field-label">Tag</label>
+              <input type="text" id="filter-tag" list="tag-datalist" placeholder="Filter by tag" autocomplete="off" />
+              <datalist id="tag-datalist"></datalist>
+            </div>
           </div>
-          <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
-          <input type="text" id="filter-tag" list="tag-datalist" placeholder="Tag" aria-label="Filter by tag" autocomplete="off" />
-          <datalist id="tag-datalist"></datalist>
-          <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
-          <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
-          <button type="button" id="search-reset" class="secondary">Reset</button>
-          <button type="submit">Search</button>
+          <div class="search-primary-actions">
+            <div class="search-toggles">
+              <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
+              <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
+            </div>
+            <div class="search-buttons">
+              <button type="button" id="search-reset" class="secondary">Reset</button>
+              <button type="submit">Search</button>
+            </div>
+          </div>
         </div>
         <div class="search-presets hidden" id="search-presets-bar">
           <label for="search-preset-select">Preset</label>
           <select id="search-preset-select"><option value="">— None —</option></select>
-          <button type="button" id="search-preset-load" class="secondary">Load</button>
           <button type="button" id="search-preset-save" class="secondary">Save</button>
-          <button type="button" id="search-preset-rename" class="secondary">Rename</button>
-          <button type="button" id="search-preset-delete" class="secondary">Delete</button>
+          <div class="preset-menu-wrap">
+            <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
+            <div id="search-preset-menu" class="preset-menu" hidden role="menu">
+              <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
+              <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+            </div>
+          </div>
+        </div>
+        <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
+          <span class="search-active-filters-label">Active filters</span>
+          <div id="search-active-filters-chips" class="search-filter-chips"></div>
+          <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
         </div>
         <details id="advanced-filters" class="advanced-filters">
           <summary>Advanced filters</summary>
@@ -255,6 +285,7 @@
           </div>
         </details>
       </form>
+      <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
       <div id="search-pagination" class="search-pagination hidden"></div>
       <div id="search-results" class="card-grid"></div>
     </section>
@@ -285,6 +316,8 @@
               <option value="quantity">Sort: Quantity</option>
             </select>
             <button type="submit">Apply</button>
+            <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
+            <button type="button" id="export-collection-btn" class="secondary hidden">Export</button>
           </form>
           <p id="collection-stats-line" class="stats-bar"></p>
           <div class="collection-table-wrap">
@@ -306,7 +339,7 @@
             </table>
           </div>
           <div id="collection-pagination" class="search-pagination hidden"></div>
-          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Import my collection</strong> in the header to get started.</p>
+          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Import</strong> above to get started.</p>
         </div>
       </div>
     </section>
@@ -526,67 +559,18 @@
     </article>
   </div>
 
+  <div id="search-help-popover" class="search-help-popover" role="dialog" aria-modal="false" aria-labelledby="search-help-popover-title" hidden>
+    <div id="search-help-popover-body" class="search-help-body"></div>
+  </div>
+
   <div id="search-help-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-help-title" hidden>
-    <article class="modal-card modal-card--narrow">
-      <button type="button" id="search-help-close" class="modal-close" aria-label="Close">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M18 6 6 18" />
-          <path d="m6 6 12 12" />
-        </svg>
-      </button>
-      <header class="search-help-header">
-        <h2 id="search-help-title">Search syntax</h2>
-        <p class="muted">Search name, description, and archetype. Not case-sensitive.</p>
-      </header>
-      <div class="search-help-table-wrap">
-        <table class="search-help-table">
-          <thead>
-            <tr>
-              <th scope="col">Example</th>
-              <th scope="col">Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>reveal</code></td>
-              <td>Anywhere in name, description, or archetype</td>
-            </tr>
-            <tr>
-              <td><code>"You can reveal"</code></td>
-              <td>Exact phrase (words adjacent)</td>
-            </tr>
-            <tr>
-              <td><code>reveal hand</code></td>
-              <td>Both terms (AND)</td>
-            </tr>
-            <tr>
-              <td><code>reveal OR hand</code></td>
-              <td>Either term</td>
-            </tr>
-            <tr>
-              <td><code>reveal -hand</code> or <code>reveal NOT hand</code></td>
-              <td>Include first term, exclude second</td>
-            </tr>
-            <tr>
-              <td><code>millenn?um</code></td>
-              <td><code>?</code> matches one character</td>
-            </tr>
-            <tr>
-              <td><code>reveal*</code></td>
-              <td><code>*</code> matches any characters</td>
-            </tr>
-            <tr>
-              <td><code>12345678</code></td>
-              <td>Passcode (digits only)</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <article class="modal-card modal-card--narrow modal-card--search-help">
+      <div id="search-help-modal-body" class="search-help-body"></div>
     </article>
   </div>
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=64" type="module"></script>
+  <script src="/static/js/app.js?v=68" type="module"></script>
 </body>
 </html>

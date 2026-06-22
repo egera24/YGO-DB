@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from ygo_app.cardmarket.product_list import (
+    _search_url,
     extract_cards_from_html,
     is_only_sealed_products,
     is_product_page_redirect,
@@ -38,6 +39,11 @@ EMPTY_HTML = """
 
 
 class TestCardListParsing(unittest.TestCase):
+    def test_search_url_uses_list_mode(self):
+        url = _search_url(1651, 1)
+        self.assertIn("mode=list", url)
+        self.assertIn("idExpansion=1651", url)
+
     def test_extract_cards_from_html(self):
         cards, exp_code = extract_cards_from_html(
             LIST_HTML,

@@ -191,6 +191,16 @@ python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_price
 
 If you are already rate-limited (HTTP 429), wait several hours before retrying. Use `--resume` on jobs 2–3. Override throttle with `--rps` / `--discovery-rps`. Job 3 `--fast` matches legacy 20 workers / 8 rps (risky).
 
+**Chrome profile pool (browser mode):** headed scraping uses isolated Chrome user-data dirs under `data/catalog/cardmarket_profiles/` (legacy single profile: `cardmarket_chrome_profile/`). Configure a pool to auto-rotate on warmup HTTP 429:
+
+```powershell
+# .env: CARDMARKET_BROWSER_PROFILES=default,alt1,alt2
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --workers 1 --resume `
+  --browser-profiles default,alt1,alt2
+```
+
+Each profile may need one-time cookie consent in its Chrome window. Burned profiles are tracked in `data/catalog/cardmarket_profile_state.json` — delete that file or clear `burned` to retry a profile after a cooldown.
+
 | File | Role |
 |------|------|
 | `data/catalog/cardmarket_expansion_list.json` | Job 1 output |
@@ -198,6 +208,8 @@ If you are already rate-limited (HTTP 429), wait several hours before retrying. 
 | `data/catalog/cardmarket_card_details.json` | Job 3 output |
 | `data/catalog/cardmarket_prices.json` | Job 4 export (upload to R2) |
 | `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 |
+| `data/catalog/cardmarket_profile_state.json` | Active/burned browser profiles for pool rotation |
+| `data/catalog/cardmarket_profiles/{name}/` | Per-profile Chrome user-data + `browser_state.json` |
 | `ygo_app/cardmarket/expansion_seed.json` | Auto-regenerated after job 2 |
 | R2 `catalog/cardmarket_prices.json` | Private handoff for GHA import |
 

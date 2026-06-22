@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ygo_app import config
+from ygo_app.cardmarket.browser_profiles import (
+    DEFAULT_PROFILE_NAME,
+    burn_and_rotate,
+    load_profile_state,
+    log_pool_exhausted_hint,
+    profile_dir,
+    profile_storage_path,
+    save_profile_state,
+    switch_active_profile,
+)
 from ygo_app.cardmarket.constants import BASE_URL, CARD_LIST_PROBE_URL, REQUEST_TIMEOUT, SEARCH_URL
 from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, user_agent_for_worker
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
@@ -30,6 +40,7 @@ _headed = False
 _storage_path: Path = CARDMARKET_BROWSER_STATE_PATH
 _browser_channel: BrowserChannel | None = "chrome"
 _cf_wait_seconds = 180
+_profile_pool: list[str] = [DEFAULT_PROFILE_NAME]
 
 _STEALTH_INIT_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -61,11 +72,21 @@ def configure_browser_session(
     storage_path: Path | None = None,
     browser_channel: BrowserChannel | None = None,
     cf_wait_seconds: int = 180,
+    profile_pool: list[str] | None = None,
 ) -> None:
-    global _headed, _storage_path, _browser_channel, _cf_wait_seconds
+    global _headed, _storage_path, _browser_channel, _cf_wait_seconds, _profile_pool
     _headed = headed
-    if storage_path is not None:
-        _storage_path = storage_path
+    if profile_pool is not None:
+        _profile_pool = profile_pool
+    state = load_profile_state(pool=_profile_pool)
+    if state.active in state.burned:
+        from ygo_app.cardmarket.browser_profiles import next_available_profile
+
+        nxt = next_available_profile(state)
+        if nxt is not None:
+            switch_active_profile(state, nxt)
+    save_profile_state(state)
+    _storage_path = storage_path or profile_storage_path(state.active)
     if browser_channel is not None:
         _browser_channel = browser_channel
     elif headed:
@@ -86,6 +107,61 @@ def format_fetch_error(exc: BaseException) -> str:
     if "executable doesn't exist" in msg.lower() or "playwright install" in msg.lower():
         text = f"{text} — run: {_INSTALL_HINT}"
     return text
+
+
+def _log_scrape_profile_rate_limit_hint() -> None:
+    log_line(
+        "[HINT] HTTP 429 on the scrape Chrome profile — not your normal browser. "
+        "Each profile in --browser-profiles uses an isolated Chrome user-data dir. "
+        "Personal Chrome can work while scrape profiles stay blocked. "
+        "Wait several hours or add more profile names to the pool."
+    )
+
+
+def _wait_for_product_content(page, *, timeout_ms: int = 12_000) -> None:
+    try:
+        page.wait_for_selector('div[id^="productRow"]', timeout=timeout_ms)
+    except Exception:
+        try:
+            page.wait_for_selector(_WARMUP_SELECTOR, timeout=3_000)
+        except Exception:
+            pass
+
+
+def _accept_html_if_page_ready(
+    page,
+    url: str,
+    html: str,
+    headers: dict[str, str],
+    *,
+    http_status: int | None,
+    reason: str,
+) -> _FetchResult | None:
+    """Use rendered DOM when Cardmarket loaded despite a non-200 HTTP status."""
+    if _cardmarket_page_ready(page, html):
+        return _FetchResult(html, 200, headers, None)
+    return None
+
+
+def _recover_page_after_goto_error(page, url: str, exc: BaseException) -> _FetchResult | None:
+    """If Cardmarket loaded despite a Playwright goto error, return HTML anyway."""
+    detail = str(exc)
+    if type(exc).__name__ == "TargetClosedError" or (
+        "closed" in detail.lower() and "target" in detail.lower()
+    ):
+        return None
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=15_000)
+    except Exception:
+        pass
+    _wait_for_product_content(page)
+    try:
+        html = page.content()
+    except Exception:
+        return None
+    if not _cardmarket_page_ready(page, html):
+        return None
+    return _FetchResult(html, 200, {}, None)
 
 
 def is_cf_incompatible_page(html: str | None) -> bool:
@@ -160,7 +236,6 @@ def _new_context(browser: Any, *, storage_path: Path):
     return context
 
 
-_CDP_PROFILE_DIR_NAME = "cardmarket_chrome_profile"
 _CF_LOGIN_PAGE_READY_GRACE_SECONDS = 15
 
 CfLoginWaitResult = Literal["cf_clearance", "page_ready", "timeout", "closed"]
@@ -216,23 +291,48 @@ def _connect_cdp_browser(playwright: Any, port: int, *, timeout_seconds: float =
     raise RuntimeError(f"CDP connect failed on port {port}: {last_error}")
 
 
-def _launch_headed_cdp_browser(playwright: Any, channel: BrowserChannel | None):
+def _close_browser_handles(
+    *,
+    page: Any | None,
+    context: Any | None,
+    browser: Any | None,
+    cdp_proc: subprocess.Popen[Any] | None,
+) -> None:
+    if cdp_proc is not None:
+        _terminate_process(cdp_proc)
+    for closer in (page, context, browser):
+        if closer is None:
+            continue
+        try:
+            closer.close()
+        except Exception:
+            pass
+
+
+def _launch_headed_cdp_browser(
+    playwright: Any,
+    channel: BrowserChannel | None,
+    *,
+    chrome_profile_dir: Path,
+    profile_name: str,
+):
     """Launch real Chrome/Edge and attach via CDP (avoids Playwright automation detection)."""
     exe = _browser_executable(channel or "chrome")
     if not exe:
         label = channel or "chrome"
         raise RuntimeError(f"Could not find {label} executable on this machine.")
 
-    profile_dir = _storage_path.parent / _CDP_PROFILE_DIR_NAME
-    profile_dir.mkdir(parents=True, exist_ok=True)
+    chrome_profile_dir.mkdir(parents=True, exist_ok=True)
     port = _pick_free_port()
     browser_label = channel or "chrome"
-    log_line(f"[BROWSER] launching real {browser_label} via CDP (headed)")
+    log_line(
+        f"[BROWSER] launching real {browser_label} via CDP (headed) profile={profile_name}"
+    )
 
     proc = subprocess.Popen(
         [
             exe,
-            f"--user-data-dir={profile_dir}",
+            f"--user-data-dir={chrome_profile_dir}",
             f"--remote-debugging-port={port}",
             "--no-first-run",
             "--no-default-browser-check",
@@ -245,7 +345,7 @@ def _launch_headed_cdp_browser(playwright: Any, channel: BrowserChannel | None):
     if proc.poll() is not None:
         raise RuntimeError(
             "Chrome exited immediately. Close any other Cardmarket scrape Chrome window "
-            f"(profile: {profile_dir}) and retry."
+            f"(profile: {chrome_profile_dir}) and retry."
         )
     browser = _connect_cdp_browser(playwright, port, timeout_seconds=60)
     context = browser.contexts[0] if browser.contexts else browser.new_context()
@@ -473,12 +573,21 @@ def _wait_for_cf_login(page, *, timeout_seconds: int) -> CfLoginWaitResult:
 
 def run_cf_login(
     *,
-    storage_path: Path = CARDMARKET_BROWSER_STATE_PATH,
+    storage_path: Path | None = None,
     browser_channel: BrowserChannel | None = "chrome",
     timeout_seconds: int = 300,
+    profile_pool: list[str] | None = None,
 ) -> int:
     """Launch real Chrome/Edge (CDP), wait for manual Cloudflare solve, save cookies."""
     from playwright.sync_api import sync_playwright
+
+    pool = profile_pool or _profile_pool
+    state = load_profile_state(pool=pool)
+    active = state.active
+    switch_active_profile(state, active)
+    save_profile_state(state)
+    effective_storage = storage_path or profile_storage_path(active)
+    chrome_profile_dir = profile_dir(active)
 
     exe = _browser_executable(browser_channel)
     if not exe:
@@ -486,13 +595,11 @@ def run_cf_login(
         log_line(f"[ERROR] Could not find {label} executable on this machine.")
         return 1
 
-    profile_dir = storage_path.parent / _CDP_PROFILE_DIR_NAME
-    profile_dir.mkdir(parents=True, exist_ok=True)
     port = _pick_free_port()
     browser_label = browser_channel or "chrome"
 
     log_line(
-        f"[CF-LOGIN] Launching real {browser_label} (not Playwright-controlled) "
+        f"[CF-LOGIN] Launching real {browser_label} (profile={active}) "
         f"on the product search page..."
     )
     log_line(
@@ -503,7 +610,7 @@ def run_cf_login(
     proc = subprocess.Popen(
         [
             exe,
-            f"--user-data-dir={profile_dir}",
+            f"--user-data-dir={chrome_profile_dir}",
             f"--remote-debugging-port={port}",
             "--no-first-run",
             "--no-default-browser-check",
@@ -530,34 +637,17 @@ def run_cf_login(
                 _log_cf_incompatible_help()
                 return 1
 
-            storage_path.parent.mkdir(parents=True, exist_ok=True)
-            context.storage_state(path=str(storage_path))
+            effective_storage.parent.mkdir(parents=True, exist_ok=True)
+            context.storage_state(path=str(effective_storage))
             saved_names = [c.get("name") for c in context.cookies() if c.get("name")]
             has_cf = "cf_clearance" in saved_names
-            log_line(f"[CF-LOGIN] Saved session to {storage_path}")
+            log_line(f"[CF-LOGIN] Saved session to {effective_storage}")
 
             from ygo_app.cardmarket.http_client import probe_curl_cffi_session
 
             probe_ok, probe_status, probe_error = probe_curl_cffi_session(
-                storage_path, CARD_LIST_PROBE_URL
+                effective_storage, CARD_LIST_PROBE_URL
             )
-            # #region agent log
-            from ygo_app.cardmarket.browser_cookies import _agent_debug_log
-
-            _agent_debug_log(
-                "A",
-                "browser_client.py:run_cf_login",
-                "cf_login_complete",
-                {
-                    "wait_result": wait_result,
-                    "has_cf_clearance": has_cf,
-                    "cookie_names": saved_names,
-                    "probe_ok": probe_ok,
-                    "probe_status": probe_status,
-                    "probe_error": probe_error,
-                },
-            )
-            # #endregion
 
             if probe_ok:
                 if has_cf:
@@ -722,23 +812,17 @@ class BrowserSession:
                         "Cardmarket page did not finish loading",
                     )
             if status == 200:
-                # #region agent log
-                from ygo_app.cardmarket.browser_cookies import _agent_debug_log
-
-                _agent_debug_log(
-                    "G",
-                    "browser_client.py:_navigate_page",
-                    "page_ready",
-                    {
-                        "url": url[:120],
-                        "had_cookie_consent": _page_needs_cookie_consent(page, html),
-                        "has_product_rows": "productRow" in (html or ""),
-                    },
-                )
-                # #endregion
                 return _FetchResult(html, status, headers, None)
+            accepted = _accept_html_if_page_ready(
+                page, url, html, headers, http_status=status, reason="non_200_status"
+            )
+            if accepted is not None:
+                return accepted
             return _FetchResult(None, status, headers, f"HTTP {status}")
         except Exception as exc:
+            recovered = _recover_page_after_goto_error(page, url, exc)
+            if recovered is not None:
+                return recovered
             return _FetchResult(None, None, {}, format_fetch_error(exc))
 
     def _worker_loop(self) -> None:
@@ -749,26 +833,77 @@ class BrowserSession:
         context = None
         page = None
         cdp_proc: subprocess.Popen[Any] | None = None
+        profile_state = load_profile_state(pool=_profile_pool)
         try:
             playwright = sync_playwright().start()
-            if _headed and _browser_executable(_browser_channel or "chrome"):
-                browser, context, page, cdp_proc = _launch_headed_cdp_browser(
-                    playwright, _browser_channel
-                )
-            else:
-                browser = _launch_browser(
-                    playwright,
-                    headed=_headed,
-                    channel=_browser_channel,
-                )
-                context = _new_context(browser, storage_path=_storage_path)
-                page = context.new_page()
 
-            warmup_result = self._navigate_page(page, _WARMUP_URL)
-            if warmup_result.error:
+            while True:
+                active_name = profile_state.active
+                switch_active_profile(profile_state, active_name)
+                save_profile_state(profile_state)
+                global _storage_path
+                _storage_path = profile_storage_path(active_name)
+                chrome_profile_dir = profile_dir(active_name)
+
+                browser = None
+                context = None
+                page = None
+                cdp_proc = None
+
+                if _headed and _browser_executable(_browser_channel or "chrome"):
+                    browser, context, page, cdp_proc = _launch_headed_cdp_browser(
+                        playwright,
+                        _browser_channel,
+                        chrome_profile_dir=chrome_profile_dir,
+                        profile_name=active_name,
+                    )
+                else:
+                    browser = _launch_browser(
+                        playwright,
+                        headed=_headed,
+                        channel=_browser_channel,
+                    )
+                    context = _new_context(browser, storage_path=_storage_path)
+                    page = context.new_page()
+
+                warmup_result = self._navigate_page(page, _WARMUP_URL)
+                if not warmup_result.error:
+                    self._save_storage_state(context)
+                    break
+
                 log_line(f"[WARN] browser warmup: {warmup_result.error} {_WARMUP_URL}")
-            else:
-                self._save_storage_state(context)
+                is_429 = warmup_result.status == 429 or (
+                    warmup_result.error is not None and "429" in warmup_result.error
+                )
+                _close_browser_handles(
+                    page=page, context=context, browser=browser, cdp_proc=cdp_proc
+                )
+                browser = context = page = None
+                cdp_proc = None
+
+                if is_429:
+                    rotated = burn_and_rotate(profile_state, reason="429")
+                    if rotated is None:
+                        log_pool_exhausted_hint(profile_state.pool)
+                        _log_scrape_profile_rate_limit_hint()
+                        self._fail_startup(
+                            RuntimeError(
+                                "All browser profiles in the pool are rate-limited (HTTP 429)."
+                            )
+                        )
+                        return
+                    profile_state = rotated
+                    save_profile_state(profile_state)
+                    continue
+
+                self._fail_startup(
+                    RuntimeError(
+                        warmup_result.error
+                        or f"Browser warmup failed with HTTP {warmup_result.status}"
+                    )
+                )
+                return
+
             time.sleep(2)
 
             with self._start_lock:
@@ -795,15 +930,9 @@ class BrowserSession:
                     self._save_storage_state(context)
                 except Exception:
                     pass
-            if cdp_proc is not None:
-                _terminate_process(cdp_proc)
-            for closer in (page, context, browser):
-                if closer is None:
-                    continue
-                try:
-                    closer.close()
-                except Exception:
-                    pass
+            _close_browser_handles(
+                page=page, context=context, browser=browser, cdp_proc=cdp_proc
+            )
             if playwright is not None:
                 try:
                     playwright.stop()

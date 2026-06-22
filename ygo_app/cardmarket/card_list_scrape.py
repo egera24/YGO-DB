@@ -347,6 +347,17 @@ def run_card_list_scrape(
                 stats["success"] += 1
 
             completed += 1
+            first_issue = ""
+            if result["attempts"]:
+                issues = result["attempts"][-1].get("issues") or []
+                if issues:
+                    first_issue = f" — {issues[0][:100]}"
+            log_line(
+                f"[CARD_LIST] expansion {expansion.get('expansion_id')} "
+                f"({completed}/{len(remaining)}): {result['status']}"
+                f"{f', {result['total_count']} cards' if result['total_count'] else ''}"
+                f"{first_issue if result['status'] == 'rejected' else ''}"
+            )
             if completed % CHECKPOINT_EVERY == 0:
                 _save_card_list_artifacts(
                     all_cards=all_cards,

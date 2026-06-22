@@ -15,7 +15,7 @@ def _search_url(expansion_id: int, page: int) -> str:
     return (
         f"{BASE_URL}/en/YuGiOh/Products/Search?"
         f"searchMode=v1&idCategory=0&idExpansion={expansion_id}"
-        f"&onlyAvailable=on&idRarity=0&site={page}"
+        f"&onlyAvailable=on&idRarity=0&site={page}&mode=list"
     )
 
 

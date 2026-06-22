@@ -356,6 +356,48 @@ class TestBrowserSessionThreading(unittest.TestCase):
         self.assertIsNone(err)
 
 
+class TestBrowserProfiles(unittest.TestCase):
+    def test_parse_profile_pool(self):
+        from ygo_app.cardmarket.browser_profiles import parse_profile_pool, resolve_profile_pool
+
+        self.assertEqual(parse_profile_pool(None), ["default"])
+        self.assertEqual(parse_profile_pool("default,alt1,alt2"), ["default", "alt1", "alt2"])
+        self.assertEqual(parse_profile_pool("a,a,b"), ["a", "b"])
+        self.assertEqual(
+            resolve_profile_pool("alt1,alt2", "default,ignored"),
+            ["alt1", "alt2"],
+        )
+        self.assertEqual(resolve_profile_pool(None, "x,y"), ["x", "y"])
+
+    def test_burn_and_rotate(self):
+        from ygo_app.cardmarket.browser_profiles import (
+            ProfileState,
+            burn_and_rotate,
+            next_available_profile,
+        )
+
+        state = ProfileState(active="default", pool=["default", "alt1", "alt2"])
+        rotated = burn_and_rotate(state, reason="429")
+        self.assertIsNotNone(rotated)
+        assert rotated is not None
+        self.assertEqual(rotated.active, "alt1")
+        self.assertIn("default", rotated.burned)
+        self.assertIsNone(next_available_profile(ProfileState(active="alt2", pool=["a"], burned=["a"])))
+
+    def test_profile_dir_legacy_default(self):
+        from ygo_app.cardmarket import browser_profiles as bp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = Path(tmp)
+            legacy = catalog / "cardmarket_chrome_profile"
+            legacy.mkdir()
+            with mock.patch.object(bp, "CATALOG_DIR", catalog), mock.patch.object(
+                bp, "LEGACY_CDP_PROFILE_DIR", legacy
+            ):
+                self.assertEqual(bp.profile_dir("default"), legacy)
+                self.assertEqual(bp.profile_dir("alt1"), catalog / "cardmarket_profiles" / "alt1")
+
+
 class TestBrowserCookies(unittest.TestCase):
     def test_storage_has_cf_clearance(self):
         from ygo_app.cardmarket.browser_cookies import storage_has_cf_clearance

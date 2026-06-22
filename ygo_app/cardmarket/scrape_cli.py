@@ -38,6 +38,11 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Browser for --cf-login / --headed (default: chrome)",
     )
+    parser.add_argument(
+        "--browser-profiles",
+        default=None,
+        help="Comma-separated Chrome profile pool for --browser/--headed (e.g. default,alt1,alt2)",
+    )
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel workers")
     parser.add_argument("--rps", type=float, default=None, help="Override requests per second")
     parser.add_argument(

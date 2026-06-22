@@ -30,6 +30,7 @@ from ygo_app.cardmarket.constants import (
     USER_AGENTS,
     USER_AGENT,
 )
+from ygo_app.cardmarket.browser_profiles import active_browser_storage_path
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -40,6 +41,14 @@ _consecutive_429_lock = threading.Lock()
 _consecutive_429_count = 0
 
 _CF_LOGIN_HINT = "python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login"
+
+
+def _browser_cookie_storage_path() -> Path:
+    """Cookie file for the active scrape profile (or legacy global path)."""
+    try:
+        return active_browser_storage_path()
+    except Exception:
+        return CARDMARKET_BROWSER_STATE_PATH
 
 _CF_CHALLENGE_MARKERS = (
     "_cf_chl_opt",
@@ -265,7 +274,7 @@ def create_scraper(worker_id: int = 0) -> cloudscraper.CloudScraper:
     proxies = _proxy_dict()
     if proxies:
         scraper.proxies.update(proxies)
-    apply_storage_cookies(scraper, CARDMARKET_BROWSER_STATE_PATH, backend="cloudscraper")
+    apply_storage_cookies(scraper, _browser_cookie_storage_path(), backend="cloudscraper")
     return scraper
 
 
@@ -279,7 +288,7 @@ def create_curl_cffi_session(worker_id: int = 0):
     proxies = _proxy_dict()
     if proxies:
         session.proxies = proxies
-    apply_storage_cookies(session, CARDMARKET_BROWSER_STATE_PATH, backend="curl_cffi")
+    apply_storage_cookies(session, _browser_cookie_storage_path(), backend="curl_cffi")
     # #region agent log
     from ygo_app.cardmarket.browser_cookies import _agent_debug_log
 
@@ -583,7 +592,7 @@ def _handle_block(
         if status in (403, 429) or _is_cf_challenge_error(error):
             from ygo_app.cardmarket.browser_cookies import storage_has_cf_clearance
 
-            if not storage_has_cf_clearance(CARDMARKET_BROWSER_STATE_PATH):
+            if not storage_has_cf_clearance(_browser_cookie_storage_path()):
                 log_line(f"[HINT] No cf_clearance cookies — run: {_CF_LOGIN_HINT}")
         return scraper, False
 

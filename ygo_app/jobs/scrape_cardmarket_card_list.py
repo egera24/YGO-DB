@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         headed=args.headed,
         cf_login=args.cf_login,
         browser_channel=args.browser_channel,
+        browser_profiles=args.browser_profiles,
         workers=args.workers,
         price_rps=args.rps,
         discovery_rps=args.discovery_rps,

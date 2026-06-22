@@ -139,6 +139,7 @@ DEFAULT_COLLECTION_CSV = ROOT_DIR / "my_collection.csv"
 
 # Optional residential proxy for local Cardmarket scrape (http://user:pass@host:port).
 CARDMARKET_HTTP_PROXY = (os.getenv("CARDMARKET_HTTP_PROXY") or "").strip() or None
+CARDMARKET_BROWSER_PROFILES = (os.getenv("CARDMARKET_BROWSER_PROFILES") or "").strip() or None
 
 COLLECTION_CSV_MAX_BYTES = int(os.getenv("COLLECTION_CSV_MAX_BYTES", str(20 * 1024 * 1024)))
 

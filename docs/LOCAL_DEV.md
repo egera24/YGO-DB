@@ -193,6 +193,8 @@ python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_price
 
 ### Incremental update (after full scrape)
 
+**Full walkthrough:** [cardmarket-incremental-scrape.md](cardmarket-incremental-scrape.md) (e.g. July full catalog → October new expansions only).
+
 Once you have a complete `cardmarket_expansion_list.json`, `cardmarket_card_list.json`, and `cardmarket_card_details.json`, use the orchestrator to scrape **only new expansions** (and expansions whose Cardmarket `expansion_id` changed):
 
 ```powershell

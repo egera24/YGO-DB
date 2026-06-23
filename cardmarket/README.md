@@ -17,7 +17,7 @@ python -m ygo_app.jobs.export_cardmarket_prices
 python -m ygo_app.jobs.upload_cardmarket_prices
 ```
 
-**Incremental** (after initial full scrape — new expansions only):
+**Incremental** (after initial full scrape — new expansions only). Guide: [docs/cardmarket-incremental-scrape.md](../docs/cardmarket-incremental-scrape.md).
 
 ```powershell
 python -m ygo_app.jobs.scrape_cardmarket_incremental --polite

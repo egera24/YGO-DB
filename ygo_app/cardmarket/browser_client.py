@@ -15,9 +15,7 @@ from typing import Any, Literal
 from ygo_app import config
 from ygo_app.cardmarket.browser_profiles import (
     DEFAULT_PROFILE_NAME,
-    burn_and_rotate,
     load_profile_state,
-    log_pool_exhausted_hint,
     profile_dir,
     profile_storage_path,
     save_profile_state,
@@ -706,6 +704,7 @@ class BrowserSession:
         self._ready_event = threading.Event()
         self._ready = False
         self._startup_error: str | None = None
+        self._startup_abort: BaseException | None = None
         self._worker_started = False
 
     @classmethod
@@ -719,6 +718,8 @@ class BrowserSession:
         with self._start_lock:
             if self._ready:
                 return
+            if self._startup_abort is not None:
+                raise self._startup_abort
             if self._startup_error:
                 raise BrowserStartupError(self._startup_error)
             if not self._worker_started:
@@ -736,15 +737,42 @@ class BrowserSession:
                 f"Playwright worker timed out during startup — try: {_INSTALL_HINT}"
             )
         with self._start_lock:
+            if self._startup_abort is not None:
+                raise self._startup_abort
             if self._startup_error:
                 raise BrowserStartupError(self._startup_error)
 
     def _fail_startup(self, exc: BaseException) -> None:
+        from ygo_app.cardmarket.http_client import RateLimitAbort
+
+        if isinstance(exc, RateLimitAbort):
+            with self._start_lock:
+                self._startup_abort = exc
+            log_line(f"[ERROR] browser startup failed: {exc}")
+            self._ready_event.set()
+            return
         detail = format_fetch_error(exc)
         with self._start_lock:
             self._startup_error = detail
         log_line(f"[ERROR] browser startup failed: {detail}")
         self._ready_event.set()
+
+    def _warmup_page_after_launch(self, page) -> _FetchResult:
+        """Reuse the CDP landing tab when possible (avoid a duplicate warmup goto)."""
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=15_000)
+        except Exception:
+            pass
+        try:
+            html = page.content()
+        except Exception as exc:
+            return _FetchResult(None, None, {}, format_fetch_error(exc))
+
+        if is_cloudflare_rate_limited(html):
+            return _FetchResult(None, 429, {}, "Cloudflare rate limit (Error 1015)")
+        if _cardmarket_page_ready(page, html):
+            return _FetchResult(html, 200, {}, None)
+        return self._navigate_page(page, _WARMUP_URL)
 
     def _save_storage_state(self, context) -> None:
         try:
@@ -870,7 +898,7 @@ class BrowserSession:
                     context = _new_context(browser, storage_path=_storage_path)
                     page = context.new_page()
 
-                warmup_result = self._navigate_page(page, _WARMUP_URL)
+                warmup_result = self._warmup_page_after_launch(page)
                 if not warmup_result.error:
                     self._save_storage_state(context)
                     break
@@ -886,19 +914,20 @@ class BrowserSession:
                 cdp_proc = None
 
                 if is_429:
-                    rotated = burn_and_rotate(profile_state, reason="429")
-                    if rotated is None:
-                        log_pool_exhausted_hint(profile_state.pool)
-                        _log_scrape_profile_rate_limit_hint()
-                        self._fail_startup(
-                            RuntimeError(
-                                "All browser profiles in the pool are rate-limited (HTTP 429)."
-                            )
+                    # IP-level ban: rotating profiles on the same connection adds requests
+                    # without bypassing Cloudflare counters (see docs/cloudflare/README.md).
+                    _log_scrape_profile_rate_limit_hint()
+                    from ygo_app.cardmarket.constants import LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS
+                    from ygo_app.cardmarket.http_client import RateLimitAbort, log_rate_limit_recovery
+
+                    log_rate_limit_recovery(LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS)
+                    self._fail_startup(
+                        RateLimitAbort(
+                            LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS,
+                            "IP rate limited during browser warmup",
                         )
-                        return
-                    profile_state = rotated
-                    save_profile_state(profile_state)
-                    continue
+                    )
+                    return
 
                 self._fail_startup(
                     RuntimeError(
@@ -923,6 +952,7 @@ class BrowserSession:
                 if result.error:
                     log_line(f"[WARN] browser fetch failed {url[:80]}: {result.error}")
                 elif result.status == 200:
+                    log_line(f"[FETCH] OK {url[:80]}")
                     self._save_storage_state(context)
                 result_queue.put(result)
         except Exception as exc:
@@ -965,6 +995,7 @@ class BrowserSession:
             self._worker_started = False
             self._ready = False
             self._startup_error = None
+            self._startup_abort = None
             self._ready_event.clear()
 
 

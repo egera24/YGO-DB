@@ -17,6 +17,6 @@ python -m ygo_app.jobs.export_cardmarket_prices
 python -m ygo_app.jobs.upload_cardmarket_prices
 ```
 
-See [`docs/LOCAL_DEV.md`](../docs/LOCAL_DEV.md), [`docs/cloudflare/README.md`](../docs/cloudflare/README.md), and [`agent_handoff.md`](../agent_handoff.md) for rate-limit guidance and artifact paths.
+See [`docs/LOCAL_DEV.md`](../docs/LOCAL_DEV.md), [`docs/cloudflare/README.md`](../docs/cloudflare/README.md), [`docs/cloudflare/cardmarket-scraper-behavior.md`](../docs/cloudflare/cardmarket-scraper-behavior.md), and [`agent_handoff.md`](../agent_handoff.md) for rate-limit guidance and artifact paths.
 
 The legacy scripts remain here for reference only; do not extend them.

@@ -86,7 +86,7 @@ def prepare_scrape_session(
             )
 
     if len(profile_pool) > 1 and backend_label == "playwright":
-        log_line(f"[PROFILE] pool={','.join(profile_pool)} (auto-rotate on warmup 429)")
+        log_line(f"[PROFILE] pool={','.join(profile_pool)} (cookie/session pool)")
 
     log_line(
         f"[CARDMARKET] backend={backend_label} workers={effective_workers} "

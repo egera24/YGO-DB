@@ -3,7 +3,7 @@
 > **For the next agent.** Read this first for token-efficient context instead of replaying chat history.
 > Keep it current when architecture, deploy, or conventions change. Body stays **timeless**; put dated work in [§9 Changelog](#9-changelog).
 >
-> **Last updated:** 2026-06-21
+> **Last updated:** 2026-06-23
 
 ---
 
@@ -316,7 +316,7 @@ python -m ygo_app.jobs.import_catalog
 
 ### Cardmarket prices (local scrape → R2 → GHA import)
 
-Cardmarket blocks cloud/datacenter IPs (HTTP 403/429 / Cloudflare Error 1015). **Scrape only on your PC** in four steps; import via R2 + GHA or direct local import. Rate-limit reference: [`docs/cloudflare/README.md`](docs/cloudflare/README.md).
+Cardmarket blocks cloud/datacenter IPs (HTTP 403/429 / Cloudflare Error 1015). **Scrape only on your PC** in four steps; import via R2 + GHA or direct local import. Rate-limit reference: [`docs/cloudflare/README.md`](docs/cloudflare/README.md); browser scraper behavior: [`docs/cloudflare/cardmarket-scraper-behavior.md`](docs/cloudflare/cardmarket-scraper-behavior.md).
 
 Default HTTP backend is **`curl_cffi`** (Chrome TLS impersonation) when installed; falls back to `cloudscraper`. Optional `CARDMARKET_HTTP_PROXY` in `.env` for a residential proxy (`http://user:pass@host:port`). Use **`--polite`** for recommended browser pacing (~0.12 discovery RPS).
 
@@ -386,6 +386,10 @@ git checkout main && git merge develop && git push   # promote app to prod
 ## 9. Changelog
 
 Recent work, newest first. Keep the body above timeless; record dated changes here.
+
+**2026-06-23**
+- **Cardmarket scraper rate-limit docs** — new [docs/cloudflare/cardmarket-scraper-behavior.md](docs/cloudflare/cardmarket-scraper-behavior.md): browser request flow, console output (`[FETCH] OK` vs expansion summary), pagination, IP vs profile pool, troubleshooting. Cross-links in [docs/cloudflare/README.md](docs/cloudflare/README.md), [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md), [cardmarket/README.md](cardmarket/README.md).
+- **Cardmarket browser 429 handling** — warmup HTTP 429 fails fast (no profile rotation on same IP); reuse CDP landing tab (`_warmup_page_after_launch`); `[FETCH] OK` per-page logging; `RateLimitAbort` on IP ban at startup.
 
 **2026-06-21**
 - **Search preset save choice** — removed redundant **Clear preset** button (deselect via dropdown "— None —"). When a preset is selected, **Save** opens `#search-preset-save-modal` to **Overwrite** the active preset or **Save as new** (name prompt). Static `app.js?v=71`, `style.css?v=57`.

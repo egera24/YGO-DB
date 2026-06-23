@@ -156,7 +156,7 @@ See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [D
 
 ## Cardmarket prices (local scrape)
 
-Cardmarket returns HTTP 403/429 and Cloudflare **Error 1015** from aggressive scraping. See **[docs/cloudflare/README.md](cloudflare/README.md)** for rate-limit theory and recovery.
+Cardmarket returns HTTP 403/429 and Cloudflare **Error 1015** from aggressive scraping. See **[docs/cloudflare/README.md](cloudflare/README.md)** for rate-limit theory and **[docs/cloudflare/cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md)** for how the browser scraper actually behaves (console output, pagination, profile pool).
 
 Scrape on your machine in **four steps**, then import to Neon.
 
@@ -193,23 +193,41 @@ python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_price
 
 **`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.12 discovery / ~0.2 price). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
 
+### Console output and request budget
+
+Each expansion may require **multiple page fetches** (`site=1`, `site=2`, …). The job prints **one line per expansion** when done, but **`[FETCH] OK` once per page**. A run of 3 expansions can easily be 9+ navigations.
+
+| Log prefix | Meaning |
+|------------|---------|
+| `[FETCH] OK` | One successful page navigation |
+| `[CARD_LIST] expansion … success, N cards` | Expansion complete (all pages) |
+| `[WARN] browser fetch failed` | Failed fetch; URL truncated at 80 chars (all search URLs share the same prefix) |
+
+Full guide: **[docs/cloudflare/cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md)**.
+
 ### After HTTP 429 or Error 1015 (IP ban)
 
 The scraper **saves a checkpoint and exits** when `Retry-After >= 600` seconds (instead of sleeping for an hour).
 
 1. Wait until the ban expires (often 1 hour; check https://www.cardmarket.com in your **normal browser**, not scrape Chrome).
 2. Reset burned profiles if needed: delete or edit `data/catalog/cardmarket_profile_state.json`.
-3. Resume slower:
+3. Resume slower (or use a different egress IP once cardmarket.com loads in your normal browser):
 
 ```powershell
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.08
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.05
 ```
 
-### Why profile rotation did not help
+### Changing IP
 
-Cloudflare rate limits often count by **source IP**, not browser profile. Rotating `--browser-profiles` on the same connection does not reset an IP-level ban. Profiles only help when a specific cookie/session is flagged, not when your IP is blocked.
+Cloudflare counters are usually keyed by **source IP**. If your home connection stays banned, waiting often takes ~1 hour. A **different egress IP** (e.g. mobile hotspot) is a verified way to scrape again once Cloudflare allows that address — still use `--polite` and low `--discovery-rps`.
 
-**Chrome profile pool (optional):** headed scraping uses isolated Chrome user-data dirs under `data/catalog/cardmarket_profiles/`. Burned profiles are tracked in `data/catalog/cardmarket_profile_state.json`.
+### Chrome profile pool (optional)
+
+`--browser-profiles` uses isolated Chrome user-data dirs under `data/catalog/cardmarket_profiles/`. This is for **cookie/session isolation**, not IP-ban bypass. The scraper **no longer rotates profiles on warmup HTTP 429** (that amplified bans by launching multiple Chromes on the same IP). State: `data/catalog/cardmarket_profile_state.json`.
+
+### Why profile rotation did not help (IP bans)
+
+Cloudflare rate limits often count by **source IP**, not browser profile. Rotating `--browser-profiles` on the same connection does not reset an IP-level ban. Profiles only help when a specific cookie/session is flagged, not when your IP is blocked. See [cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md).
 
 Job 3 `--fast` (20 workers / 8 rps) requires `--i-accept-rate-limit-risk` and is not recommended.
 
@@ -220,7 +238,7 @@ Job 3 `--fast` (20 workers / 8 rps) requires `--i-accept-rate-limit-risk` and is
 | `data/catalog/cardmarket_card_details.json` | Job 3 output |
 | `data/catalog/cardmarket_prices.json` | Job 4 export (upload to R2) |
 | `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 |
-| `data/catalog/cardmarket_profile_state.json` | Active/burned browser profiles for pool rotation |
+| `data/catalog/cardmarket_profile_state.json` | Active/burned browser profiles (cookie/session pool) |
 | `data/catalog/cardmarket_profiles/{name}/` | Per-profile Chrome user-data + `browser_state.json` |
 | `ygo_app/cardmarket/expansion_seed.json` | Auto-regenerated after job 2 |
 | R2 `catalog/cardmarket_prices.json` | Private handoff for GHA import |

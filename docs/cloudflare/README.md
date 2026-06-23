@@ -5,6 +5,7 @@
 
 | Snapshot | Canonical URL |
 |----------|---------------|
+| **[cardmarket-scraper-behavior.md](cardmarket-scraper-behavior.md)** | **Project guide — browser scraper request flow, console output, 429 recovery** |
 | [error-429.md](error-429.md) | https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-429/ |
 | [rate-limiting-rules.md](rate-limiting-rules.md) | https://developers.cloudflare.com/waf/rate-limiting-rules/ |
 | [request-rate-calculation.md](request-rate-calculation.md) | https://developers.cloudflare.com/waf/rate-limiting-rules/request-rate/ |
@@ -14,6 +15,8 @@
 ## Cardmarket scraping (this project)
 
 Cardmarket sits behind Cloudflare. Automated scraping triggers **HTTP 429** and **Error 1015** (“You are being rate limited”) when request volume looks non-human.
+
+For **how our browser scraper behaves** (hidden requests, console lines, pagination, profile pool), see **[cardmarket-scraper-behavior.md](cardmarket-scraper-behavior.md)**.
 
 ### How Cloudflare counts requests
 
@@ -35,9 +38,11 @@ Cloudflare’s [anti-scraping examples](best-practices.md#prevent-content-scrapi
 # Polite browser scrape (recommended)
 python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --limit 5
 
-# After a long ban — wait, verify in normal Chrome, then resume slower:
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.08
+# After a ban — wait, verify in normal Chrome, then resume slower (verified: 0.05 RPS on fresh IP):
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.05
 ```
+
+**Warmup 429:** if the job gets HTTP 429 while starting Chrome (before any expansion), your IP is already banned. The scraper **fails fast** — it does **not** rotate `--browser-profiles` — and exits with `RateLimitAbort` (checkpoint saved when applicable). See [cardmarket-scraper-behavior.md](cardmarket-scraper-behavior.md).
 
 ### Recovery after IP ban
 

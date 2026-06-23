@@ -834,6 +834,12 @@ def fetch_url(
 
             if isinstance(exc, BrowserStartupError):
                 detail = str(exc)
+                lower = detail.lower()
+                if "rate-limited" in lower or "rate limit" in lower:
+                    raise RateLimitAbort(
+                        LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS,
+                        detail,
+                    ) from exc
                 if attempt < retries - 1:
                     _log_fetch_failure(url, None, detail, attempt)
                     time.sleep(5)

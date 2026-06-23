@@ -199,9 +199,9 @@ Each expansion may require **multiple page fetches** (`site=1`, `site=2`, …). 
 
 | Log prefix | Meaning |
 |------------|---------|
-| `[FETCH] OK` | One successful page navigation |
+| `[FETCH] OK` | One successful page navigation (shows `idExpansion`, `site`, `mode`, …) |
 | `[CARD_LIST] expansion … success, N cards` | Expansion complete (all pages) |
-| `[WARN] browser fetch failed` | Failed fetch; URL truncated at 80 chars (all search URLs share the same prefix) |
+| `[WARN] browser fetch failed` | Failed fetch; same compact URL label as `[FETCH] OK` |
 
 Full guide: **[docs/cloudflare/cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md)**.
 

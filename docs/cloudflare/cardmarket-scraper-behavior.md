@@ -91,23 +91,15 @@ So “3 expansions succeeded” can mean **9+ Cloudflare-counted navigations**, 
 | Log prefix | Meaning |
 |------------|---------|
 | `[BROWSER] launching real chrome via CDP` | Starting one headed Chrome session for this job |
-| `[FETCH] OK` | **One successful page navigation** (not one expansion) |
+| `[FETCH] OK` | **One successful page navigation** (not one expansion); URL shown as key query params, e.g. `idExpansion=1651 site=1 mode=list` |
 | `[CARD_LIST] expansion … success, N cards` | All pages for that expansion finished |
-| `[WARN] browser fetch failed` | Navigation failed; URL shown is **truncated to 80 characters** |
+| `[WARN] browser fetch failed` | Navigation failed; URL shown as compact query params (same format as `[FETCH] OK`) |
 | `[WARN] HTTP 429` | Rate limited; may sleep with backoff or abort on long ban |
 | `[THROTTLE] rps=…` | Adaptive slowdown after 403/429 |
 | `[ABORT] Long rate limit` | `Retry-After >= 600` s — checkpoint saved, job exits |
 | `[ERROR] browser startup failed` | Could not start browser (often IP already 429 at warmup) |
 
-### Misleading truncated URLs
-
-Failed-fetch lines look like:
-
-```text
-[WARN] browser fetch failed https://www.cardmarket.com/en/YuGiOh/Products/Search?searchMode=v1&idCategory=0&: HTTP 429
-```
-
-All product search URLs share the same first 80 characters (`idCategory=0&`). This is **not** necessarily the expansion-list `SEARCH_URL` — it is usually an expansion page (`idExpansion=…`) cut off by logging. Use `[FETCH] OK` lines and expansion summaries to see real progress.
+Fetch and failure lines use [`format_fetch_url`](../../ygo_app/cardmarket/url_log.py): product-search URLs log distinguishing query params (`idExpansion`, `site`, `mode`, …) instead of a shared 80-character prefix. Other Cardmarket URLs log the path.
 
 ---
 

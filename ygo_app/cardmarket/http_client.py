@@ -37,6 +37,7 @@ from ygo_app.cardmarket.constants import (
 )
 from ygo_app.cardmarket.browser_profiles import active_browser_storage_path
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
+from ygo_app.cardmarket.url_log import format_fetch_url
 from ygo_app.yugipedia.scrape_progress import log_line
 
 if TYPE_CHECKING:
@@ -620,15 +621,16 @@ def _log_fetch_failure(
                 retry_note = f"; Retry-After={raw!r} (unparsed)"
         else:
             retry_note = "; Retry-After=(not set)"
+    url_label = format_fetch_url(url)
     if status is not None:
         log_line(
-            f"[WARN] HTTP {status} {url[:80]} "
+            f"[WARN] HTTP {status} {url_label} "
             f"(attempt {attempt + 1})"
             + retry_note
             + (f" — {error}" if error and not error.startswith("HTTP ") else "")
         )
     elif error:
-        log_line(f"[WARN] fetch failed {url[:80]}: {error} (attempt {attempt + 1})")
+        log_line(f"[WARN] fetch failed {url_label}: {error} (attempt {attempt + 1})")
 
 
 def _handle_block(
@@ -762,7 +764,7 @@ def fetch_url(
         except cloudscraper.exceptions.CloudflareChallengeError as exc:
             error_msg = f"CloudflareError: {str(exc)[:100]}"
             log_line(
-                f"[WARN] Cloudflare challenge (attempt {attempt + 1}/{retries}) {url[:60]}"
+                f"[WARN] Cloudflare challenge (attempt {attempt + 1}/{retries}) {format_fetch_url(url)}"
             )
             scraper, should_continue = _handle_block(
                 url=url,
@@ -796,7 +798,7 @@ def fetch_url(
                     _log_fetch_failure(url, None, detail, attempt)
                     time.sleep(5)
                     continue
-                log_line(f"[WARN] fetch failed {url[:80]}: {detail}")
+                log_line(f"[WARN] fetch failed {format_fetch_url(url)}: {detail}")
                 return None, detail
             detail = format_fetch_error(exc)
             if attempt < retries - 1:
@@ -804,6 +806,6 @@ def fetch_url(
                 delay = random.uniform(*RETRY_DELAY_RANGE)
                 time.sleep(delay)
                 continue
-            log_line(f"[WARN] fetch failed {url[:80]}: {detail}")
+            log_line(f"[WARN] fetch failed {format_fetch_url(url)}: {detail}")
             return None, detail
     return None, "max retries"

@@ -24,6 +24,7 @@ from ygo_app.cardmarket.browser_profiles import (
 from ygo_app.cardmarket.constants import BASE_URL, CARD_LIST_PROBE_URL, REQUEST_TIMEOUT, SEARCH_URL
 from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, is_cloudflare_rate_limited, user_agent_for_worker
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
+from ygo_app.cardmarket.url_log import format_fetch_url
 from ygo_app.yugipedia.scrape_progress import log_line
 
 _STOP = object()
@@ -954,9 +955,9 @@ class BrowserSession:
                 url, result_queue = item
                 result = self._navigate_page(page, url)
                 if result.error:
-                    log_line(f"[WARN] browser fetch failed {url[:80]}: {result.error}")
+                    log_line(f"[WARN] browser fetch failed {format_fetch_url(url)}: {result.error}")
                 elif result.status == 200:
-                    log_line(f"[FETCH] OK {url[:80]}")
+                    log_line(f"[FETCH] OK {format_fetch_url(url)}")
                     self._save_storage_state(context)
                 result_queue.put(result)
         except Exception as exc:

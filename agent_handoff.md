@@ -316,28 +316,27 @@ python -m ygo_app.jobs.import_catalog
 
 ### Cardmarket prices (local scrape → R2 → GHA import)
 
-Cardmarket blocks cloud/datacenter IPs (HTTP 403/429). **Scrape only on your PC** in four steps; import via R2 + GHA or direct local import.
+Cardmarket blocks cloud/datacenter IPs (HTTP 403/429 / Cloudflare Error 1015). **Scrape only on your PC** in four steps; import via R2 + GHA or direct local import. Rate-limit reference: [`docs/cloudflare/README.md`](docs/cloudflare/README.md).
 
-Default HTTP backend is **`curl_cffi`** (Chrome TLS impersonation) when installed; falls back to `cloudscraper`. Optional `CARDMARKET_HTTP_PROXY` in `.env` for a residential proxy (`http://user:pass@host:port`).
+Default HTTP backend is **`curl_cffi`** (Chrome TLS impersonation) when installed; falls back to `cloudscraper`. Optional `CARDMARKET_HTTP_PROXY` in `.env` for a residential proxy (`http://user:pass@host:port`). Use **`--polite`** for recommended browser pacing (~0.12 discovery RPS).
 
 One-time Playwright setup (for `--backend playwright` when rate-limited): `pip install -r requirements.txt` then `python -m playwright install chromium`.
 
 ```powershell
 # 1. Scrape Cardmarket (full TCG catalog; step 4 needs yugipedia_all_cards.json)
 python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login   # one-time Cloudflare
-python -m ygo_app.jobs.scrape_cardmarket_expansions
-python -m ygo_app.jobs.scrape_cardmarket_card_list --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_details --resume
+python -m ygo_app.jobs.scrape_cardmarket_expansions --polite
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --resume
 python -m ygo_app.jobs.export_cardmarket_prices
 
 # Dev test: --limit 5 on jobs 2–3, --limit 500 on export
-python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5
-python -m ygo_app.jobs.scrape_cardmarket_card_details --limit 5
+python -m ygo_app.jobs.scrape_cardmarket_card_list --polite --limit 5
+python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --limit 5
 python -m ygo_app.jobs.export_cardmarket_prices --limit 500
 
-# Backends / throttle overrides (jobs 1–3)
-python -m ygo_app.jobs.scrape_cardmarket_card_details --backend playwright --browser-channel chrome --headed --workers 1
-python -m ygo_app.jobs.scrape_cardmarket_card_details --rps 2 --discovery-rps 1.5
+# After IP ban: wait, then resume slower (--discovery-rps 0.08)
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.08
 
 # 2a. Upload to R2 (S3_* in .env), then GHA "Import Cardmarket prices"
 python -m ygo_app.jobs.upload_cardmarket_prices

@@ -24,7 +24,7 @@ from ygo_app.cardmarket.browser_profiles import (
     switch_active_profile,
 )
 from ygo_app.cardmarket.constants import BASE_URL, CARD_LIST_PROBE_URL, REQUEST_TIMEOUT, SEARCH_URL
-from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, user_agent_for_worker
+from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, is_cloudflare_rate_limited, user_agent_for_worker
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -111,10 +111,10 @@ def format_fetch_error(exc: BaseException) -> str:
 
 def _log_scrape_profile_rate_limit_hint() -> None:
     log_line(
-        "[HINT] HTTP 429 on the scrape Chrome profile — not your normal browser. "
-        "Each profile in --browser-profiles uses an isolated Chrome user-data dir. "
-        "Personal Chrome can work while scrape profiles stay blocked. "
-        "Wait several hours or add more profile names to the pool."
+        "[HINT] HTTP 429 / Error 1015 is usually an IP-level ban — rotating Chrome profiles "
+        "on the same connection does not reset Cloudflare counters. "
+        "Wait for Retry-After to expire, verify cardmarket.com in your normal browser, "
+        "then resume with --polite --resume. See docs/cloudflare/README.md"
     )
 
 
@@ -785,14 +785,18 @@ class BrowserSession:
                 else:
                     return _FetchResult(None, 403, headers, "Cloudflare incompatible browser page")
 
+            if status == 200 and is_cloudflare_rate_limited(html):
+                return _FetchResult(None, 429, headers, "Cloudflare rate limit (Error 1015)")
+
             if status == 200 and is_cloudflare_challenge(html):
                 if _headed and _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds):
                     html = page.content()
+                    if is_cloudflare_rate_limited(html):
+                        return _FetchResult(None, 429, headers, "Cloudflare rate limit (Error 1015)")
+                    if is_cloudflare_challenge(html):
+                        return _FetchResult(None, 403, headers, "Cloudflare challenge page")
                 else:
                     return _FetchResult(None, 403, headers, "Cloudflare challenge page")
-
-            if status == 200 and is_cloudflare_challenge(html):
-                return _FetchResult(None, 403, headers, "Cloudflare challenge page")
             if status == 200 and not _cardmarket_page_ready(page, html):
                 if _headed:
                     if _wait_for_cf_clearance(page, timeout_seconds=60):

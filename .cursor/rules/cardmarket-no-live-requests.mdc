@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Cardmarket — no live requests from agents
 
-Cardmarket returns HTTP 403/429 to automated traffic. Scraping is **user-local only** — see `docs/LOCAL_DEV.md` and `agent_handoff.md`. Agents must not consume the user's rate-limit budget.
+Cardmarket returns HTTP 403/429 to automated traffic. Scraping is **user-local only** — see `docs/LOCAL_DEV.md`, `docs/cloudflare/README.md`, and `agent_handoff.md`. Agents must not consume the user's rate-limit budget.
 
 ## Do not
 
@@ -38,16 +38,16 @@ Cardmarket returns HTTP 403/429 to automated traffic. Scraping is **user-local o
 |------|--------------|
 | Parser/HTML change | Saved search-results HTML (list + gallery if unsure) |
 | Scraper failure | Console output, `cardmarket_rejected_expansions.json`, or one failing page |
-| Rate-limit / 403 | Whether they recently scraped; wait per `docs/LOCAL_DEV.md` — do not probe live |
+| Rate-limit / 403 | Whether they recently scraped; wait per `docs/cloudflare/README.md` and `docs/LOCAL_DEV.md` — do not probe live |
 | Price pipeline | Existing `data/catalog/cardmarket_prices.json` or R2 export |
 
 ### Recommend (do not run) local scrape pipeline
 
 ```powershell
 python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login   # one-time
-python -m ygo_app.jobs.scrape_cardmarket_expansions
-python -m ygo_app.jobs.scrape_cardmarket_card_list --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_details --resume
+python -m ygo_app.jobs.scrape_cardmarket_expansions --polite
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --resume
 ```
 
 Use `--limit N` for small test runs.

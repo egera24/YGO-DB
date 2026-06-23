@@ -5,7 +5,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ygo_app.cardmarket.constants import DEFAULT_WORKERS, FetchBackend
+from ygo_app.cardmarket.constants import (
+    BROWSER_DEFAULT_REQUESTS_PER_SECOND,
+    BROWSER_DISCOVERY_REQUESTS_PER_SECOND,
+    DEFAULT_WORKERS,
+    FetchBackend,
+)
 from ygo_app.cardmarket.http_client import default_fetch_backend
 
 
@@ -28,6 +33,11 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
         help="Visible browser (playwright only)",
     )
     parser.add_argument(
+        "--polite",
+        action="store_true",
+        help="Recommended Cardmarket preset: --browser, workers=1, conservative RPS",
+    )
+    parser.add_argument(
         "--cf-login",
         action="store_true",
         help="Open Google Chrome, pass Cloudflare manually, save cookies, then exit",
@@ -43,7 +53,12 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Comma-separated Chrome profile pool for --browser/--headed (e.g. default,alt1,alt2)",
     )
-    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel workers")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=f"Parallel workers (default: {DEFAULT_WORKERS}, or CARDMARKET_WORKERS env)",
+    )
     parser.add_argument("--rps", type=float, default=None, help="Override requests per second")
     parser.add_argument(
         "--discovery-rps",
@@ -53,6 +68,18 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     parser.add_argument("--limit", type=int, default=None, help="Cap items processed (testing)")
+
+
+def apply_polite_args(args: argparse.Namespace) -> None:
+    """Apply --polite preset after argparse (browser, 1 worker, conservative RPS)."""
+    if not getattr(args, "polite", False):
+        return
+    args.browser = True
+    args.workers = 1
+    if args.rps is None:
+        args.rps = BROWSER_DEFAULT_REQUESTS_PER_SECOND
+    if args.discovery_rps is None:
+        args.discovery_rps = BROWSER_DISCOVERY_REQUESTS_PER_SECOND
 
 
 def resolve_backend_from_args(args: argparse.Namespace) -> FetchBackend | None:

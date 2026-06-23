@@ -141,6 +141,26 @@ DEFAULT_COLLECTION_CSV = ROOT_DIR / "my_collection.csv"
 CARDMARKET_HTTP_PROXY = (os.getenv("CARDMARKET_HTTP_PROXY") or "").strip() or None
 CARDMARKET_BROWSER_PROFILES = (os.getenv("CARDMARKET_BROWSER_PROFILES") or "").strip() or None
 
+
+def _optional_float_env(name: str) -> float | None:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return None
+    return float(raw)
+
+
+def _optional_int_env(name: str) -> int | None:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
+# Optional scrape pacing overrides (CLI flags take precedence when set).
+CARDMARKET_DISCOVERY_RPS = _optional_float_env("CARDMARKET_DISCOVERY_RPS")
+CARDMARKET_PRICE_RPS = _optional_float_env("CARDMARKET_PRICE_RPS")
+CARDMARKET_WORKERS = _optional_int_env("CARDMARKET_WORKERS")
+
 COLLECTION_CSV_MAX_BYTES = int(os.getenv("COLLECTION_CSV_MAX_BYTES", str(20 * 1024 * 1024)))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

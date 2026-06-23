@@ -18,10 +18,15 @@ from ygo_app.cardmarket.constants import (
     ADAPTIVE_THROTTLE_SUCCESS_STREAK,
     BASE_URL,
     CF_CHALLENGE_RETRY_DELAYS,
+    CF_RATE_LIMIT_MARKERS,
     CIRCUIT_BREAKER_429_COOLDOWN_SECONDS,
     CIRCUIT_BREAKER_429_THRESHOLD,
     CURL_CFFI_IMPERSONATE,
     FetchBackend,
+    INTER_PAGE_DELAY_BROWSER,
+    INTER_PAGE_DELAY_HTTP,
+    LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS,
+    LONG_BAN_RETRY_AFTER_SECONDS,
     MAX_RETRIES,
     RATE_LIMIT_429_BASE_SECONDS,
     REQUEST_TIMEOUT,
@@ -57,6 +62,44 @@ _CF_CHALLENGE_MARKERS = (
     "challenge-platform",
     "checking your browser",
 )
+
+
+class RateLimitAbort(Exception):
+    """Raised when Retry-After indicates a long IP ban; checkpoint and exit."""
+
+    def __init__(self, retry_after_seconds: float, message: str = "") -> None:
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(
+            message
+            or f"Rate limited for {retry_after_seconds:.0f}s — see docs/cloudflare/README.md"
+        )
+
+
+def is_cloudflare_rate_limited(html: str | None) -> bool:
+    if not html:
+        return False
+    lower = html.lower()
+    return any(marker in lower for marker in CF_RATE_LIMIT_MARKERS)
+
+
+def sleep_inter_page_delay(backend: FetchBackend) -> None:
+    if backend == "playwright":
+        time.sleep(random.uniform(*INTER_PAGE_DELAY_BROWSER))
+    else:
+        time.sleep(random.uniform(*INTER_PAGE_DELAY_HTTP))
+
+
+def log_rate_limit_recovery(retry_after_seconds: float) -> None:
+    hours = retry_after_seconds / 3600.0
+    wait_hint = f"{retry_after_seconds:.0f}s" if hours < 1 else f"~{hours:.1f}h"
+    log_line(
+        f"[ABORT] Long rate limit (Retry-After {wait_hint}). "
+        "Checkpoint saved. Recovery:"
+    )
+    log_line("  1. Stop scraping until the ban expires.")
+    log_line("  2. Verify https://www.cardmarket.com in your normal browser (not scrape Chrome).")
+    log_line("  3. Resume: --resume --polite (or lower --discovery-rps / --rps).")
+    log_line("  4. See docs/cloudflare/README.md for details.")
 
 
 def curl_cffi_available() -> bool:
@@ -339,7 +382,7 @@ def resolve_scrape_settings(
     *,
     backend: FetchBackend | None = None,
     use_browser: bool = False,
-    workers: int,
+    workers: int | None = None,
     price_rps: float | None = None,
     discovery_rps: float | None = None,
 ) -> tuple[int, float, float, FetchBackend]:
@@ -358,6 +401,13 @@ def resolve_scrape_settings(
         effective_backend = "playwright"
     if effective_backend is None:
         effective_backend = default_fetch_backend()
+
+    if discovery_rps is None:
+        discovery_rps = config.CARDMARKET_DISCOVERY_RPS
+    if price_rps is None:
+        price_rps = config.CARDMARKET_PRICE_RPS
+    if workers is None:
+        workers = config.CARDMARKET_WORKERS if config.CARDMARKET_WORKERS is not None else DEFAULT_WORKERS
 
     if effective_backend == "playwright":
         effective_workers = workers if workers <= 1 else BROWSER_DEFAULT_WORKERS
@@ -408,11 +458,46 @@ def _parse_retry_after(headers: dict[str, str] | None) -> float | None:
         return None
 
 
+def _effective_retry_after(
+    headers: dict[str, str] | None,
+    *,
+    html: str | None = None,
+    error: str | None = None,
+) -> float | None:
+    retry_after = _parse_retry_after(headers)
+    if retry_after is not None:
+        return retry_after
+    if html and is_cloudflare_rate_limited(html):
+        return LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS
+    if error:
+        lower = error.lower()
+        if "1015" in lower or (
+            "cloudflare" in lower and "rate limit" in lower
+        ):
+            return LONG_BAN_ASSUMED_RETRY_AFTER_SECONDS
+    return None
+
+
+def _raise_if_long_ban(
+    headers: dict[str, str] | None,
+    *,
+    html: str | None = None,
+    error: str | None = None,
+) -> None:
+    retry_after = _effective_retry_after(headers, html=html, error=error)
+    if retry_after is not None and retry_after >= LONG_BAN_RETRY_AFTER_SECONDS:
+        log_rate_limit_recovery(retry_after)
+        raise RateLimitAbort(retry_after)
+
+
 def _sleep_for_429(
     *,
     attempt: int,
     headers: dict[str, str] | None = None,
+    html: str | None = None,
+    error: str | None = None,
 ) -> None:
+    _raise_if_long_ban(headers, html=html, error=error)
     global _consecutive_429_count
     with _consecutive_429_lock:
         _consecutive_429_count += 1
@@ -451,6 +536,8 @@ def _fetch_cloudscraper(
     response: Response = scraper.get(url, timeout=REQUEST_TIMEOUT)
     headers = dict(response.headers)
     if response.status_code == 200:
+        if is_cloudflare_rate_limited(response.text):
+            return None, 429, headers, "Cloudflare rate limit (Error 1015)"
         if is_cloudflare_challenge(response.text):
             return None, 403, headers, "Cloudflare challenge page"
         return response.text, response.status_code, headers, None
@@ -466,6 +553,8 @@ def _fetch_curl_cffi(
     status = response.status_code
     if status == 200:
         text = response.text
+        if is_cloudflare_rate_limited(text):
+            return None, 429, headers, "Cloudflare rate limit (Error 1015)"
         if is_cloudflare_challenge(text):
             # #region agent log
             from ygo_app.cardmarket.browser_cookies import _agent_debug_log
@@ -525,6 +614,9 @@ def _looks_like_429(*, status: int | None, error: str | None) -> bool:
             "429",
             "too many requests",
             "rate limit",
+            "rate limited",
+            "error 1015",
+            "1015",
             "err_http_response_code_failure",
         )
     )
@@ -641,8 +733,25 @@ def fetch_url(
                 html, status, headers, error = _fetch_cloudscraper(scraper, url)
 
             if html and status == 200:
+                if is_cloudflare_rate_limited(html):
+                    if isinstance(rate_limiter, AdaptiveRateLimiter):
+                        rate_limiter.note_block(reason="429")
+                    _log_fetch_failure(url, 429, "Cloudflare rate limit (Error 1015)", attempt, headers=headers)
+                    if attempt < retries - 1:
+                        _sleep_for_429(attempt=attempt, headers=headers, html=html, error=error)
+                        continue
+                    return None, "Cloudflare rate limit (Error 1015)"
                 _note_success(rate_limiter)
                 return html, None
+
+            if _looks_like_429(status=status, error=error):
+                if isinstance(rate_limiter, AdaptiveRateLimiter):
+                    rate_limiter.note_block(reason="429")
+                _log_fetch_failure(url, status or 429, error, attempt, headers=headers)
+                if attempt < retries - 1:
+                    _sleep_for_429(attempt=attempt, headers=headers, html=html, error=error)
+                    continue
+                return None, error or "HTTP 429"
 
             if status == 403 or _is_cf_challenge_error(error):
                 # #region agent log
@@ -688,15 +797,6 @@ def fetch_url(
             if status == 404:
                 return None, "HTTP 404"
 
-            if _looks_like_429(status=status, error=error):
-                if isinstance(rate_limiter, AdaptiveRateLimiter):
-                    rate_limiter.note_block(reason="429")
-                _log_fetch_failure(url, status or 429, error, attempt, headers=headers)
-                if attempt < retries - 1:
-                    _sleep_for_429(attempt=attempt, headers=headers)
-                    continue
-                return None, error or "HTTP 429"
-
             if status in (500, 503):
                 _log_fetch_failure(url, status, error, attempt)
                 if attempt < retries - 1:
@@ -728,6 +828,8 @@ def fetch_url(
                 continue
             return None, error_msg
         except Exception as exc:
+            if isinstance(exc, RateLimitAbort):
+                raise
             from ygo_app.cardmarket.browser_client import BrowserStartupError, format_fetch_error
 
             if isinstance(exc, BrowserStartupError):

@@ -20,10 +20,17 @@ from ygo_app.cardmarket.artifact_io import (
 from ygo_app.cardmarket.constants import (
     DEFAULT_REQUESTS_PER_SECOND,
     FetchBackend,
-    MAX_RETRIES,
+    INTER_EXPANSION_DELAY_BROWSER,
     RANDOM_JITTER,
+    RECOVERY_REQUESTS_PER_SECOND,
 )
-from ygo_app.cardmarket.http_client import AdaptiveRateLimiter, create_session_pool, fetch_url
+from ygo_app.cardmarket.http_client import (
+    AdaptiveRateLimiter,
+    RateLimitAbort,
+    create_session_pool,
+    fetch_url,
+    sleep_inter_page_delay,
+)
 from ygo_app.cardmarket.parsing import extract_full_price_data
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
@@ -116,6 +123,7 @@ def _process_card(
         worker_id=worker_id,
         retries=max_retries,
     )
+    sleep_inter_page_delay(backend)
 
     if not html:
         return {
@@ -205,6 +213,7 @@ def run_card_details_scrape(
     resume: bool = False,
     limit: int | None = None,
     fast: bool = False,
+    accept_rate_limit_risk: bool = False,
 ) -> dict[str, int]:
     cards = load_json_list(input_path)
     if limit is not None:
@@ -218,6 +227,8 @@ def run_card_details_scrape(
     workers = session.workers
     price_rps = session.price_rps or DEFAULT_REQUESTS_PER_SECOND
     if fast:
+        if not accept_rate_limit_risk:
+            raise ValueError("--fast requires --i-accept-rate-limit-risk")
         workers = 20
         price_rps = 8.0
         log_line("[WARN] --fast preset: 20 workers / 8 rps (higher rate-limit risk)")
@@ -278,7 +289,19 @@ def run_card_details_scrape(
 
                 for future in as_completed(futures):
                     abs_idx = futures[future]
-                    result = future.result()
+                    try:
+                        result = future.result()
+                    except RateLimitAbort as exc:
+                        _save_details(
+                            successful,
+                            rejections,
+                            details_path=output_path,
+                            rejection_path=rejection_path,
+                            checkpoint={"last_processed_index": abs_idx - 1, "phase1_complete": False},
+                            checkpoint_path=checkpoint_path,
+                        )
+                        raise SystemExit(2) from exc
+
                     if result["status"] == "success":
                         successful.append(result["data"])
                         stats["success"] += 1
@@ -313,6 +336,9 @@ def run_card_details_scrape(
                             checkpoint_path=checkpoint_path,
                         )
 
+                    if backend == "playwright":
+                        time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
+
             _save_details(
                 successful,
                 rejections,
@@ -336,7 +362,7 @@ def run_card_details_scrape(
 
     if recoverable:
         log_line(f"[DETAILS] phase2 recovery for {len(recoverable)} unreachable cards")
-        recovery_limiter = AdaptiveRateLimiter(1.0)
+        recovery_limiter = AdaptiveRateLimiter(RECOVERY_REQUESTS_PER_SECOND)
         still_rejected: list[dict] = []
         recovered = 0
 

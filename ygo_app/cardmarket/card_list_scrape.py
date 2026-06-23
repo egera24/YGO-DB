@@ -24,13 +24,17 @@ from ygo_app.cardmarket.constants import (
     DISCOVERY_MAX_RETRIES,
     DISCOVERY_REQUESTS_PER_SECOND,
     FetchBackend,
+    INTER_EXPANSION_DELAY_BROWSER,
     RANDOM_JITTER,
+    RECOVERY_REQUESTS_PER_SECOND,
 )
 from ygo_app.cardmarket.expansion_seed import regenerate_expansion_seed
 from ygo_app.cardmarket.http_client import (
     AdaptiveRateLimiter,
+    RateLimitAbort,
     create_session_pool,
     fetch_url,
+    sleep_inter_page_delay,
 )
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_LIST_CHECKPOINT_PATH,
@@ -133,14 +137,9 @@ def scrape_expansion_pages(
 
         all_cards.extend(cards)
         page += 1
-
-        if is_recovery:
-            time.sleep(random.uniform(1.0, 2.0))
-        else:
-            time.sleep(0.4)
+        sleep_inter_page_delay(backend)
 
     return all_cards, expansion_code, fetch_issues, False
-
 
 def _scrape_expansion_worker(
     worker_id: int,
@@ -322,7 +321,21 @@ def run_card_list_scrape(
 
         for future in as_completed(futures):
             abs_idx, expansion = futures[future]
-            result = future.result()
+            try:
+                result = future.result()
+            except RateLimitAbort as exc:
+                _save_card_list_artifacts(
+                    all_cards=all_cards,
+                    expansions=expansions,
+                    empty_expansions=empty_expansions,
+                    rejected_expansions=rejected_list,
+                    card_list_path=output_path,
+                    expansion_list_path=expansion_list_path,
+                    empty_path=empty_path,
+                    rejected_path=rejected_path,
+                )
+                save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx - 1})
+                raise SystemExit(2) from exc
 
             expansion["total_number_of_cards"] = result["total_count"]
             if result.get("expansion_code"):
@@ -371,12 +384,15 @@ def run_card_list_scrape(
                 )
                 save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx})
 
+            if backend == "playwright":
+                time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
+
     clear_checkpoint(checkpoint_path)
 
     # Phase 2: recovery for rejected
     if rejected_list:
         log_line(f"[CARD_LIST] phase2 recovery for {len(rejected_list)} rejected expansions")
-        recovery_rps = 1.0
+        recovery_rps = RECOVERY_REQUESTS_PER_SECOND
         recovery_limiter = AdaptiveRateLimiter(recovery_rps)
         recovery_start = 0
         if resume and recovery_checkpoint_path.is_file():

@@ -156,13 +156,15 @@ See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [D
 
 ## Cardmarket prices (local scrape)
 
-Cardmarket returns HTTP 403/429 from cloud IPs and aggressive scraping. Scrape on your machine in **four steps**, then import to Neon.
+Cardmarket returns HTTP 403/429 and Cloudflare **Error 1015** from aggressive scraping. See **[docs/cloudflare/README.md](cloudflare/README.md)** for rate-limit theory and recovery.
+
+Scrape on your machine in **four steps**, then import to Neon.
 
 **Prerequisites:**
 - `data/catalog/yugipedia_all_cards.json` (for step 4 export only)
 - Optional one-time Cloudflare cookies via `--cf-login` on job 1
 
-**Playwright (if you hit HTTP 429):** after `pip install -r requirements.txt`:
+**Recommended (polite browser mode):** after `pip install -r requirements.txt`:
 
 ```powershell
 python -m playwright install chromium
@@ -171,15 +173,15 @@ python -m playwright install chromium
 ```powershell
 # Step 1 — expansion list (one-time CF login when needed)
 python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login
-python -m ygo_app.jobs.scrape_cardmarket_expansions
+python -m ygo_app.jobs.scrape_cardmarket_expansions --polite
 
 # Step 2 — all TCG card list rows (resumable)
-python -m ygo_app.jobs.scrape_cardmarket_card_list --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 5   # dev test
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_list --polite --resume --limit 5   # dev test
 
 # Step 3 — detail pages / prices (resumable)
-python -m ygo_app.jobs.scrape_cardmarket_card_details --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_details --backend playwright --browser --workers 1
+python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --resume
+python -m ygo_app.jobs.scrape_cardmarket_card_details --browser --headed --polite --resume
 
 # Step 4 — join with Yugipedia catalog → cardmarket_prices.json
 python -m ygo_app.jobs.export_cardmarket_prices
@@ -189,17 +191,27 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
 ```
 
-If you are already rate-limited (HTTP 429), wait several hours before retrying. Use `--resume` on jobs 2–3. Override throttle with `--rps` / `--discovery-rps`. Job 3 `--fast` matches legacy 20 workers / 8 rps (risky).
+**`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.12 discovery / ~0.2 price). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
 
-**Chrome profile pool (browser mode):** headed scraping uses isolated Chrome user-data dirs under `data/catalog/cardmarket_profiles/` (legacy single profile: `cardmarket_chrome_profile/`). Configure a pool to auto-rotate on warmup HTTP 429:
+### After HTTP 429 or Error 1015 (IP ban)
+
+The scraper **saves a checkpoint and exits** when `Retry-After >= 600` seconds (instead of sleeping for an hour).
+
+1. Wait until the ban expires (often 1 hour; check https://www.cardmarket.com in your **normal browser**, not scrape Chrome).
+2. Reset burned profiles if needed: delete or edit `data/catalog/cardmarket_profile_state.json`.
+3. Resume slower:
 
 ```powershell
-# .env: CARDMARKET_BROWSER_PROFILES=default,alt1,alt2
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --workers 1 --resume `
-  --browser-profiles default,alt1,alt2
+python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.08
 ```
 
-Each profile may need one-time cookie consent in its Chrome window. Burned profiles are tracked in `data/catalog/cardmarket_profile_state.json` — delete that file or clear `burned` to retry a profile after a cooldown.
+### Why profile rotation did not help
+
+Cloudflare rate limits often count by **source IP**, not browser profile. Rotating `--browser-profiles` on the same connection does not reset an IP-level ban. Profiles only help when a specific cookie/session is flagged, not when your IP is blocked.
+
+**Chrome profile pool (optional):** headed scraping uses isolated Chrome user-data dirs under `data/catalog/cardmarket_profiles/`. Burned profiles are tracked in `data/catalog/cardmarket_profile_state.json`.
+
+Job 3 `--fast` (20 workers / 8 rps) requires `--i-accept-rate-limit-risk` and is not recommended.
 
 | File | Role |
 |------|------|

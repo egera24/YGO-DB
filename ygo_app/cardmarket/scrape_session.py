@@ -16,7 +16,7 @@ from ygo_app.cardmarket.browser_profiles import (
     active_browser_storage_path,
     resolve_profile_pool,
 )
-from ygo_app.cardmarket.constants import DEFAULT_WORKERS, FetchBackend
+from ygo_app.cardmarket.constants import FetchBackend
 from ygo_app.cardmarket.http_client import default_fetch_backend, resolve_scrape_settings
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -40,7 +40,7 @@ def prepare_scrape_session(
     cf_login: bool = False,
     browser_channel: str | None = None,
     browser_profiles: str | None = None,
-    workers: int = DEFAULT_WORKERS,
+    workers: int | None = None,
     price_rps: float | None = None,
     discovery_rps: float | None = None,
 ) -> ScrapeSession | int:

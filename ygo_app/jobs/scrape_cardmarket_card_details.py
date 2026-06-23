@@ -10,6 +10,7 @@ from ygo_app.cardmarket.card_details_scrape import run_card_details_scrape
 from ygo_app.cardmarket.paths import CARDMARKET_CARD_LIST_PATH
 from ygo_app.cardmarket.scrape_cli import (
     add_http_scrape_args,
+    apply_polite_args,
     resolve_backend_from_args,
     validate_headed_args,
 )
@@ -28,10 +29,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fast",
         action="store_true",
-        help="Legacy fast preset (20 workers / 8 rps — higher rate-limit risk)",
+        help="Legacy fast preset (20 workers / 8 rps — requires --i-accept-rate-limit-risk)",
+    )
+    parser.add_argument(
+        "--i-accept-rate-limit-risk",
+        action="store_true",
+        help="Acknowledge rate-limit risk when using --fast",
     )
     add_http_scrape_args(parser)
     args = parser.parse_args(argv)
+    apply_polite_args(args)
     validate_headed_args(args, parser)
 
     result = prepare_scrape_session(
@@ -55,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             resume=args.resume,
             limit=args.limit,
             fast=args.fast,
+            accept_rate_limit_risk=args.i_accept_rate_limit_risk,
         )
     return 0
 

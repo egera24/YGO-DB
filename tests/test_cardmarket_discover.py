@@ -20,11 +20,13 @@ from ygo_app.cardmarket.browser_client import BrowserSession, format_fetch_error
 from ygo_app.cardmarket.http_client import (
     AdaptiveRateLimiter,
     RateLimiter,
+    RateLimitAbort,
     _looks_like_429,
     create_scraper,
     curl_cffi_available,
     fetch_url,
     is_cloudflare_challenge,
+    is_cloudflare_rate_limited,
     resolve_scrape_settings,
     user_agent_for_worker,
 )
@@ -224,8 +226,36 @@ class TestLooksLike429(unittest.TestCase):
     def test_status_429(self):
         self.assertTrue(_looks_like_429(status=429, error=None))
 
-    def test_error_message_429(self):
-        self.assertTrue(_looks_like_429(status=None, error="HTTP 429"))
+    def test_error_message_1015(self):
+        self.assertTrue(_looks_like_429(status=None, error="Cloudflare Error 1015"))
+
+
+class TestCloudflareRateLimitDetection(unittest.TestCase):
+    def test_detects_error_1015_html(self):
+        html = "<html><h1>Error 1015</h1><p>You are being rate limited</p></html>"
+        self.assertTrue(is_cloudflare_rate_limited(html))
+
+    def test_normal_page_not_rate_limited(self):
+        self.assertFalse(is_cloudflare_rate_limited("<html>productRow</html>"))
+
+    def test_1015_html_on_200_aborts_when_long_ban(self):
+        scraper = create_scraper()
+        html_1015 = "<html>Error 1015 — You are being rate limited</html>"
+        responses = [mock.Mock(status_code=200, headers={}, text=html_1015)]
+
+        with (
+            mock.patch.object(scraper, "get", side_effect=responses),
+            mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+        ):
+            with self.assertRaises(RateLimitAbort) as ctx:
+                fetch_url(
+                    scraper,
+                    "https://www.cardmarket.com/en/YuGiOh",
+                    rate_limiter=RateLimiter(1000),
+                    retries=3,
+                )
+        self.assertGreaterEqual(ctx.exception.retry_after_seconds, 600)
+        sleep_mock.assert_not_called()
 
 
 class TestFetchUrl429(unittest.TestCase):
@@ -257,6 +287,27 @@ class TestFetchUrl429(unittest.TestCase):
         self.assertEqual(sleep_mock.call_args_list[0].args[0], 2.0)
         logged = " ".join(str(c.args[0]) for c in log_mock.call_args_list)
         self.assertIn("Retry-After='2'", logged)
+
+    def test_long_retry_after_aborts_without_sleep(self):
+        scraper = create_scraper()
+        responses = [
+            mock.Mock(status_code=429, headers={"Retry-After": "3600"}, text=""),
+        ]
+
+        with (
+            mock.patch.object(scraper, "get", side_effect=responses),
+            mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+        ):
+            with self.assertRaises(RateLimitAbort) as ctx:
+                fetch_url(
+                    scraper,
+                    "https://www.cardmarket.com/en/YuGiOh",
+                    rate_limiter=RateLimiter(1000),
+                    retries=3,
+                )
+
+        self.assertEqual(ctx.exception.retry_after_seconds, 3600.0)
+        sleep_mock.assert_not_called()
 
     def test_playwright_backend_delegates_to_browser_session(self):
         browser_html = "<html>browser</html>"
@@ -417,8 +468,19 @@ class TestBrowserCookies(unittest.TestCase):
         )
         self.assertEqual(workers, 1)
         self.assertEqual(backend, "playwright")
-        self.assertLess(discovery_rps, 2.0)
-        self.assertLessEqual(price_rps, 1.0)
+        self.assertAlmostEqual(discovery_rps, 0.12)
+        self.assertAlmostEqual(price_rps, 0.2)
+
+    def test_http_defaults_are_conservative(self):
+        workers, discovery_rps, price_rps, backend = resolve_scrape_settings(
+            backend="cloudscraper",
+            use_browser=False,
+            workers=None,
+        )
+        self.assertEqual(workers, 2)
+        self.assertAlmostEqual(discovery_rps, 0.25)
+        self.assertAlmostEqual(price_rps, 0.33)
+        self.assertEqual(backend, "cloudscraper")
 
     def test_cloudscraper_mode_keeps_workers(self):
         workers, _discovery_rps, _price_rps, backend = resolve_scrape_settings(
@@ -492,7 +554,7 @@ class TestAdaptiveRateLimiter(unittest.TestCase):
         limiter = AdaptiveRateLimiter(4.0)
         limiter.note_block(reason="403")
         slowed = limiter.min_interval
-        for _ in range(20):
+        for _ in range(50):
             limiter.note_success()
         self.assertLess(limiter.min_interval, slowed)
 

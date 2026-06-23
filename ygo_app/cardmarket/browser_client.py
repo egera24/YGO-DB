@@ -709,6 +709,10 @@ class BrowserSession:
 
     @classmethod
     def get(cls) -> BrowserSession:
+        from ygo_app.cardmarket.http_client import ScrapeShutdown, scrape_shutdown_requested
+
+        if scrape_shutdown_requested():
+            raise ScrapeShutdown("Scrape interrupted")
         with cls._class_lock:
             if cls._instance is None:
                 cls._instance = cls()
@@ -977,6 +981,10 @@ class BrowserSession:
 
     def fetch(self, url: str) -> tuple[str | None, int | None, dict[str, str], str | None]:
         """Return (html, status_code, response_headers, error)."""
+        from ygo_app.cardmarket.http_client import scrape_shutdown_requested
+
+        if scrape_shutdown_requested():
+            return None, None, {}, "Scrape interrupted"
         self._ensure_worker()
         result_queue: queue.Queue[_FetchResult] = queue.Queue(maxsize=1)
         self._command_queue.put((url, result_queue))

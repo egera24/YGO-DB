@@ -45,6 +45,24 @@ if TYPE_CHECKING:
 _consecutive_429_lock = threading.Lock()
 _consecutive_429_count = 0
 
+_scrape_shutdown = threading.Event()
+
+
+class ScrapeShutdown(Exception):
+    """Raised when a scrape job is interrupted (Ctrl+C)."""
+
+
+def clear_scrape_shutdown() -> None:
+    _scrape_shutdown.clear()
+
+
+def request_scrape_shutdown() -> None:
+    _scrape_shutdown.set()
+
+
+def scrape_shutdown_requested() -> bool:
+    return _scrape_shutdown.is_set()
+
 _CF_LOGIN_HINT = "python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login"
 
 
@@ -332,20 +350,6 @@ def create_curl_cffi_session(worker_id: int = 0):
     if proxies:
         session.proxies = proxies
     apply_storage_cookies(session, _browser_cookie_storage_path(), backend="curl_cffi")
-    # #region agent log
-    from ygo_app.cardmarket.browser_cookies import _agent_debug_log
-
-    _agent_debug_log(
-        "D",
-        "http_client.py:create_curl_cffi_session",
-        "session_created",
-        {
-            "impersonate": CURL_CFFI_IMPERSONATE,
-            "user_agent": user_agent_for_worker(worker_id),
-            "has_proxy": bool(_proxy_dict()),
-        },
-    )
-    # #endregion
     return session
 
 
@@ -556,48 +560,16 @@ def _fetch_curl_cffi(
         if is_cloudflare_rate_limited(text):
             return None, 429, headers, "Cloudflare rate limit (Error 1015)"
         if is_cloudflare_challenge(text):
-            # #region agent log
-            from ygo_app.cardmarket.browser_cookies import _agent_debug_log
-
-            _agent_debug_log(
-                "F",
-                "http_client.py:_fetch_curl_cffi",
-                "cf_challenge_on_200",
-                {
-                    "server": headers.get("server"),
-                    "cf_ray": headers.get("cf-ray"),
-                    "body_len": len(text),
-                    "impersonate": CURL_CFFI_IMPERSONATE,
-                },
-            )
-            # #endregion
             return None, 403, headers, "Cloudflare challenge page"
         return text, status, headers, None
-    if status in (403, 429):
-        # #region agent log
-        from ygo_app.cardmarket.browser_cookies import _agent_debug_log
-
-        body = response.text or ""
-        _agent_debug_log(
-            "B,D,E,F",
-            "http_client.py:_fetch_curl_cffi",
-            "http_block",
-            {
-                "status": status,
-                "server": headers.get("server"),
-                "cf_ray": headers.get("cf-ray"),
-                "is_cf_challenge": is_cloudflare_challenge(body),
-                "body_len": len(body),
-                "impersonate": CURL_CFFI_IMPERSONATE,
-            },
-        )
-        # #endregion
     return None, status, headers, f"HTTP {status}"
 
 
 def _fetch_playwright(url: str) -> tuple[str | None, int | None, dict[str, str], str | None]:
     from ygo_app.cardmarket.browser_client import BrowserSession
 
+    if scrape_shutdown_requested():
+        return None, None, {}, "Scrape interrupted"
     return BrowserSession.get().fetch(url)
 
 
@@ -719,6 +691,8 @@ def fetch_url(
             scraper = create_curl_cffi_session(worker_id)
 
     for attempt in range(retries):
+        if scrape_shutdown_requested():
+            return None, "Scrape interrupted"
         try:
             if rate_limiter:
                 rate_limiter.acquire(jitter)
@@ -756,30 +730,6 @@ def fetch_url(
                 return None, error or "HTTP 429"
 
             if status == 403 or _is_cf_challenge_error(error):
-                # #region agent log
-                from ygo_app.cardmarket.browser_cookies import _agent_debug_log, storage_has_cf_clearance
-
-                _agent_debug_log(
-                    "A,E",
-                    "http_client.py:fetch_url",
-                    "403_handler",
-                    {
-                        "status": status,
-                        "error": error,
-                        "worker_id": worker_id,
-                        "backend": backend,
-                        "attempt": attempt,
-                        "has_cf_clearance_in_storage": storage_has_cf_clearance(
-                            CARDMARKET_BROWSER_STATE_PATH
-                        ),
-                        "current_rps": (
-                            rate_limiter.current_rps
-                            if isinstance(rate_limiter, AdaptiveRateLimiter)
-                            else None
-                        ),
-                    },
-                )
-                # #endregion
                 scraper, should_continue = _handle_block(
                     url=url,
                     status=status,

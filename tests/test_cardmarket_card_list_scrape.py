@@ -1,9 +1,13 @@
-"""Tests for Cardmarket card list HTML parsing."""
+"""Tests for Cardmarket card list HTML parsing and scrape helpers."""
 
 from __future__ import annotations
 
 import unittest
 
+from ygo_app.cardmarket.card_list_scrape import (
+    _merge_rejected_expansions,
+    _rejections_for_save,
+)
 from ygo_app.cardmarket.product_list import (
     _search_url,
     extract_cards_from_html,
@@ -66,3 +70,61 @@ class TestCardListParsing(unittest.TestCase):
         sealed = '<div id="productRow1"></div>'
         self.assertTrue(is_only_sealed_products(sealed))
         self.assertFalse(is_only_sealed_products(LIST_HTML))
+
+
+class TestRejectedExpansionMerge(unittest.TestCase):
+    def test_merge_preserves_prior_and_adds_session(self):
+        persisted = [
+            {"expansion_id": 1074, "expansion_name": "Old", "total_attempts": 1}
+        ]
+        session = [
+            {"expansion_id": 1131, "expansion_name": "New", "total_attempts": 2}
+        ]
+        merged = _rejections_for_save(persisted, session)
+        self.assertEqual({r["expansion_id"] for r in merged}, {1074, 1131})
+
+    def test_session_overwrites_same_expansion_id(self):
+        persisted = [
+            {
+                "expansion_id": 1131,
+                "expansion_name": "Old",
+                "total_attempts": 1,
+                "attempts_detail": [],
+            }
+        ]
+        session = [
+            {
+                "expansion_id": 1131,
+                "expansion_name": "New",
+                "total_attempts": 2,
+                "attempts_detail": [{"attempt": 1}],
+            }
+        ]
+        merged = _rejections_for_save(persisted, session)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["total_attempts"], 2)
+
+    def test_recovered_ids_drop_prior_but_keep_other_rejections(self):
+        persisted = [
+            {"expansion_id": 1074, "expansion_name": "A", "total_attempts": 1},
+            {"expansion_id": 1131, "expansion_name": "B", "total_attempts": 1},
+        ]
+        session = [
+            {"expansion_id": 1243, "expansion_name": "C", "total_attempts": 2}
+        ]
+        merged = _rejections_for_save(
+            persisted,
+            session,
+            recovered_ids={1131},
+        )
+        self.assertEqual({r["expansion_id"] for r in merged}, {1074, 1243})
+
+    def test_merge_rejected_expansions_sorted_by_id(self):
+        merged = _merge_rejected_expansions(
+            [{"expansion_id": 200, "expansion_name": "B"}],
+            [{"expansion_id": 100, "expansion_name": "A"}],
+        )
+        self.assertEqual(
+            [r["expansion_id"] for r in merged],
+            [100, 200],
+        )

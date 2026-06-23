@@ -7,7 +7,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ygo_app.cardmarket.details_export import build_details_index, export_prices_from_details
+from ygo_app.cardmarket.details_export import (
+    build_details_index,
+    export_prices_from_details,
+    validate_export_match_keys,
+)
+from ygo_app.cardmarket.incremental import IncrementalConflictError
 
 
 DETAIL_ROW = {
@@ -55,6 +60,14 @@ class TestExportCardmarketDetails(unittest.TestCase):
         index = build_details_index([DETAIL_ROW])
         self.assertIn(("ZTIN-ENV02", "ultimate rare"), index)
         self.assertEqual(index[("ZTIN-ENV02", "ultimate rare")]["low_price"], 0.03)
+
+    def test_validate_export_match_keys_rejects_duplicates(self):
+        duplicate = {
+            **DETAIL_ROW,
+            "card_data": {**DETAIL_ROW["card_data"], "card_id": 999999},
+        }
+        with self.assertRaises(IncrementalConflictError):
+            validate_export_match_keys([DETAIL_ROW, duplicate])
 
     def test_export_prices_from_details(self):
         with tempfile.TemporaryDirectory() as tmp:

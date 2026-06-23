@@ -67,6 +67,11 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
         help="Override discovery-phase requests per second",
     )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Incremental update (new expansions only; orchestrator recommended)",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Cap items processed (testing)")
 
 
@@ -92,3 +97,5 @@ def resolve_backend_from_args(args: argparse.Namespace) -> FetchBackend | None:
 def validate_headed_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if args.headed and not (args.browser or args.backend == "playwright"):
         parser.error("--headed requires --browser or --backend playwright")
+    if getattr(args, "incremental", False) and getattr(args, "resume", False):
+        parser.error("--incremental and --resume are mutually exclusive")

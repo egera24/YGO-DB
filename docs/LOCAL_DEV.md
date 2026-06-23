@@ -191,6 +191,22 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
 ```
 
+### Incremental update (after full scrape)
+
+Once you have a complete `cardmarket_expansion_list.json`, `cardmarket_card_list.json`, and `cardmarket_card_details.json`, use the orchestrator to scrape **only new expansions** (and expansions whose Cardmarket `expansion_id` changed):
+
+```powershell
+python -m ygo_app.jobs.scrape_cardmarket_incremental --polite
+python -m ygo_app.jobs.upload_cardmarket_prices
+python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
+```
+
+This diffs the live expansion dropdown against your stored list, scrapes card lists and detail prices for new/migrated IDs only, merges into existing JSON, validates that no Yugipedia printing maps to multiple Cardmarket products, and writes a full `cardmarket_prices.json`.
+
+**Conflict troubleshooting:** if validation fails, inspect `data/catalog/cardmarket_incremental_conflicts.json` (typed entries: `duplicate_card_id`, `duplicate_printing_key`, `duplicate_match_key`, `ambiguous_migration`). Fix data or resolve the Cardmarket-side ambiguity before re-running. A run report is written to `cardmarket_incremental_report.json`.
+
+Individual jobs also accept `--incremental` (mutually exclusive with `--resume`) for manual step-by-step runs; the orchestrator is recommended.
+
 **`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.12 discovery / ~0.2 price). Browser mode adds a **2–8 s** randomized delay after each successful page fetch. Checkpoints save every **5** expansions (job 2) or **5** cards (job 3). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
 
 ### Console output and request budget
@@ -237,6 +253,8 @@ Job 3 `--fast` (20 workers / 8 rps) requires `--i-accept-rate-limit-risk` and is
 | `data/catalog/cardmarket_card_list.json` | Job 2 output |
 | `data/catalog/cardmarket_card_details.json` | Job 3 output |
 | `data/catalog/cardmarket_prices.json` | Job 4 export (upload to R2) |
+| `data/catalog/cardmarket_incremental_report.json` | Incremental orchestrator run summary |
+| `data/catalog/cardmarket_incremental_conflicts.json` | Validation failures (incremental mode) |
 | `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 |
 | `data/catalog/cardmarket_profile_state.json` | Active/burned browser profiles (cookie/session pool) |
 | `data/catalog/cardmarket_profiles/{name}/` | Per-profile Chrome user-data + `browser_state.json` |

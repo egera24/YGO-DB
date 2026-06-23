@@ -343,9 +343,14 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 
 # 2b. Dev shortcut — import directly (DATABASE_URL = Neon dev)
 python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
+
+# Incremental update (after initial full scrape — new expansions / ID migrations only)
+python -m ygo_app.jobs.scrape_cardmarket_incremental --polite
+python -m ygo_app.jobs.upload_cardmarket_prices
+python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
 ```
 
-Artifacts under `data/catalog/`: `cardmarket_expansion_list.json`, `cardmarket_card_list.json`, `cardmarket_card_details.json`, checkpoints, export `cardmarket_prices.json`. R2 key: `catalog/cardmarket_prices.json` (private). `expansion_seed.json` auto-regenerates after job 2.
+Artifacts under `data/catalog/`: `cardmarket_expansion_list.json`, `cardmarket_card_list.json`, `cardmarket_card_details.json`, checkpoints, export `cardmarket_prices.json`, incremental `cardmarket_incremental_report.json` / `cardmarket_incremental_conflicts.json`. R2 key: `catalog/cardmarket_prices.json` (private). `expansion_seed.json` auto-regenerates after job 2.
 
 ### GHA from CLI
 ```powershell
@@ -388,6 +393,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-23**
+- **Cardmarket incremental scrape** — `scrape_cardmarket_incremental` orchestrator and `--incremental` on jobs 1–4: diff live expansion list, scrape new/migrated expansion IDs only, merge card list + details with validation (`duplicate_card_id`, `duplicate_printing_key`, `duplicate_match_key`, `ambiguous_migration`), export full `cardmarket_prices.json`. Artifacts: `cardmarket_incremental_report.json`, `cardmarket_incremental_conflicts.json`.
 - **Cardmarket checkpoint + pacing** — job 2 checkpoints every **5** expansions (was 50) with Ctrl+C save; job 3 every **5** cards (was 100). Browser inter-request delay **2–8 s** centralized in `fetch_url` (was 3–6 s at call sites only).
 - **Cardmarket scraper rate-limit docs** — new [docs/cloudflare/cardmarket-scraper-behavior.md](docs/cloudflare/cardmarket-scraper-behavior.md): browser request flow, console output (`[FETCH] OK` vs expansion summary), pagination, IP vs profile pool, troubleshooting. Cross-links in [docs/cloudflare/README.md](docs/cloudflare/README.md), [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md), [cardmarket/README.md](cardmarket/README.md).
 - **Cardmarket browser 429 handling** — warmup HTTP 429 fails fast (no profile rotation on same IP); reuse CDP landing tab (`_warmup_page_after_launch`); `[FETCH] OK` per-page logging; `RateLimitAbort` on IP ban at startup.
@@ -496,6 +502,7 @@ ygo_app/
     scrape_cardmarket_expansions.py   # job 1: expansion list
     scrape_cardmarket_card_list.py    # job 2: product lists
     scrape_cardmarket_card_details.py # job 3: detail prices
+    scrape_cardmarket_incremental.py  # incremental orchestrator (new expansions)
     export_cardmarket_prices.py       # job 4: Yugipedia join → JSON
     scrape_cardmarket_prices.py       # deprecated (migration message)
     import_cardmarket_prices.py   # JSON or R2 → printing_market_prices

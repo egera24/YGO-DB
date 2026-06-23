@@ -6,7 +6,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from ygo_app.cardmarket.expansion_list_scrape import run_expansion_list_scrape
+from ygo_app.cardmarket.artifact_io import load_json_list, save_json
+from ygo_app.cardmarket.expansion_list_scrape import fetch_expansion_list, run_expansion_list_scrape
+from ygo_app.cardmarket.expansion_seed import load_seed_codes
+from ygo_app.cardmarket.incremental import (
+    IncrementalConflictError,
+    merge_expansion_lists,
+    prepare_incremental_plan,
+)
 from ygo_app.cardmarket.paths import CARDMARKET_EXPANSION_LIST_PATH
 from ygo_app.cardmarket.scrape_cli import (
     add_http_scrape_args,
@@ -15,6 +22,7 @@ from ygo_app.cardmarket.scrape_cli import (
     validate_headed_args,
 )
 from ygo_app.cardmarket.scrape_session import prepare_scrape_session, scrape_session_context
+from ygo_app.yugipedia.scrape_progress import log_line
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,9 +53,25 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(result, int):
         return result
 
-    with scrape_session_context(result) as session:
-        run_expansion_list_scrape(output=args.output, session=session)
-    return 0
+    try:
+        with scrape_session_context(result) as session:
+            if args.incremental:
+                if not args.output.is_file():
+                    raise FileNotFoundError(
+                        f"Incremental mode requires existing expansion list: {args.output}"
+                    )
+                stored = load_json_list(args.output)
+                live = fetch_expansion_list(session)
+                prepare_incremental_plan(stored, live, seed_codes=load_seed_codes())
+                merged = merge_expansion_lists(stored, live)
+                save_json(args.output, merged)
+                log_line(f"[EXPANSIONS] incremental merge wrote {len(merged)} expansions")
+            else:
+                run_expansion_list_scrape(output=args.output, session=session)
+        return 0
+    except (IncrementalConflictError, FileNotFoundError) as exc:
+        log_line(f"[EXPANSIONS] error: {exc}")
+        return 1
 
 
 if __name__ == "__main__":

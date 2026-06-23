@@ -192,9 +192,11 @@ def _save_details(
     rejection_path: Path,
     checkpoint: dict[str, Any] | None = None,
     checkpoint_path: Path | None = None,
+    skip_details_write: bool = False,
 ) -> None:
     with _file_lock:
-        save_json(details_path, successful)
+        if not skip_details_write:
+            save_json(details_path, successful)
         if rejections:
             save_json(rejection_path, rejections)
         if checkpoint is not None and checkpoint_path is not None:
@@ -212,14 +214,45 @@ def run_card_details_scrape(
     limit: int | None = None,
     fast: bool = False,
     accept_rate_limit_risk: bool = False,
+    expansion_ids: set[int] | None = None,
+    skip_existing: bool = False,
+    merge_output: bool = False,
+    purge_card_ids: set[int] | None = None,
 ) -> dict[str, int]:
     cards = load_json_list(input_path)
+    if expansion_ids is not None:
+        cards = [c for c in cards if int(c.get("expansion_id", -1)) in expansion_ids]
     if limit is not None:
         cards = cards[:limit]
+
+    existing_details: list[dict] = []
+    done_card_ids: set[int] = set()
+    if (skip_existing or merge_output) and output_path.is_file():
+        existing_details = load_json_list(output_path)
+        for row in existing_details:
+            cid = (row.get("card_data") or {}).get("card_id")
+            if cid is not None:
+                done_card_ids.add(int(cid))
+
+    if skip_existing:
+        cards = [c for c in cards if int(c["card_id"]) not in done_card_ids]
 
     duplicates = find_duplicate_card_ids(cards)
     if duplicates:
         raise ValueError(f"Duplicate card_id values in input: {duplicates[:20]}")
+
+    if not cards:
+        log_line("[DETAILS] nothing to do")
+        if merge_output and existing_details:
+            from ygo_app.cardmarket.incremental import merge_card_details, raise_on_conflicts
+
+            merged, conflicts = merge_card_details(
+                existing_details, [], purge_card_ids=purge_card_ids
+            )
+            raise_on_conflicts(conflicts)
+            _save_details(merged, [], details_path=output_path, rejection_path=rejection_path)
+            return {"success": len(merged), "rejected": 0}
+        return {"success": len(existing_details), "rejected": 0}
 
     backend = session.backend
     workers = session.workers
@@ -297,6 +330,7 @@ def run_card_details_scrape(
                             rejection_path=rejection_path,
                             checkpoint={"last_processed_index": abs_idx - 1, "phase1_complete": False},
                             checkpoint_path=checkpoint_path,
+                            skip_details_write=merge_output,
                         )
                         raise SystemExit(2) from exc
 
@@ -332,6 +366,7 @@ def run_card_details_scrape(
                             rejection_path=rejection_path,
                             checkpoint={"last_processed_index": abs_idx, "phase1_complete": False},
                             checkpoint_path=checkpoint_path,
+                            skip_details_write=merge_output,
                         )
 
                     if backend == "playwright":
@@ -344,6 +379,7 @@ def run_card_details_scrape(
                 rejection_path=rejection_path,
                 checkpoint={"last_processed_index": last_saved_idx, "phase1_complete": False},
                 checkpoint_path=checkpoint_path,
+                skip_details_write=merge_output,
             )
     except KeyboardInterrupt:
         interrupted = True
@@ -388,10 +424,22 @@ def run_card_details_scrape(
                     non_recoverable + still_rejected,
                     details_path=output_path,
                     rejection_path=rejection_path,
+                    skip_details_write=merge_output,
                 )
 
         rejections = non_recoverable + still_rejected
         log_line(f"[DETAILS] phase2 recovered={recovered}")
+
+    if merge_output:
+        from ygo_app.cardmarket.incremental import merge_card_details, raise_on_conflicts
+
+        merged, conflicts = merge_card_details(
+            existing_details,
+            successful,
+            purge_card_ids=purge_card_ids,
+        )
+        raise_on_conflicts(conflicts)
+        successful = merged
 
     _save_details(
         successful,

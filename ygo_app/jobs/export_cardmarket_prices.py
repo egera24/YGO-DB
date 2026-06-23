@@ -38,6 +38,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Output export JSON",
     )
     parser.add_argument("--limit", type=int, default=None, help="Cap catalog printings (testing)")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Validate details for duplicate match keys before export",
+    )
     args = parser.parse_args(argv)
 
     export_prices_from_details(
@@ -45,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         catalog_path=args.catalog,
         output_path=args.output,
         limit=args.limit,
+        validate=args.incremental,
     )
     return 0
 

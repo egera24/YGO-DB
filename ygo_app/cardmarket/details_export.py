@@ -8,6 +8,7 @@ from ygo_app.cardmarket.artifact_io import load_json_list
 from ygo_app.cardmarket.catalog_source import load_catalog_printings
 from ygo_app.cardmarket.constants import DISCOVERY_MATCHED, DISCOVERY_UNMATCHED
 from ygo_app.cardmarket.export_schema import build_export_payload, row_from_db, save_export
+from ygo_app.cardmarket.incremental import find_duplicate_match_keys, raise_on_conflicts
 from ygo_app.cardmarket.matching import cardmarket_match_key, printing_match_key
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_DETAILS_PATH,
@@ -39,12 +40,19 @@ def build_details_index(details: list[dict]) -> dict[tuple[str, str], dict]:
     return index
 
 
+def validate_export_match_keys(details: list[dict]) -> None:
+    """Fail if multiple Cardmarket products map to the same Yugipedia printing key."""
+    conflicts = find_duplicate_match_keys(details)
+    raise_on_conflicts(conflicts)
+
+
 def export_prices_from_details(
     *,
     details_path: Path = CARDMARKET_CARD_DETAILS_PATH,
     catalog_path: Path = DEFAULT_CATALOG_PATH,
     output_path: Path = CARDMARKET_PRICES_PATH,
     limit: int | None = None,
+    validate: bool = False,
 ) -> dict[str, int]:
     if not catalog_path.is_file():
         raise FileNotFoundError(
@@ -62,6 +70,8 @@ def export_prices_from_details(
         catalog = catalog[:limit]
 
     details = load_json_list(details_path)
+    if validate:
+        validate_export_match_keys(details)
     index = build_details_index(details)
 
     rows: list[dict] = []

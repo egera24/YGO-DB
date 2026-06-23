@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 
 from ygo_app.cardmarket.card_list_scrape import run_card_list_scrape
+from ygo_app.cardmarket.expansion_list_scrape import fetch_expansion_list
+from ygo_app.cardmarket.expansion_seed import load_seed_codes
+from ygo_app.cardmarket.incremental import (
+    IncrementalConflictError,
+    merge_expansion_lists,
+    prepare_incremental_plan,
+)
+from ygo_app.cardmarket.artifact_io import load_json_list, save_json
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_LIST_PATH,
     CARDMARKET_EXPANSION_LIST_PATH,
@@ -18,6 +26,7 @@ from ygo_app.cardmarket.scrape_cli import (
     validate_headed_args,
 )
 from ygo_app.cardmarket.scrape_session import prepare_scrape_session, scrape_session_context
+from ygo_app.yugipedia.scrape_progress import log_line
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,16 +69,36 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(result, int):
         return result
 
-    with scrape_session_context(result) as session:
-        run_card_list_scrape(
-            input_path=args.input,
-            output_path=args.output,
-            session=session,
-            resume=args.resume,
-            limit=args.limit,
-            update_seed=not args.no_update_seed,
-        )
-    return 0
+    try:
+        with scrape_session_context(result) as session:
+            expansion_filter = None
+            purge_ids = None
+            if args.incremental:
+                stored = load_json_list(args.input)
+                live = fetch_expansion_list(session)
+                plan = prepare_incremental_plan(stored, live, seed_codes=load_seed_codes())
+                merged_expansions = merge_expansion_lists(stored, live)
+                save_json(args.input, merged_expansions)
+                expansion_filter = plan.scrape_ids
+                purge_ids = plan.purge_expansion_ids
+                if not expansion_filter:
+                    log_line("[CARD_LIST] incremental: no new expansions to scrape")
+                    return 0
+
+            run_card_list_scrape(
+                input_path=args.input,
+                output_path=args.output,
+                session=session,
+                resume=args.resume,
+                limit=args.limit,
+                update_seed=not args.no_update_seed,
+                expansion_filter=expansion_filter,
+                purge_expansion_ids=purge_ids,
+            )
+        return 0
+    except IncrementalConflictError as exc:
+        log_line(f"[CARD_LIST] conflict: {exc}")
+        return 1
 
 
 if __name__ == "__main__":

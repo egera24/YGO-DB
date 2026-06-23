@@ -13,11 +13,8 @@ from ygo_app.cardmarket.scrape_session import ScrapeSession
 from ygo_app.yugipedia.scrape_progress import log_line
 
 
-def run_expansion_list_scrape(
-    *,
-    output: Path = CARDMARKET_EXPANSION_LIST_PATH,
-    session: ScrapeSession,
-) -> dict[str, int]:
+def fetch_expansion_list(session: ScrapeSession) -> list[dict]:
+    """Fetch live TCG expansion list from Cardmarket without saving."""
     backend = session.backend
     discovery_rps = session.discovery_rps or DISCOVERY_REQUESTS_PER_SECOND
 
@@ -35,7 +32,15 @@ def run_expansion_list_scrape(
     if not html:
         raise RuntimeError(f"Failed to fetch expansion list: {error}")
 
-    expansions = parse_expansions_from_html(html)
+    return parse_expansions_from_html(html)
+
+
+def run_expansion_list_scrape(
+    *,
+    output: Path = CARDMARKET_EXPANSION_LIST_PATH,
+    session: ScrapeSession,
+) -> dict[str, int]:
+    expansions = fetch_expansion_list(session)
     save_json(output, expansions)
     log_line(f"[EXPANSIONS] wrote {len(expansions)} TCG expansions to {output}")
     return {"total": len(expansions)}

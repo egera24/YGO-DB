@@ -25,3 +25,6 @@ CARDMARKET_EXPANSION_LIST_CHECKPOINT_PATH = CATALOG_DIR / "cardmarket_expansion_
 CARDMARKET_CARD_LIST_CHECKPOINT_PATH = CATALOG_DIR / "cardmarket_card_list_checkpoint.json"
 CARDMARKET_CARD_LIST_RECOVERY_CHECKPOINT_PATH = CATALOG_DIR / "cardmarket_card_list_recovery_checkpoint.json"
 CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH = CATALOG_DIR / "cardmarket_card_details_checkpoint.json"
+
+CARDMARKET_INCREMENTAL_CONFLICTS_PATH = CATALOG_DIR / "cardmarket_incremental_conflicts.json"
+CARDMARKET_INCREMENTAL_REPORT_PATH = CATALOG_DIR / "cardmarket_incremental_report.json"

@@ -388,6 +388,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 Recent work, newest first. Keep the body above timeless; record dated changes here.
 
 **2026-06-23**
+- **Cardmarket checkpoint + pacing** — job 2 checkpoints every **5** expansions (was 50) with Ctrl+C save; job 3 every **5** cards (was 100). Browser inter-request delay **2–8 s** centralized in `fetch_url` (was 3–6 s at call sites only).
 - **Cardmarket scraper rate-limit docs** — new [docs/cloudflare/cardmarket-scraper-behavior.md](docs/cloudflare/cardmarket-scraper-behavior.md): browser request flow, console output (`[FETCH] OK` vs expansion summary), pagination, IP vs profile pool, troubleshooting. Cross-links in [docs/cloudflare/README.md](docs/cloudflare/README.md), [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md), [cardmarket/README.md](cardmarket/README.md).
 - **Cardmarket browser 429 handling** — warmup HTTP 429 fails fast (no profile rotation on same IP); reuse CDP landing tab (`_warmup_page_after_launch`); `[FETCH] OK` per-page logging; `RateLimitAbort` on IP ban at startup.
 

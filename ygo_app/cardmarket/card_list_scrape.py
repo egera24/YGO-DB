@@ -34,7 +34,6 @@ from ygo_app.cardmarket.http_client import (
     RateLimitAbort,
     create_session_pool,
     fetch_url,
-    sleep_inter_page_delay,
 )
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_LIST_CHECKPOINT_PATH,
@@ -57,7 +56,7 @@ PHASE1_MAX_RETRIES = 2
 PHASE1_RETRY_DELAY = (12, 18)
 PHASE2_MAX_RETRIES = 5
 PHASE2_RETRY_DELAY = (20, 30)
-CHECKPOINT_EVERY = 50
+CHECKPOINT_EVERY = 5
 
 _file_lock = threading.Lock()
 
@@ -94,7 +93,7 @@ def scrape_expansion_pages(
             _search_url(expansion_id, page),
             backend=backend,
             rate_limiter=rate_limiter,
-            jitter=RANDOM_JITTER,
+            jitter=0.0 if backend == "playwright" else RANDOM_JITTER,
             session_pool=session_pool,
             worker_id=worker_id,
             retries=DISCOVERY_MAX_RETRIES,
@@ -137,7 +136,6 @@ def scrape_expansion_pages(
 
         all_cards.extend(cards)
         page += 1
-        sleep_inter_page_delay(backend)
 
     return all_cards, expansion_code, fetch_issues, False
 
@@ -302,90 +300,118 @@ def run_card_list_scrape(
 
     log_line(f"[CARD_LIST] phase1 workers={workers} rps={discovery_rps} expansions={len(remaining)}")
 
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
-        futures = {}
-        for idx, expansion in enumerate(remaining):
-            worker_id = idx % max(workers, 1)
-            future = executor.submit(
-                _scrape_expansion_worker,
-                worker_id,
-                expansion,
-                backend=backend,
-                rate_limiter=rate_limiter,
-                session_pool=session_pool,
-                max_retries=PHASE1_MAX_RETRIES,
-                retry_delay_range=PHASE1_RETRY_DELAY,
-                is_recovery=False,
-            )
-            futures[future] = (start_idx + idx, expansion)
-
-        for future in as_completed(futures):
-            abs_idx, expansion = futures[future]
-            try:
-                result = future.result()
-            except RateLimitAbort as exc:
-                _save_card_list_artifacts(
-                    all_cards=all_cards,
-                    expansions=expansions,
-                    empty_expansions=empty_expansions,
-                    rejected_expansions=rejected_list,
-                    card_list_path=output_path,
-                    expansion_list_path=expansion_list_path,
-                    empty_path=empty_path,
-                    rejected_path=rejected_path,
+    interrupted = False
+    last_checkpoint_idx = start_idx - 1
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+            futures = {}
+            for idx, expansion in enumerate(remaining):
+                worker_id = idx % max(workers, 1)
+                future = executor.submit(
+                    _scrape_expansion_worker,
+                    worker_id,
+                    expansion,
+                    backend=backend,
+                    rate_limiter=rate_limiter,
+                    session_pool=session_pool,
+                    max_retries=PHASE1_MAX_RETRIES,
+                    retry_delay_range=PHASE1_RETRY_DELAY,
+                    is_recovery=False,
                 )
-                save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx - 1})
-                raise SystemExit(2) from exc
+                futures[future] = (start_idx + idx, expansion)
 
-            expansion["total_number_of_cards"] = result["total_count"]
-            if result.get("expansion_code"):
-                expansion["expansion_code"] = result["expansion_code"]
+            for future in as_completed(futures):
+                abs_idx, expansion = futures[future]
+                try:
+                    result = future.result()
+                except RateLimitAbort as exc:
+                    _save_card_list_artifacts(
+                        all_cards=all_cards,
+                        expansions=expansions,
+                        empty_expansions=empty_expansions,
+                        rejected_expansions=rejected_list,
+                        card_list_path=output_path,
+                        expansion_list_path=expansion_list_path,
+                        empty_path=empty_path,
+                        rejected_path=rejected_path,
+                    )
+                    save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx - 1})
+                    raise SystemExit(2) from exc
 
-            all_cards.extend(result["cards"])
+                expansion["total_number_of_cards"] = result["total_count"]
+                if result.get("expansion_code"):
+                    expansion["expansion_code"] = result["expansion_code"]
 
-            if result["status"] == "empty":
-                empty_expansions.append(dict(expansion))
-                stats["empty"] += 1
-            elif result["status"] == "rejected":
-                rejected_list.append(
-                    {
-                        "expansion_id": expansion["expansion_id"],
-                        "expansion_name": expansion["expansion_name"],
-                        "total_attempts": len(result["attempts"]),
-                        "attempts_detail": result["attempts"],
-                    }
+                all_cards.extend(result["cards"])
+
+                if result["status"] == "empty":
+                    empty_expansions.append(dict(expansion))
+                    stats["empty"] += 1
+                elif result["status"] == "rejected":
+                    rejected_list.append(
+                        {
+                            "expansion_id": expansion["expansion_id"],
+                            "expansion_name": expansion["expansion_name"],
+                            "total_attempts": len(result["attempts"]),
+                            "attempts_detail": result["attempts"],
+                        }
+                    )
+                    stats["rejected"] += 1
+                else:
+                    stats["success"] += 1
+
+                completed += 1
+                last_checkpoint_idx = abs_idx
+                first_issue = ""
+                if result["attempts"]:
+                    issues = result["attempts"][-1].get("issues") or []
+                    if issues:
+                        first_issue = f" — {issues[0][:100]}"
+                log_line(
+                    f"[CARD_LIST] expansion {expansion.get('expansion_id')} "
+                    f"({completed}/{len(remaining)}): {result['status']}"
+                    f"{f', {result['total_count']} cards' if result['total_count'] else ''}"
+                    f"{first_issue if result['status'] == 'rejected' else ''}"
                 )
-                stats["rejected"] += 1
-            else:
-                stats["success"] += 1
+                if completed % CHECKPOINT_EVERY == 0:
+                    _save_card_list_artifacts(
+                        all_cards=all_cards,
+                        expansions=expansions,
+                        empty_expansions=empty_expansions,
+                        rejected_expansions=rejected_list,
+                        card_list_path=output_path,
+                        expansion_list_path=expansion_list_path,
+                        empty_path=empty_path,
+                        rejected_path=rejected_path,
+                    )
+                    save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx})
 
-            completed += 1
-            first_issue = ""
-            if result["attempts"]:
-                issues = result["attempts"][-1].get("issues") or []
-                if issues:
-                    first_issue = f" — {issues[0][:100]}"
-            log_line(
-                f"[CARD_LIST] expansion {expansion.get('expansion_id')} "
-                f"({completed}/{len(remaining)}): {result['status']}"
-                f"{f', {result['total_count']} cards' if result['total_count'] else ''}"
-                f"{first_issue if result['status'] == 'rejected' else ''}"
-            )
-            if completed % CHECKPOINT_EVERY == 0:
-                _save_card_list_artifacts(
-                    all_cards=all_cards,
-                    expansions=expansions,
-                    empty_expansions=empty_expansions,
-                    rejected_expansions=rejected_list,
-                    card_list_path=output_path,
-                    expansion_list_path=expansion_list_path,
-                    empty_path=empty_path,
-                    rejected_path=rejected_path,
-                )
-                save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx})
+                if backend == "playwright":
+                    time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
 
-            if backend == "playwright":
-                time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
+    except KeyboardInterrupt:
+        interrupted = True
+        _save_card_list_artifacts(
+            all_cards=all_cards,
+            expansions=expansions,
+            empty_expansions=empty_expansions,
+            rejected_expansions=rejected_list,
+            card_list_path=output_path,
+            expansion_list_path=expansion_list_path,
+            empty_path=empty_path,
+            rejected_path=rejected_path,
+        )
+        save_checkpoint(checkpoint_path, {"last_expansion_idx": last_checkpoint_idx})
+        log_line("[CARD_LIST] interrupted — progress saved")
+
+    if interrupted:
+        return {
+            "cards": len(all_cards),
+            "success": stats["success"],
+            "empty": stats["empty"],
+            "rejected": len(rejected_list),
+            "interrupted": 1,
+        }
 
     clear_checkpoint(checkpoint_path)
 

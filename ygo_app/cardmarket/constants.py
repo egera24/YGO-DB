@@ -56,8 +56,9 @@ BROWSER_DEFAULT_WORKERS = 1
 BROWSER_DISCOVERY_REQUESTS_PER_SECOND = 0.12
 BROWSER_DEFAULT_REQUESTS_PER_SECOND = 0.2
 
-# Human-like pacing between requests (seconds, inclusive random range)
-INTER_PAGE_DELAY_BROWSER = (3.0, 6.0)
+# Human-like pacing between browser requests (seconds, inclusive random range).
+# Keep reasonably high — randomized 2–8 s gaps matter more than session rotation for CF.
+INTER_PAGE_DELAY_BROWSER = (2.0, 8.0)
 INTER_PAGE_DELAY_HTTP = (1.5, 3.0)
 INTER_EXPANSION_DELAY_BROWSER = (15.0, 30.0)
 

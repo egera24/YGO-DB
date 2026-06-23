@@ -29,7 +29,6 @@ from ygo_app.cardmarket.http_client import (
     RateLimitAbort,
     create_session_pool,
     fetch_url,
-    sleep_inter_page_delay,
 )
 from ygo_app.cardmarket.parsing import extract_full_price_data
 from ygo_app.cardmarket.paths import (
@@ -45,7 +44,7 @@ PHASE1_MAX_RETRIES = 3
 PHASE1_CHUNK_SIZE = 300
 PHASE2_MAX_RETRIES = 5
 PHASE2_RETRY_DELAYS = [15, 30, 45, 60, 90]
-SAVE_INTERVAL = 100
+SAVE_INTERVAL = 5
 DISPLAY_INTERVAL = 100
 
 _file_lock = threading.Lock()
@@ -118,12 +117,11 @@ def _process_card(
         card["card_url"],
         backend=backend,
         rate_limiter=rate_limiter,
-        jitter=RANDOM_JITTER,
+        jitter=0.0 if backend == "playwright" else RANDOM_JITTER,
         session_pool=session_pool,
         worker_id=worker_id,
         retries=max_retries,
     )
-    sleep_inter_page_delay(backend)
 
     if not html:
         return {

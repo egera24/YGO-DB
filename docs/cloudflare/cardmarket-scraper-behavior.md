@@ -132,8 +132,11 @@ From [`ygo_app/cardmarket/constants.py`](../../ygo_app/cardmarket/constants.py):
 | `discovery_rps` | 0.12 (~1 request every 8 s) |
 | `price_rps` | 0.2 |
 | `workers` | 1 |
-| Inter-page delay (browser) | 3–6 s random |
+| Inter-request delay (browser) | **2–8 s** random after each successful navigation |
 | Inter-expansion delay (browser) | 15–30 s random |
+| Checkpoint interval | **every 5** expansions (job 2) or cards (job 3) |
+
+Randomized delays between requests matter more than rotating browser sessions on the same IP — Cloudflare counters are usually keyed by source IP, not session length.
 
 Cloudflare’s [anti-scraping examples](best-practices.md#prevent-content-scraping-via-query-string) cite **~10 requests / 2 minutes** (~0.08 RPS). For recovery or large catalog runs, prefer:
 
@@ -163,6 +166,7 @@ Override via CLI or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, 
 | Warmup fail-fast | `browser_client.py` | Warmup 429 → `RateLimitAbort`, no profile rotation |
 | `_warmup_page_after_launch` | `browser_client.py` | Reuse CDP landing tab; skip duplicate warmup goto |
 | Checkpoint on abort | `card_list_scrape.py` | Saves progress before exit |
+| Periodic checkpoint | jobs 2–3 | Every **5** expansions/cards + on Ctrl+C (job 2) |
 
 ---
 

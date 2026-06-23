@@ -742,6 +742,8 @@ def fetch_url(
                         continue
                     return None, "Cloudflare rate limit (Error 1015)"
                 _note_success(rate_limiter)
+                if backend == "playwright":
+                    sleep_inter_page_delay("playwright")
                 return html, None
 
             if _looks_like_429(status=status, error=error):

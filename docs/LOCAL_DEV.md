@@ -191,7 +191,7 @@ python -m ygo_app.jobs.upload_cardmarket_prices
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
 ```
 
-**`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.12 discovery / ~0.2 price). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
+**`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.12 discovery / ~0.2 price). Browser mode adds a **2–8 s** randomized delay after each successful page fetch. Checkpoints save every **5** expansions (job 2) or **5** cards (job 3). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
 
 ### Console output and request budget
 

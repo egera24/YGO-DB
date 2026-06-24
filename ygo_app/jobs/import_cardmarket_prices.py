@@ -13,6 +13,7 @@ from ygo_app.cardmarket.r2_storage import download_prices_file
 from ygo_app.database import SessionLocal
 from ygo_app.import_data import init_db
 from ygo_app.models import PrintingMarketPrice
+from ygo_app.job_logging import run_job_logged
 from ygo_app.yugipedia.scrape_progress import log_line
 
 
@@ -63,7 +64,7 @@ def run_import(*, file_path: Path) -> int:
         session.close()
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description="Import Cardmarket price JSON into the database")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--file", "-f", type=Path, help="Local cardmarket_prices.json path")
@@ -86,6 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         path = download_prices_file(args.download_path)
     assert path is not None
     return run_import(file_path=path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run_job_logged(Path(__file__).stem, lambda: _run(argv))
 
 
 if __name__ == "__main__":

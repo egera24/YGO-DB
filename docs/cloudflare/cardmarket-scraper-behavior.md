@@ -101,6 +101,10 @@ So “3 expansions succeeded” can mean **9+ Cloudflare-counted navigations**, 
 
 Fetch and failure lines use [`format_fetch_url`](../../ygo_app/cardmarket/url_log.py): product-search URLs log distinguishing query params (`idExpansion`, `site`, `mode`, …) instead of a shared 80-character prefix. Other Cardmarket URLs log the path.
 
+### Job log files
+
+Cardmarket pipeline CLIs tee the same timestamped lines to **console and** **`data/logs/{module}_{YYYYMMDD_HHMMSS}.log`**. Each line is prefixed with a local timestamp (`YYYY-MM-DD HH:MM:SS`); `[JOB_END] elapsed=… exit=…` prints at job finish. `[JOB_START]` is written to the file only. Full local workflow: [LOCAL_DEV.md](../LOCAL_DEV.md#console-output-and-request-budget).
+
 ---
 
 ## Profile pool (`--browser-profiles`)

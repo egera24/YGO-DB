@@ -38,6 +38,7 @@ from ygo_app.cardmarket.scrape_cli import (
     validate_headed_args,
 )
 from ygo_app.cardmarket.scrape_session import prepare_scrape_session, scrape_session_context
+from ygo_app.job_logging import run_job_logged
 from ygo_app.yugipedia.scrape_progress import log_line
 
 _REQUIRED_ARTIFACTS = (
@@ -196,7 +197,7 @@ def run_incremental_scrape(
     return report
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(
         description="Incremental Cardmarket scrape (new expansions and ID migrations only)"
     )
@@ -252,6 +253,10 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         log_line(f"[INCREMENTAL] error: {exc}")
         return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run_job_logged(Path(__file__).stem, lambda: _run(argv))
 
 
 if __name__ == "__main__":

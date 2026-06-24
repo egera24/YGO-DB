@@ -213,6 +213,8 @@ Individual jobs also accept `--incremental` (mutually exclusive with `--resume`)
 
 ### Console output and request budget
 
+Each Cardmarket pipeline job (`scrape_cardmarket_*`, `export_cardmarket_prices`, `upload_cardmarket_prices`, `import_cardmarket_prices`) also writes a log file under **`data/logs/`**. Each line is prefixed with a local timestamp on **both the console and the file**; **`[JOB_END] elapsed=… exit=…`** prints to the terminal when the job finishes (and is in the file too). File names look like `scrape_cardmarket_card_list_20260624_143052.log` (module name + local start time). See [cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md#job-log-files).
+
 Each expansion may require **multiple page fetches** (`site=1`, `site=2`, …). The job prints **one line per expansion** when done, but **`[FETCH] OK` once per page**. A run of 3 expansions can easily be 9+ navigations.
 
 | Log prefix | Meaning |

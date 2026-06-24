@@ -15,7 +15,11 @@ from ygo_app.yugipedia.constants import (
 
 
 def log_line(message: str) -> None:
-    print(message, flush=True)
+    from ygo_app.job_logging import format_log_line, write_log_line
+
+    line = format_log_line(message)
+    print(line, flush=True)
+    write_log_line(line)
 
 
 class ScrapeStalledError(RuntimeError):

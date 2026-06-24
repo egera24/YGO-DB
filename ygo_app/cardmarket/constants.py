@@ -7,7 +7,7 @@ FetchBackend = Literal["cloudscraper", "curl_cffi", "playwright"]
 BASE_URL = "https://www.cardmarket.com"
 SEARCH_URL = (
     f"{BASE_URL}/en/YuGiOh/Products/Search?"
-    "searchMode=v1&idCategory=0&idExpansion=0&onlyAvailable=on&idRarity=0&perSite=1"
+    "searchMode=v1&idCategory=0&idExpansion=0&onlyAvailable=on&idRarity=0&perSite=1&mode=list"
 )
 # Product-search URL used to verify curl_cffi can scrape (job 2 traffic pattern).
 CARD_LIST_PROBE_URL = (

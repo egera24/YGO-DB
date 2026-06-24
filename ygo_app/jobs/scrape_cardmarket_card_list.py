@@ -26,10 +26,11 @@ from ygo_app.cardmarket.scrape_cli import (
     validate_headed_args,
 )
 from ygo_app.cardmarket.scrape_session import prepare_scrape_session, scrape_session_context
+from ygo_app.job_logging import run_job_logged
 from ygo_app.yugipedia.scrape_progress import log_line
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description="Scrape Cardmarket expansion product lists")
     parser.add_argument(
         "--input",
@@ -99,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
     except IncrementalConflictError as exc:
         log_line(f"[CARD_LIST] conflict: {exc}")
         return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run_job_logged(Path(__file__).stem, lambda: _run(argv))
 
 
 if __name__ == "__main__":

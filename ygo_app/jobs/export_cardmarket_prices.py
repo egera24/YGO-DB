@@ -12,9 +12,10 @@ from ygo_app.cardmarket.paths import (
     CARDMARKET_PRICES_PATH,
     DEFAULT_CATALOG_PATH,
 )
+from ygo_app.job_logging import run_job_logged
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(
         description="Join Cardmarket details with Yugipedia catalog → cardmarket_prices.json"
     )
@@ -53,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
         validate=args.incremental,
     )
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run_job_logged(Path(__file__).stem, lambda: _run(argv))
 
 
 if __name__ == "__main__":

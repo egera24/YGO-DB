@@ -35,6 +35,7 @@ class TestFormatFetchUrl(unittest.TestCase):
         label = format_fetch_url(SEARCH_URL)
         self.assertIn("idExpansion=0", label)
         self.assertIn("perSite=1", label)
+        self.assertIn("mode=list", label)
 
     def test_probe_url(self):
         label = format_fetch_url(CARD_LIST_PROBE_URL)

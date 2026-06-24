@@ -26,6 +26,7 @@ from ygo_app.cardmarket.checkpoints import (
     resolve_card_list_recovery_start,
     resolve_card_list_resume_index,
 )
+from ygo_app.cardmarket.constants import (
     DISCOVERY_MAX_RETRIES,
     DISCOVERY_REQUESTS_PER_SECOND,
     FetchBackend,

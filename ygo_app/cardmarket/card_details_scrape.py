@@ -17,6 +17,10 @@ from ygo_app.cardmarket.artifact_io import (
     save_checkpoint,
     save_json,
 )
+from ygo_app.cardmarket.checkpoints import (
+    build_card_details_checkpoint_at_idx,
+    resolve_card_details_resume_index,
+)
 from ygo_app.cardmarket.constants import (
     DEFAULT_REQUESTS_PER_SECOND,
     FetchBackend,
@@ -270,7 +274,7 @@ def run_card_details_scrape(
 
     if resume and checkpoint_path.is_file():
         checkpoint = load_checkpoint(checkpoint_path)
-        start_idx = checkpoint.get("last_processed_index", -1) + 1
+        start_idx = resolve_card_details_resume_index(checkpoint, cards)
         if output_path.is_file():
             successful = load_json_list(output_path)
         if rejection_path.is_file():
@@ -328,7 +332,11 @@ def run_card_details_scrape(
                             rejections,
                             details_path=output_path,
                             rejection_path=rejection_path,
-                            checkpoint={"last_processed_index": abs_idx - 1, "phase1_complete": False},
+                            checkpoint=build_card_details_checkpoint_at_idx(
+                                cards,
+                                abs_idx - 1,
+                                phase1_complete=False,
+                            ),
                             checkpoint_path=checkpoint_path,
                             skip_details_write=merge_output,
                         )
@@ -364,7 +372,11 @@ def run_card_details_scrape(
                             rejections,
                             details_path=output_path,
                             rejection_path=rejection_path,
-                            checkpoint={"last_processed_index": abs_idx, "phase1_complete": False},
+                            checkpoint=build_card_details_checkpoint_at_idx(
+                                cards,
+                                abs_idx,
+                                phase1_complete=False,
+                            ),
                             checkpoint_path=checkpoint_path,
                             skip_details_write=merge_output,
                         )
@@ -377,12 +389,29 @@ def run_card_details_scrape(
                 rejections,
                 details_path=output_path,
                 rejection_path=rejection_path,
-                checkpoint={"last_processed_index": last_saved_idx, "phase1_complete": False},
+                checkpoint=build_card_details_checkpoint_at_idx(
+                    cards,
+                    last_saved_idx,
+                    phase1_complete=False,
+                ),
                 checkpoint_path=checkpoint_path,
                 skip_details_write=merge_output,
             )
     except KeyboardInterrupt:
         interrupted = True
+        _save_details(
+            successful,
+            rejections,
+            details_path=output_path,
+            rejection_path=rejection_path,
+            checkpoint=build_card_details_checkpoint_at_idx(
+                cards,
+                last_saved_idx,
+                phase1_complete=False,
+            ),
+            checkpoint_path=checkpoint_path,
+            skip_details_write=merge_output,
+        )
         log_line("[DETAILS] interrupted — progress saved")
 
     if interrupted:

@@ -259,7 +259,8 @@ Job 3 `--fast` (20 workers / 8 rps) requires `--i-accept-rate-limit-risk` and is
 | `data/catalog/cardmarket_prices.json` | Job 4 export (upload to R2) |
 | `data/catalog/cardmarket_incremental_report.json` | Incremental orchestrator run summary |
 | `data/catalog/cardmarket_incremental_conflicts.json` | Validation failures (incremental mode) |
-| `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 |
+| `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 (enriched with expansion/card names when saved) |
+| Status | `python -m ygo_app.jobs.cardmarket_catalog_status` — resolve checkpoints to names without manual JSON lookup |
 | `data/catalog/cardmarket_profile_state.json` | Active/burned browser profiles (cookie/session pool) |
 | `data/catalog/cardmarket_profiles/{name}/` | Per-profile Chrome user-data + `browser_state.json` |
 | `ygo_app/cardmarket/expansion_seed.json` | Auto-regenerated after job 2 |

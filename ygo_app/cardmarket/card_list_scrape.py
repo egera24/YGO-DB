@@ -20,7 +20,12 @@ from ygo_app.cardmarket.artifact_io import (
     save_checkpoint,
     save_json,
 )
-from ygo_app.cardmarket.constants import (
+from ygo_app.cardmarket.checkpoints import (
+    build_card_list_checkpoint_at_idx,
+    build_card_list_recovery_checkpoint_at_idx,
+    resolve_card_list_recovery_start,
+    resolve_card_list_resume_index,
+)
     DISCOVERY_MAX_RETRIES,
     DISCOVERY_REQUESTS_PER_SECOND,
     FetchBackend,
@@ -551,11 +556,14 @@ def run_card_list_scrape(
     expansions = load_json_list(input_path)
 
     resume_expansion_id: int | None = None
+    resume_checkpoint: dict[str, Any] | None = None
     if resume and checkpoint_path.is_file() and expansion_filter is None:
-        checkpoint = load_checkpoint(checkpoint_path)
-        old_idx = checkpoint.get("last_expansion_idx", -1)
+        resume_checkpoint = load_checkpoint(checkpoint_path)
+        old_idx = resume_checkpoint.get("last_expansion_idx", -1)
         if 0 <= old_idx < len(expansions):
             resume_expansion_id = int(expansions[old_idx]["expansion_id"])
+        elif resume_checkpoint.get("last_expansion_id") is not None:
+            resume_expansion_id = int(resume_checkpoint["last_expansion_id"])
 
     empty_for_purge = load_json_list(empty_path) if empty_path.is_file() else []
     expansions, _, _ = _purge_non_tcg_expansions(
@@ -665,14 +673,15 @@ def run_card_list_scrape(
         if rejected_path.is_file():
             rejected_expansions = load_json_list(rejected_path)
         if resume_expansion_id is not None:
-            start_idx = len(expansions)
-            for i, e in enumerate(expansions):
-                if int(e["expansion_id"]) == resume_expansion_id:
-                    start_idx = i + 1
-                    break
+            start_idx = resolve_card_list_resume_index(
+                resume_checkpoint or {"last_expansion_id": resume_expansion_id},
+                expansions,
+            )
+        elif resume_checkpoint is not None:
+            start_idx = resolve_card_list_resume_index(resume_checkpoint, expansions)
         else:
             checkpoint = load_checkpoint(checkpoint_path)
-            start_idx = checkpoint.get("last_expansion_idx", -1) + 1
+            start_idx = resolve_card_list_resume_index(checkpoint, expansions)
         log_line(f"[CARD_LIST] resuming from expansion index {start_idx}")
 
     if limit is not None:
@@ -736,7 +745,10 @@ def run_card_list_scrape(
                     empty_path=empty_path,
                     rejected_path=rejected_path,
                 )
-                save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx - 1})
+                save_checkpoint(
+                    checkpoint_path,
+                    build_card_list_checkpoint_at_idx(expansions, abs_idx - 1),
+                )
                 raise SystemExit(2) from exc
             except ScrapeShutdown:
                 interrupted = True
@@ -756,7 +768,10 @@ def run_card_list_scrape(
                     empty_path=empty_path,
                     rejected_path=rejected_path,
                 )
-                save_checkpoint(checkpoint_path, {"last_expansion_idx": last_checkpoint_idx})
+                save_checkpoint(
+                    checkpoint_path,
+                    build_card_list_checkpoint_at_idx(expansions, last_checkpoint_idx),
+                )
                 log_line("[CARD_LIST] terminated by user — progress saved")
                 break
 
@@ -804,7 +819,10 @@ def run_card_list_scrape(
                     empty_path=empty_path,
                     rejected_path=rejected_path,
                 )
-                save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx})
+                save_checkpoint(
+                    checkpoint_path,
+                    build_card_list_checkpoint_at_idx(expansions, abs_idx),
+                )
 
             if backend == "playwright":
                 time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
@@ -827,7 +845,10 @@ def run_card_list_scrape(
             empty_path=empty_path,
             rejected_path=rejected_path,
         )
-        save_checkpoint(checkpoint_path, {"last_expansion_idx": last_checkpoint_idx})
+        save_checkpoint(
+            checkpoint_path,
+            build_card_list_checkpoint_at_idx(expansions, last_checkpoint_idx),
+        )
         log_line("[CARD_LIST] interrupted — progress saved")
     finally:
         if not interrupted:
@@ -853,7 +874,8 @@ def run_card_list_scrape(
         recovery_limiter = AdaptiveRateLimiter(recovery_rps)
         recovery_start = 0
         if resume and recovery_checkpoint_path.is_file():
-            recovery_start = load_checkpoint(recovery_checkpoint_path).get("last_processed", 0)
+            recovery_cp = load_checkpoint(recovery_checkpoint_path)
+            recovery_start = resolve_card_list_recovery_start(recovery_cp, rejected_list)
             log_line(f"[CARD_LIST] recovery resume from rejection #{recovery_start + 1}")
 
         still_rejected: list[dict] = []
@@ -893,7 +915,10 @@ def run_card_list_scrape(
                     empty_path=empty_path,
                     rejected_path=rejected_path,
                 )
-                save_checkpoint(recovery_checkpoint_path, {"last_processed": idx - 1})
+                save_checkpoint(
+                    recovery_checkpoint_path,
+                    build_card_list_recovery_checkpoint_at_idx(rejected_list, idx - 1),
+                )
                 log_line("[CARD_LIST] terminated by user — progress saved")
                 return {
                     "cards": len(all_cards),
@@ -943,7 +968,10 @@ def run_card_list_scrape(
                     empty_path=empty_path,
                     rejected_path=rejected_path,
                 )
-                save_checkpoint(recovery_checkpoint_path, {"last_processed": idx})
+                save_checkpoint(
+                    recovery_checkpoint_path,
+                    build_card_list_recovery_checkpoint_at_idx(rejected_list, idx),
+                )
 
         rejected_expansions = rejections_for_save(
             rejected_expansions,

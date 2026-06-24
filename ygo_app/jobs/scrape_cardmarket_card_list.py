@@ -66,6 +66,7 @@ def _run(argv: list[str] | None) -> int:
         workers=args.workers,
         price_rps=args.rps,
         discovery_rps=args.discovery_rps,
+        interactive=not args.no_interactive,
     )
     if isinstance(result, int):
         return result

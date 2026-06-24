@@ -38,6 +38,7 @@ from ygo_app.cardmarket.expansions import (
 from ygo_app.cardmarket.http_client import (
     AdaptiveRateLimiter,
     RateLimitAbort,
+    ScrapeShutdown,
     clear_scrape_shutdown,
     create_session_pool,
     fetch_url,
@@ -63,6 +64,7 @@ from ygo_app.cardmarket.rejections import (
     merge_rejected_expansions,
     rejections_for_save,
 )
+from ygo_app.cardmarket.scrape_prompts import prompt_no_product_rows
 from ygo_app.cardmarket.scrape_session import ScrapeSession
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -156,6 +158,7 @@ def scrape_expansion_pages(
     worker_id: int,
     scraper,
     is_recovery: bool = False,
+    interactive: bool = True,
 ) -> tuple[list[dict], str | None, list[str], bool]:
     """Returns (cards, expansion_code, fetch_issues, is_genuinely_empty)."""
     all_cards: list[dict] = []
@@ -195,6 +198,17 @@ def scrape_expansion_pages(
         product_rows = soup.find_all("div", id=re.compile(r"^productRow\d+"))
         if not product_rows:
             if page == 1:
+                action = prompt_no_product_rows(
+                    url=_search_url(expansion_id, page),
+                    expansion_id=expansion_id,
+                    expansion_name=expansion_name,
+                    enabled=interactive,
+                )
+                if action == "terminate":
+                    request_scrape_shutdown()
+                    raise ScrapeShutdown("User terminated: no product rows on page 1")
+                if action == "retry":
+                    continue
                 fetch_issues.append(f"Page {page}: No product rows")
             break
 
@@ -227,6 +241,7 @@ def _scrape_expansion_worker(
     max_retries: int,
     retry_delay_range: tuple[float, float],
     is_recovery: bool,
+    interactive: bool = True,
 ) -> dict[str, Any]:
     expansion_id = expansion["expansion_id"]
     expansion_name = expansion.get("expansion_name", f"Expansion {expansion_id}")
@@ -264,6 +279,7 @@ def _scrape_expansion_worker(
             worker_id=worker_id,
             scraper=scraper,
             is_recovery=is_recovery,
+            interactive=interactive,
         )
 
         all_attempts.append(
@@ -356,6 +372,7 @@ def scrape_expansions(
 
     backend = session.backend
     workers = session.workers
+    interactive = session.interactive
     discovery_rps = session.discovery_rps or DISCOVERY_REQUESTS_PER_SECOND
     rate_limiter = AdaptiveRateLimiter(discovery_rps)
     session_pool = create_session_pool(backend, workers)
@@ -373,6 +390,7 @@ def scrape_expansions(
     )
 
     clear_scrape_shutdown()
+    interrupted = False
     executor = ThreadPoolExecutor(max_workers=max(1, workers))
     try:
         futures: dict = {}
@@ -388,6 +406,7 @@ def scrape_expansions(
                 max_retries=PHASE1_MAX_RETRIES,
                 retry_delay_range=PHASE1_RETRY_DELAY,
                 is_recovery=False,
+                interactive=interactive,
             )
             futures[future] = expansion
 
@@ -397,6 +416,13 @@ def scrape_expansions(
                 result = future.result()
             except RateLimitAbort:
                 raise
+            except ScrapeShutdown:
+                interrupted = True
+                request_scrape_shutdown()
+                for f in futures:
+                    f.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+                break
 
             expansion["total_number_of_cards"] = result["total_count"]
             if result.get("expansion_code"):
@@ -423,7 +449,19 @@ def scrape_expansions(
             if backend == "playwright":
                 time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
     finally:
-        executor.shutdown(wait=True)
+        if not interrupted:
+            executor.shutdown(wait=True)
+
+    if interrupted:
+        log_line("[CARD_LIST] terminated by user — partial results only")
+        return {
+            "cards": scraped_cards,
+            "empty_expansions": empty_expansions,
+            "rejected_expansions": rejected_list,
+            **stats,
+            "rejected": len(rejected_list),
+            "interrupted": 1,
+        }
 
     if rejected_list:
         log_line(f"[CARD_LIST] phase2 recovery for {len(rejected_list)} rejected expansions")
@@ -437,16 +475,30 @@ def scrape_expansions(
                 "expansion_id": rejected_exp["expansion_id"],
                 "expansion_name": rejected_exp["expansion_name"],
             }
-            result = _scrape_expansion_worker(
-                0,
-                expansion,
-                backend=backend,
-                rate_limiter=recovery_limiter,
-                session_pool=None,
-                max_retries=PHASE2_MAX_RETRIES,
-                retry_delay_range=PHASE2_RETRY_DELAY,
-                is_recovery=True,
-            )
+            try:
+                result = _scrape_expansion_worker(
+                    0,
+                    expansion,
+                    backend=backend,
+                    rate_limiter=recovery_limiter,
+                    session_pool=None,
+                    max_retries=PHASE2_MAX_RETRIES,
+                    retry_delay_range=PHASE2_RETRY_DELAY,
+                    is_recovery=True,
+                    interactive=interactive,
+                )
+            except ScrapeShutdown:
+                log_line("[CARD_LIST] terminated by user — partial results only")
+                return {
+                    "cards": scraped_cards,
+                    "empty_expansions": empty_expansions,
+                    "rejected_expansions": still_rejected + [
+                        r for r in rejected_list if r not in still_rejected
+                    ],
+                    **stats,
+                    "rejected": len(still_rejected),
+                    "interrupted": 1,
+                }
             if result["status"] == "success":
                 scraped_cards.extend(result["cards"])
                 for exp in expansions:
@@ -522,6 +574,15 @@ def run_card_list_scrape(
 
         existing_cards = load_json_list(output_path) if output_path.is_file() else []
         scrape_result = scrape_expansions(expansions, session=session)
+        if scrape_result.get("interrupted"):
+            log_line("[CARD_LIST] incremental run interrupted — no merge")
+            return {
+                "cards": len(existing_cards),
+                "success": scrape_result.get("success", 0),
+                "empty": scrape_result.get("empty", 0),
+                "rejected": scrape_result.get("rejected", 0),
+                "interrupted": 1,
+            }
 
         from ygo_app.cardmarket.incremental import merge_card_lists, raise_on_conflicts
 
@@ -624,6 +685,7 @@ def run_card_list_scrape(
 
     # Phase 1: fast parallel
     workers = session.workers
+    interactive = session.interactive
     discovery_rps = session.discovery_rps or DISCOVERY_REQUESTS_PER_SECOND
     rate_limiter = AdaptiveRateLimiter(discovery_rps)
     session_pool = create_session_pool(backend, workers)
@@ -653,6 +715,7 @@ def run_card_list_scrape(
                 max_retries=PHASE1_MAX_RETRIES,
                 retry_delay_range=PHASE1_RETRY_DELAY,
                 is_recovery=False,
+                interactive=interactive,
             )
             futures[future] = (start_idx + idx, expansion)
 
@@ -675,6 +738,27 @@ def run_card_list_scrape(
                 )
                 save_checkpoint(checkpoint_path, {"last_expansion_idx": abs_idx - 1})
                 raise SystemExit(2) from exc
+            except ScrapeShutdown:
+                interrupted = True
+                request_scrape_shutdown()
+                for f in futures:
+                    f.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+                _save_card_list_artifacts(
+                    all_cards=all_cards,
+                    expansions=expansions,
+                    empty_expansions=empty_expansions,
+                    rejected_expansions=rejections_for_save(
+                        rejected_expansions, rejected_list
+                    ),
+                    card_list_path=output_path,
+                    expansion_list_path=expansion_list_path,
+                    empty_path=empty_path,
+                    rejected_path=rejected_path,
+                )
+                save_checkpoint(checkpoint_path, {"last_expansion_idx": last_checkpoint_idx})
+                log_line("[CARD_LIST] terminated by user — progress saved")
+                break
 
             expansion["total_number_of_cards"] = result["total_count"]
             if result.get("expansion_code"):
@@ -782,16 +866,48 @@ def run_card_list_scrape(
                 "expansion_id": rejected_exp["expansion_id"],
                 "expansion_name": rejected_exp["expansion_name"],
             }
-            result = _scrape_expansion_worker(
-                0,
-                expansion,
-                backend=backend,
-                rate_limiter=recovery_limiter,
-                session_pool=None,
-                max_retries=PHASE2_MAX_RETRIES,
-                retry_delay_range=PHASE2_RETRY_DELAY,
-                is_recovery=True,
-            )
+            try:
+                result = _scrape_expansion_worker(
+                    0,
+                    expansion,
+                    backend=backend,
+                    rate_limiter=recovery_limiter,
+                    session_pool=None,
+                    max_retries=PHASE2_MAX_RETRIES,
+                    retry_delay_range=PHASE2_RETRY_DELAY,
+                    is_recovery=True,
+                    interactive=interactive,
+                )
+            except ScrapeShutdown:
+                _save_card_list_artifacts(
+                    all_cards=all_cards,
+                    expansions=expansions,
+                    empty_expansions=empty_expansions,
+                    rejected_expansions=rejections_for_save(
+                        rejected_expansions,
+                        still_rejected,
+                        recovered_ids=recovered_ids,
+                    ),
+                    card_list_path=output_path,
+                    expansion_list_path=expansion_list_path,
+                    empty_path=empty_path,
+                    rejected_path=rejected_path,
+                )
+                save_checkpoint(recovery_checkpoint_path, {"last_processed": idx - 1})
+                log_line("[CARD_LIST] terminated by user — progress saved")
+                return {
+                    "cards": len(all_cards),
+                    "success": stats["success"],
+                    "empty": stats["empty"],
+                    "rejected": len(
+                        rejections_for_save(
+                            rejected_expansions,
+                            still_rejected,
+                            recovered_ids=recovered_ids,
+                        )
+                    ),
+                    "interrupted": 1,
+                }
 
             if result["status"] == "success":
                 all_cards.extend(result["cards"])

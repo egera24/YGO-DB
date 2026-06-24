@@ -93,6 +93,7 @@ So “3 expansions succeeded” can mean **9+ Cloudflare-counted navigations**, 
 | `[BROWSER] launching real chrome via CDP` | Starting one headed Chrome session for this job |
 | `[FETCH] OK` | **One successful page navigation** (not one expansion); URL shown as key query params, e.g. `idExpansion=1651 site=1 mode=list` |
 | `[CARD_LIST] expansion … success, N cards` | All pages for that expansion finished |
+| `[CARD_LIST] No product rows on page 1` | Interactive prompt — open the printed URL; choose retry, skip expansion, or terminate job (`--no-interactive` skips the prompt) |
 | `[WARN] browser fetch failed` | Navigation failed; URL shown as compact query params (same format as `[FETCH] OK`) |
 | `[WARN] HTTP 429` | Rate limited; may sleep with backoff or abort on long ban |
 | `[THROTTLE] rps=…` | Adaptive slowdown after 403/429 |

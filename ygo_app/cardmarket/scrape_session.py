@@ -30,6 +30,7 @@ class ScrapeSession:
     discovery_rps: float
     price_rps: float
     headed: bool = False
+    interactive: bool = True
 
 
 def prepare_scrape_session(
@@ -43,6 +44,7 @@ def prepare_scrape_session(
     workers: int | None = None,
     price_rps: float | None = None,
     discovery_rps: float | None = None,
+    interactive: bool = True,
 ) -> ScrapeSession | int:
     """Return ScrapeSession, or exit code from --cf-login."""
     profile_pool = resolve_profile_pool(browser_profiles, config.CARDMARKET_BROWSER_PROFILES)
@@ -100,6 +102,7 @@ def prepare_scrape_session(
         discovery_rps=eff_discovery_rps,
         price_rps=eff_price_rps,
         headed=headed,
+        interactive=interactive,
     )
 
 

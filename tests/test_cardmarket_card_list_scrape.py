@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from ygo_app.cardmarket.card_list_scrape import _scrape_expansion_worker
 from ygo_app.cardmarket.expansions import REJECTION_REASON_NOT_TCG
+from ygo_app.cardmarket.http_client import ScrapeShutdown
 from ygo_app.cardmarket.product_list import (
     _search_url,
     extract_cards_from_html,
@@ -16,6 +18,7 @@ from ygo_app.cardmarket.rejections import (
     merge_rejected_expansions,
     rejections_for_save,
 )
+from ygo_app.cardmarket.scrape_prompts import prompt_no_product_rows
 
 
 LIST_HTML = """
@@ -42,6 +45,14 @@ EMPTY_HTML = """
   <p class="noResults text-center">Sorry, no matches for your query</p>
 </div>
 """
+
+NO_ROWS_HTML = """
+<div class="table-body">
+  <div class="row g-0"><div class="col">Loading...</div></div>
+</div>
+"""
+
+TEST_EXPANSION = {"expansion_id": 1651, "expansion_name": "YS15 Deck"}
 
 
 class TestCardListParsing(unittest.TestCase):
@@ -151,3 +162,54 @@ class TestNonTcgExpansionWorker(unittest.TestCase):
         self.assertEqual(result["rejection_reason"], REJECTION_REASON_NOT_TCG)
         self.assertEqual(result["exclusion_category"], "rush_duel")
         self.assertEqual(result["attempts"], [])
+
+
+class TestNoProductRowsPrompt(unittest.TestCase):
+    def _worker_kwargs(self) -> dict:
+        return {
+            "backend": "cloudscraper",
+            "rate_limiter": None,
+            "session_pool": None,
+            "max_retries": 1,
+            "retry_delay_range": (0, 0),
+            "is_recovery": False,
+            "interactive": True,
+        }
+
+    @patch("ygo_app.cardmarket.card_list_scrape.fetch_url")
+    @patch("ygo_app.cardmarket.card_list_scrape.prompt_no_product_rows", return_value="skip")
+    def test_no_product_rows_skip_marks_rejected(self, _mock_prompt, mock_fetch):
+        mock_fetch.return_value = (NO_ROWS_HTML, None)
+        result = _scrape_expansion_worker(0, TEST_EXPANSION, **self._worker_kwargs())
+        self.assertEqual(result["status"], "rejected")
+        issues = result["attempts"][-1]["issues"]
+        self.assertTrue(any("No product rows" in issue for issue in issues))
+
+    @patch("ygo_app.cardmarket.card_list_scrape.fetch_url")
+    @patch("ygo_app.cardmarket.card_list_scrape.prompt_no_product_rows", return_value="retry")
+    def test_no_product_rows_retry_then_success(self, _mock_prompt, mock_fetch):
+        mock_fetch.side_effect = [
+            (NO_ROWS_HTML, None),
+            (LIST_HTML, None),
+            (NO_ROWS_HTML, None),
+        ]
+        result = _scrape_expansion_worker(0, TEST_EXPANSION, **self._worker_kwargs())
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["total_count"], 1)
+        self.assertEqual(mock_fetch.call_count, 3)
+
+    @patch("ygo_app.cardmarket.card_list_scrape.fetch_url")
+    @patch("ygo_app.cardmarket.card_list_scrape.prompt_no_product_rows", return_value="terminate")
+    def test_no_product_rows_terminate_raises(self, _mock_prompt, mock_fetch):
+        mock_fetch.return_value = (NO_ROWS_HTML, None)
+        with self.assertRaises(ScrapeShutdown):
+            _scrape_expansion_worker(0, TEST_EXPANSION, **self._worker_kwargs())
+
+    def test_prompt_disabled_returns_skip(self):
+        action = prompt_no_product_rows(
+            url=_search_url(1651, 1),
+            expansion_id=1651,
+            expansion_name="YS15 Deck",
+            enabled=False,
+        )
+        self.assertEqual(action, "skip")

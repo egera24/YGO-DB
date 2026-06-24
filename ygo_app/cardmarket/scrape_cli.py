@@ -73,6 +73,11 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
         help="Incremental update (new expansions only; orchestrator recommended)",
     )
     parser.add_argument("--limit", type=int, default=None, help="Cap items processed (testing)")
+    parser.add_argument(
+        "--no-interactive",
+        action="store_true",
+        help="Skip interactive prompts (e.g. no product rows confirmation)",
+    )
 
 
 def apply_polite_args(args: argparse.Namespace) -> None:

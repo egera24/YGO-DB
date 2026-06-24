@@ -1578,6 +1578,7 @@ tr:hover td { background: var(--surface); }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
 }
@@ -1587,8 +1588,14 @@ tr:hover td { background: var(--surface); }
 .printings-price-legend {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  white-space: normal;
+  text-align: right;
+  max-width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.printings-price-legend time {
   white-space: nowrap;
-  flex-shrink: 0;
 }
 .modal-action-grid {
   display: flex;

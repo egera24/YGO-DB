@@ -2480,8 +2480,7 @@ function renderModalSkeleton() {
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>`;
-  const priceLegend = $("#modal-price-legend");
-  if (priceLegend) priceLegend.hidden = true;
+  applyModalPriceLegend([]);
   const printingWrap = $("#owned-printing-wrap");
   const singlePrintingEl = $("#owned-single-printing");
   const ownedSection = document.querySelector(".modal-section--owned");
@@ -2715,6 +2714,55 @@ function formatMarketPrices(p) {
   return `<span aria-label="Low ${low}, Average ${avg}, Trend ${trend}">${low} / ${avg} / ${trend}</span>`;
 }
 
+function formatPriceUpdatedAt(iso) {
+  return formatDeckDate(iso);
+}
+
+function latestPriceUpdatedAt(printings) {
+  let latest = null;
+  let latestMs = -Infinity;
+  for (const p of printings) {
+    if (!printingHasMarketPrices(p) || !p.prices_updated_at) continue;
+    const ms = new Date(p.prices_updated_at).getTime();
+    if (!Number.isNaN(ms) && ms > latestMs) {
+      latestMs = ms;
+      latest = p.prices_updated_at;
+    }
+  }
+  return latest;
+}
+
+function formatPriceLegend(printings) {
+  if (!printings.some(printingHasMarketPrices)) return null;
+  const updatedAt = latestPriceUpdatedAt(printings);
+  const dateLabel = updatedAt ? formatPriceUpdatedAt(updatedAt) : "";
+  let html = "Low / Avg / Trend · Cardmarket";
+  if (dateLabel && updatedAt) {
+    html += ` · <time datetime="${escapeHtml(updatedAt)}">Updated ${escapeHtml(dateLabel)}</time>`;
+  }
+  return {
+    html,
+    ariaLabel: dateLabel
+      ? `Low, average, and trend prices from Cardmarket, last updated ${dateLabel}`
+      : "Low, average, and trend prices from Cardmarket",
+  };
+}
+
+function applyModalPriceLegend(printings) {
+  const priceLegend = $("#modal-price-legend");
+  if (!priceLegend) return;
+  const legend = formatPriceLegend(printings);
+  if (!legend) {
+    priceLegend.hidden = true;
+    priceLegend.innerHTML = "";
+    priceLegend.removeAttribute("aria-label");
+    return;
+  }
+  priceLegend.hidden = false;
+  priceLegend.innerHTML = legend.html;
+  priceLegend.setAttribute("aria-label", legend.ariaLabel);
+}
+
 function formatPasscode(cardId) {
   if (cardId == null) return "";
   return String(cardId).padStart(8, "0");
@@ -2801,8 +2849,7 @@ function renderModalCard(card) {
   printingSel.disabled = false;
   updateOwnedPrintingUi(printings);
 
-  const priceLegend = $("#modal-price-legend");
-  if (priceLegend) priceLegend.hidden = !printings.some(printingHasMarketPrices);
+  applyModalPriceLegend(printings);
 
   $("#modal-printings").innerHTML = printings
     .map(

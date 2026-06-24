@@ -29,6 +29,12 @@ from ygo_app.cardmarket.constants import (
     RECOVERY_REQUESTS_PER_SECOND,
 )
 from ygo_app.cardmarket.expansion_seed import regenerate_expansion_seed
+from ygo_app.cardmarket.expansions import (
+    REJECTION_REASON_NOT_TCG,
+    build_exclusion_rejection,
+    exclusion_category,
+    partition_expansions,
+)
 from ygo_app.cardmarket.http_client import (
     AdaptiveRateLimiter,
     RateLimitAbort,
@@ -52,6 +58,11 @@ from ygo_app.cardmarket.product_list import (
     is_only_sealed_products,
     is_product_page_redirect,
 )
+from ygo_app.cardmarket.rejections import (
+    is_non_recoverable_rejection,
+    merge_rejected_expansions,
+    rejections_for_save,
+)
 from ygo_app.cardmarket.scrape_session import ScrapeSession
 from ygo_app.yugipedia.scrape_progress import log_line
 
@@ -64,29 +75,66 @@ CHECKPOINT_EVERY = 5
 _file_lock = threading.Lock()
 
 
-def _merge_rejected_expansions(*sources: list[dict]) -> list[dict]:
-    """Merge rejection rows by expansion_id; later sources win."""
-    merged: dict[int, dict] = {}
-    for source in sources:
-        for row in source:
-            merged[int(row["expansion_id"])] = row
-    return sorted(merged.values(), key=lambda row: int(row["expansion_id"]))
+def _rejection_row_from_worker(expansion: dict[str, Any], result: dict[str, Any]) -> dict:
+    row: dict[str, Any] = {
+        "expansion_id": expansion["expansion_id"],
+        "expansion_name": expansion["expansion_name"],
+        "total_attempts": len(result.get("attempts") or []),
+        "attempts_detail": result.get("attempts") or [],
+    }
+    if result.get("rejection_reason"):
+        row["rejection_reason"] = result["rejection_reason"]
+    if result.get("exclusion_category"):
+        row["exclusion_category"] = result["exclusion_category"]
+    return row
 
 
-def _rejections_for_save(
-    persisted: list[dict],
-    session: list[dict],
+def _purge_non_tcg_expansions(
+    expansions: list[dict],
     *,
-    recovered_ids: set[int] | None = None,
-) -> list[dict]:
-    """Combine persisted rejections with the current session, dropping recovered ids."""
-    recovered_ids = recovered_ids or set()
-    prior = [
-        row
-        for row in persisted
-        if int(row["expansion_id"]) not in recovered_ids
-    ]
-    return _merge_rejected_expansions(prior, session)
+    expansion_list_path: Path,
+    rejected_path: Path,
+    empty_path: Path,
+    empty_expansions: list[dict] | None = None,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Remove non-TCG expansions from the scrape list and persist rejections."""
+    tcg, excluded = partition_expansions(expansions)
+    prior = load_json_list(rejected_path) if rejected_path.is_file() else []
+    merged_rejections = merge_rejected_expansions(prior, excluded)
+
+    empties = list(empty_expansions or [])
+    if not empties and empty_path.is_file():
+        empties = load_json_list(empty_path)
+
+    kept_empty: list[dict] = []
+    migrated: list[dict] = []
+    for row in empties:
+        category = exclusion_category(row.get("expansion_name", ""))
+        if category:
+            migrated.append(build_exclusion_rejection(row, category))
+        else:
+            kept_empty.append(row)
+    if migrated:
+        merged_rejections = merge_rejected_expansions(merged_rejections, migrated)
+
+    if excluded or migrated:
+        excluded_ids = {int(r["expansion_id"]) for r in excluded}
+        if excluded_ids:
+            log_line(
+                f"[CARD_LIST] excluded {len(excluded_ids)} non-TCG expansions "
+                f"from scrape list: {sorted(excluded_ids)[:12]}"
+                f"{'...' if len(excluded_ids) > 12 else ''}"
+            )
+        if migrated:
+            log_line(
+                f"[CARD_LIST] migrated {len(migrated)} empty non-TCG expansions to rejected"
+            )
+        save_json(expansion_list_path, tcg)
+        save_json(rejected_path, merged_rejections)
+        if empty_path.is_file() or migrated:
+            save_json(empty_path, kept_empty)
+
+    return tcg, kept_empty, merged_rejections
 
 
 def _is_empty_first_page(html: str) -> bool:
@@ -182,6 +230,20 @@ def _scrape_expansion_worker(
 ) -> dict[str, Any]:
     expansion_id = expansion["expansion_id"]
     expansion_name = expansion.get("expansion_name", f"Expansion {expansion_id}")
+
+    category = exclusion_category(expansion_name)
+    if category:
+        return {
+            "expansion": expansion,
+            "cards": [],
+            "total_count": 0,
+            "expansion_code": None,
+            "attempts": [],
+            "status": "rejected",
+            "is_empty": False,
+            "rejection_reason": REJECTION_REASON_NOT_TCG,
+            "exclusion_category": category,
+        }
 
     best_result: dict | None = None
     best_card_count = 0
@@ -346,14 +408,7 @@ def scrape_expansions(
                 empty_expansions.append(dict(expansion))
                 stats["empty"] += 1
             elif result["status"] == "rejected":
-                rejected_list.append(
-                    {
-                        "expansion_id": expansion["expansion_id"],
-                        "expansion_name": expansion["expansion_name"],
-                        "total_attempts": len(result["attempts"]),
-                        "attempts_detail": result["attempts"],
-                    }
-                )
+                rejected_list.append(_rejection_row_from_worker(expansion, result))
                 stats["rejected"] += 1
             else:
                 stats["success"] += 1
@@ -375,6 +430,9 @@ def scrape_expansions(
         recovery_limiter = AdaptiveRateLimiter(RECOVERY_REQUESTS_PER_SECOND)
         still_rejected: list[dict] = []
         for rejected_exp in rejected_list:
+            if is_non_recoverable_rejection(rejected_exp):
+                still_rejected.append(rejected_exp)
+                continue
             expansion = {
                 "expansion_id": rejected_exp["expansion_id"],
                 "expansion_name": rejected_exp["expansion_name"],
@@ -440,6 +498,22 @@ def run_card_list_scrape(
     backend = session.backend
     expansions = load_json_list(input_path)
 
+    resume_expansion_id: int | None = None
+    if resume and checkpoint_path.is_file() and expansion_filter is None:
+        checkpoint = load_checkpoint(checkpoint_path)
+        old_idx = checkpoint.get("last_expansion_idx", -1)
+        if 0 <= old_idx < len(expansions):
+            resume_expansion_id = int(expansions[old_idx]["expansion_id"])
+
+    empty_for_purge = load_json_list(empty_path) if empty_path.is_file() else []
+    expansions, _, _ = _purge_non_tcg_expansions(
+        expansions,
+        expansion_list_path=expansion_list_path,
+        rejected_path=rejected_path,
+        empty_path=empty_path,
+        empty_expansions=empty_for_purge,
+    )
+
     if expansion_filter is not None:
         expansions = [e for e in expansions if int(e["expansion_id"]) in expansion_filter]
         if not expansions:
@@ -492,7 +566,7 @@ def run_card_list_scrape(
             for r in prior_rejections
             if int(r["expansion_id"]) not in recovered_ids
         ]
-        rejected_expansions = _merge_rejected_expansions(
+        rejected_expansions = merge_rejected_expansions(
             prior_rejections,
             scrape_result["rejected_expansions"],
         )
@@ -522,15 +596,22 @@ def run_card_list_scrape(
     empty_expansions: list[dict] = []
     rejected_expansions: list[dict] = []
 
-    if resume and checkpoint_path.is_file():
-        checkpoint = load_checkpoint(checkpoint_path)
-        start_idx = checkpoint.get("last_expansion_idx", -1) + 1
+    if resume and (resume_expansion_id is not None or checkpoint_path.is_file()):
         if output_path.is_file():
             all_cards = load_json_list(output_path)
         if empty_path.is_file():
             empty_expansions = load_json_list(empty_path)
         if rejected_path.is_file():
             rejected_expansions = load_json_list(rejected_path)
+        if resume_expansion_id is not None:
+            start_idx = len(expansions)
+            for i, e in enumerate(expansions):
+                if int(e["expansion_id"]) == resume_expansion_id:
+                    start_idx = i + 1
+                    break
+        else:
+            checkpoint = load_checkpoint(checkpoint_path)
+            start_idx = checkpoint.get("last_expansion_idx", -1) + 1
         log_line(f"[CARD_LIST] resuming from expansion index {start_idx}")
 
     if limit is not None:
@@ -584,7 +665,7 @@ def run_card_list_scrape(
                     all_cards=all_cards,
                     expansions=expansions,
                     empty_expansions=empty_expansions,
-                    rejected_expansions=_rejections_for_save(
+                    rejected_expansions=rejections_for_save(
                         rejected_expansions, rejected_list
                     ),
                     card_list_path=output_path,
@@ -605,14 +686,7 @@ def run_card_list_scrape(
                 empty_expansions.append(dict(expansion))
                 stats["empty"] += 1
             elif result["status"] == "rejected":
-                rejected_list.append(
-                    {
-                        "expansion_id": expansion["expansion_id"],
-                        "expansion_name": expansion["expansion_name"],
-                        "total_attempts": len(result["attempts"]),
-                        "attempts_detail": result["attempts"],
-                    }
-                )
+                rejected_list.append(_rejection_row_from_worker(expansion, result))
                 stats["rejected"] += 1
             else:
                 stats["success"] += 1
@@ -620,10 +694,13 @@ def run_card_list_scrape(
             completed += 1
             last_checkpoint_idx = abs_idx
             first_issue = ""
-            if result["attempts"]:
-                issues = result["attempts"][-1].get("issues") or []
-                if issues:
-                    first_issue = f" — {issues[0][:100]}"
+            if result["status"] == "rejected":
+                if result.get("rejection_reason"):
+                    first_issue = f" — {result['rejection_reason']}"
+                elif result["attempts"]:
+                    issues = result["attempts"][-1].get("issues") or []
+                    if issues:
+                        first_issue = f" — {issues[0][:100]}"
             log_line(
                 f"[CARD_LIST] expansion {expansion.get('expansion_id')} "
                 f"({completed}/{len(remaining)}): {result['status']}"
@@ -635,7 +712,7 @@ def run_card_list_scrape(
                     all_cards=all_cards,
                     expansions=expansions,
                     empty_expansions=empty_expansions,
-                    rejected_expansions=_rejections_for_save(
+                    rejected_expansions=rejections_for_save(
                         rejected_expansions, rejected_list
                     ),
                     card_list_path=output_path,
@@ -658,7 +735,7 @@ def run_card_list_scrape(
             all_cards=all_cards,
             expansions=expansions,
             empty_expansions=empty_expansions,
-            rejected_expansions=_rejections_for_save(
+            rejected_expansions=rejections_for_save(
                 rejected_expansions, rejected_list
             ),
             card_list_path=output_path,
@@ -678,7 +755,7 @@ def run_card_list_scrape(
             "success": stats["success"],
             "empty": stats["empty"],
             "rejected": len(
-                _rejections_for_save(rejected_expansions, rejected_list)
+                rejections_for_save(rejected_expansions, rejected_list)
             ),
             "interrupted": 1,
         }
@@ -698,6 +775,9 @@ def run_card_list_scrape(
         still_rejected: list[dict] = []
         recovered_ids: set[int] = set()
         for idx, rejected_exp in enumerate(rejected_list[recovery_start:], start=recovery_start):
+            if is_non_recoverable_rejection(rejected_exp):
+                still_rejected.append(rejected_exp)
+                continue
             expansion = {
                 "expansion_id": rejected_exp["expansion_id"],
                 "expansion_name": rejected_exp["expansion_name"],
@@ -737,7 +817,7 @@ def run_card_list_scrape(
                     all_cards=all_cards,
                     expansions=expansions,
                     empty_expansions=empty_expansions,
-                    rejected_expansions=_rejections_for_save(
+                    rejected_expansions=rejections_for_save(
                         rejected_expansions,
                         still_rejected,
                         recovered_ids=recovered_ids,
@@ -749,7 +829,7 @@ def run_card_list_scrape(
                 )
                 save_checkpoint(recovery_checkpoint_path, {"last_processed": idx})
 
-        rejected_expansions = _rejections_for_save(
+        rejected_expansions = rejections_for_save(
             rejected_expansions,
             still_rejected,
             recovered_ids=recovered_ids,

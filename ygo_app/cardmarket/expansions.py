@@ -21,17 +21,62 @@ from ygo_app.models import CardmarketExpansion
 from ygo_app.yugipedia.scrape_progress import log_line
 
 
+REJECTION_REASON_NOT_TCG = "Ignored - not a TCG expansion"
+
+
+def exclusion_category(expansion_name: str) -> str | None:
+    """Return exclusion category for non-TCG expansions, or None for TCG."""
+    if "OCG" in expansion_name:
+        return "ocg"
+    if "(Japanese)" in expansion_name:
+        return "japanese"
+    if "(Korean)" in expansion_name:
+        return "korean"
+    if "Rush Duel" in expansion_name:
+        return "rush_duel"
+    return None
+
+
+def is_non_tcg_expansion(expansion_name: str) -> bool:
+    return exclusion_category(expansion_name) is not None
+
+
 def is_ocg_expansion(expansion_name: str) -> bool:
-    return "OCG" in expansion_name
+    return exclusion_category(expansion_name) == "ocg"
 
 
-def parse_expansions_from_html(html: str) -> list[dict]:
+def build_exclusion_rejection(expansion: dict, category: str) -> dict:
+    return {
+        "expansion_id": expansion["expansion_id"],
+        "expansion_name": expansion.get("expansion_name", ""),
+        "rejection_reason": REJECTION_REASON_NOT_TCG,
+        "exclusion_category": category,
+        "total_attempts": 0,
+        "attempts_detail": [],
+    }
+
+
+def partition_expansions(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split expansion rows into TCG scrape targets and non-TCG rejection rows."""
+    tcg: list[dict] = []
+    rejections: list[dict] = []
+    for row in rows:
+        category = exclusion_category(row.get("expansion_name", ""))
+        if category:
+            rejections.append(build_exclusion_rejection(row, category))
+        else:
+            tcg.append(row)
+    return tcg, rejections
+
+
+def parse_expansions_from_html_with_exclusions(html: str) -> tuple[list[dict], list[dict]]:
     soup = BeautifulSoup(html, "html.parser")
     select_element = soup.find("select", attrs={"name": "idExpansion"})
     if not select_element:
-        return []
+        return [], []
 
     tcg: dict[int, dict] = {}
+    excluded: dict[int, dict] = {}
     for option in select_element.find_all("option"):
         value = (option.get("value") or "").strip()
         text = option.get_text(strip=True)
@@ -39,16 +84,26 @@ def parse_expansions_from_html(html: str) -> list[dict]:
             continue
         expansion_id = int(value)
         expansion_name = text.replace("&amp;", "&")
-        if is_ocg_expansion(expansion_name):
-            continue
-        if expansion_id in tcg:
-            continue
-        tcg[expansion_id] = {
+        row = {
             "expansion_id": expansion_id,
             "expansion_name": expansion_name,
             "expansion_code": None,
         }
-    return list(tcg.values())
+        category = exclusion_category(expansion_name)
+        if category:
+            if expansion_id in excluded:
+                continue
+            excluded[expansion_id] = build_exclusion_rejection(row, category)
+            continue
+        if expansion_id in tcg:
+            continue
+        tcg[expansion_id] = row
+    return list(tcg.values()), list(excluded.values())
+
+
+def parse_expansions_from_html(html: str) -> list[dict]:
+    tcg, _ = parse_expansions_from_html_with_exclusions(html)
+    return tcg
 
 
 def expansion_cache_is_fresh(session: Session, *, max_age_days: int = EXPANSION_CACHE_MAX_AGE_DAYS) -> bool:

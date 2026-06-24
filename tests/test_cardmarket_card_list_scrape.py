@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import unittest
 
-from ygo_app.cardmarket.card_list_scrape import (
-    _merge_rejected_expansions,
-    _rejections_for_save,
-)
+from ygo_app.cardmarket.card_list_scrape import _scrape_expansion_worker
+from ygo_app.cardmarket.expansions import REJECTION_REASON_NOT_TCG
 from ygo_app.cardmarket.product_list import (
     _search_url,
     extract_cards_from_html,
     is_only_sealed_products,
     is_product_page_redirect,
+)
+from ygo_app.cardmarket.rejections import (
+    merge_rejected_expansions,
+    rejections_for_save,
 )
 
 
@@ -80,7 +82,7 @@ class TestRejectedExpansionMerge(unittest.TestCase):
         session = [
             {"expansion_id": 1131, "expansion_name": "New", "total_attempts": 2}
         ]
-        merged = _rejections_for_save(persisted, session)
+        merged = rejections_for_save(persisted, session)
         self.assertEqual({r["expansion_id"] for r in merged}, {1074, 1131})
 
     def test_session_overwrites_same_expansion_id(self):
@@ -100,7 +102,7 @@ class TestRejectedExpansionMerge(unittest.TestCase):
                 "attempts_detail": [{"attempt": 1}],
             }
         ]
-        merged = _rejections_for_save(persisted, session)
+        merged = rejections_for_save(persisted, session)
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["total_attempts"], 2)
 
@@ -112,7 +114,7 @@ class TestRejectedExpansionMerge(unittest.TestCase):
         session = [
             {"expansion_id": 1243, "expansion_name": "C", "total_attempts": 2}
         ]
-        merged = _rejections_for_save(
+        merged = rejections_for_save(
             persisted,
             session,
             recovered_ids={1131},
@@ -120,7 +122,7 @@ class TestRejectedExpansionMerge(unittest.TestCase):
         self.assertEqual({r["expansion_id"] for r in merged}, {1074, 1243})
 
     def test_merge_rejected_expansions_sorted_by_id(self):
-        merged = _merge_rejected_expansions(
+        merged = merge_rejected_expansions(
             [{"expansion_id": 200, "expansion_name": "B"}],
             [{"expansion_id": 100, "expansion_name": "A"}],
         )
@@ -128,3 +130,24 @@ class TestRejectedExpansionMerge(unittest.TestCase):
             [r["expansion_id"] for r in merged],
             [100, 200],
         )
+
+
+class TestNonTcgExpansionWorker(unittest.TestCase):
+    def test_rush_duel_rejected_without_fetch(self):
+        result = _scrape_expansion_worker(
+            0,
+            {
+                "expansion_id": 5758,
+                "expansion_name": "Rush Duel: Starter Deck Set - Yuga vs. Luke",
+            },
+            backend="cloudscraper",
+            rate_limiter=None,
+            session_pool=None,
+            max_retries=1,
+            retry_delay_range=(0, 0),
+            is_recovery=False,
+        )
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["rejection_reason"], REJECTION_REASON_NOT_TCG)
+        self.assertEqual(result["exclusion_category"], "rush_duel")
+        self.assertEqual(result["attempts"], [])

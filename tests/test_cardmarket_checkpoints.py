@@ -150,6 +150,7 @@ class TestCatalogStatusReport(unittest.TestCase):
             ),
         )
         self.assertIn("Job 1: expansion list", report)
+        self.assertIn("Job 2: full coverage", report)
         self.assertIn("id=100", report)
         self.assertIn("Card One", report)
 

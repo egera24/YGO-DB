@@ -20,6 +20,10 @@ from ygo_app.cardmarket.artifact_io import (
     save_checkpoint,
     save_json,
 )
+from ygo_app.cardmarket.catalog_consistency import (
+    CardListCoverageError,
+    audit_card_list_coverage,
+)
 from ygo_app.cardmarket.checkpoints import (
     build_card_list_checkpoint_at_idx,
     build_card_list_recovery_checkpoint_at_idx,
@@ -95,6 +99,41 @@ def _rejection_row_from_worker(expansion: dict[str, Any], result: dict[str, Any]
     if result.get("exclusion_category"):
         row["exclusion_category"] = result["exclusion_category"]
     return row
+
+
+def _enforce_card_list_coverage(
+    *,
+    expansions: list[dict[str, Any]],
+    all_cards: list[dict],
+    empty_expansions: list[dict],
+    rejected_expansions: list[dict],
+    checkpoint_path: Path,
+    last_checkpoint_idx: int,
+) -> None:
+    """Raise when job-2 artifacts do not fully account for every expansion row."""
+    report = audit_card_list_coverage(
+        expansion_list=expansions,
+        card_list=all_cards,
+        empty_expansions=empty_expansions,
+        rejected_expansions=rejected_expansions,
+    )
+    if report.ok:
+        return
+
+    save_checkpoint(
+        checkpoint_path,
+        build_card_list_checkpoint_at_idx(expansions, last_checkpoint_idx),
+    )
+    gap_total = report.unaccounted + report.never_scraped + report.ghost_processed
+    log_line(
+        f"[CARD_LIST] coverage check failed: {gap_total} expansion gap(s), "
+        f"{len(report.orphan_card_expansion_ids)} orphan card expansion(s), "
+        f"{len(report.duplicate_card_ids)} duplicate card_id(s)"
+    )
+    log_line("  Run: python -m ygo_app.jobs.cardmarket_catalog_status --strict")
+    raise CardListCoverageError(
+        f"Card list coverage incomplete ({gap_total} expansion gap(s))"
+    )
 
 
 def _purge_non_tcg_expansions(
@@ -446,10 +485,12 @@ def scrape_expansions(
                 stats["success"] += 1
 
             completed += 1
+            cards_suffix = (
+                f", {result['total_count']} cards" if result["total_count"] else ""
+            )
             log_line(
                 f"[CARD_LIST] expansion {expansion.get('expansion_id')} "
-                f"({completed}/{len(expansions)}): {result['status']}"
-                f"{f', {result['total_count']} cards' if result['total_count'] else ''}"
+                f"({completed}/{len(expansions)}): {result['status']}{cards_suffix}"
             )
 
             if backend == "playwright":
@@ -607,13 +648,13 @@ def run_card_list_scrape(
         for exp in expansions:
             eid = int(exp["expansion_id"])
             if eid in exp_by_id:
-                exp_by_id[eid].update(
-                    {
-                        k: v
-                        for k, v in exp.items()
-                        if k in ("total_number_of_cards", "expansion_code") and v
-                    }
-                )
+                updates: dict[str, Any] = {}
+                if "total_number_of_cards" in exp:
+                    updates["total_number_of_cards"] = exp["total_number_of_cards"]
+                code = exp.get("expansion_code")
+                if code:
+                    updates["expansion_code"] = code
+                exp_by_id[eid].update(updates)
             else:
                 exp_by_id[eid] = exp
         merged_expansion_list = sorted(exp_by_id.values(), key=lambda e: int(e["expansion_id"]))
@@ -801,10 +842,12 @@ def run_card_list_scrape(
                     issues = result["attempts"][-1].get("issues") or []
                     if issues:
                         first_issue = f" — {issues[0][:100]}"
+            cards_suffix = (
+                f", {result['total_count']} cards" if result["total_count"] else ""
+            )
             log_line(
                 f"[CARD_LIST] expansion {expansion.get('expansion_id')} "
-                f"({completed}/{len(remaining)}): {result['status']}"
-                f"{f', {result['total_count']} cards' if result['total_count'] else ''}"
+                f"({completed}/{len(remaining)}): {result['status']}{cards_suffix}"
                 f"{first_issue if result['status'] == 'rejected' else ''}"
             )
             if completed % CHECKPOINT_EVERY == 0:
@@ -865,8 +908,6 @@ def run_card_list_scrape(
             ),
             "interrupted": 1,
         }
-
-    clear_checkpoint(checkpoint_path)
 
     # Phase 2: recovery for rejected
     if rejected_list:
@@ -991,6 +1032,18 @@ def run_card_list_scrape(
         empty_path=empty_path,
         rejected_path=rejected_path,
     )
+
+    if limit is None and expansion_filter is None:
+        _enforce_card_list_coverage(
+            expansions=expansions,
+            all_cards=all_cards,
+            empty_expansions=empty_expansions,
+            rejected_expansions=rejected_expansions,
+            checkpoint_path=checkpoint_path,
+            last_checkpoint_idx=last_checkpoint_idx,
+        )
+
+    clear_checkpoint(checkpoint_path)
 
     if update_seed:
         seed_path = regenerate_expansion_seed(expansion_list_path)

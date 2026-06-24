@@ -5,6 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ygo_app.cardmarket.catalog_consistency import (
+    audit_card_list_coverage,
+    classify_expansion_outcome,
+    format_coverage_report_section,
+)
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -291,11 +297,17 @@ def audit_processed_expansions(
             break
         row = expansions[i]
         eid = int(row["expansion_id"])
-        if eid in card_list_expansion_ids:
+        outcome = classify_expansion_outcome(
+            row,
+            card_list_expansion_ids=card_list_expansion_ids,
+            empty_ids=empty_ids,
+            rejected_ids=rejected_ids,
+        )
+        if outcome == "has_cards":
             cats["has_cards"].append(i)
-        elif eid in empty_ids:
+        elif outcome == "empty":
             cats["empty"].append(i)
-        elif eid in rejected_ids:
+        elif outcome == "rejected":
             cats["rejected"].append(i)
         else:
             cats["unaccounted"].append(
@@ -411,6 +423,16 @@ def format_catalog_status_report(
     else:
         lines.append("  checkpoint: none (job complete or not started)")
     lines.append("")
+
+    if expansion_list is not None and card_list is not None:
+        coverage = audit_card_list_coverage(
+            expansion_list=expansion_list,
+            card_list=card_list,
+            empty_expansions=empty_expansions or [],
+            rejected_expansions=rejected_expansions or [],
+        )
+        lines.append(format_coverage_report_section(coverage))
+        lines.append("")
 
     # Job 2 phase 2
     lines.append("--- Job 2: card list recovery (phase 2) ---")

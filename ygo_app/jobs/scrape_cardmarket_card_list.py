@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 from ygo_app.cardmarket.card_list_scrape import run_card_list_scrape
+from ygo_app.cardmarket.catalog_consistency import (
+    CardListCoverageError,
+    audit_card_list_coverage,
+    gap_expansion_ids,
+)
 from ygo_app.cardmarket.expansion_list_scrape import fetch_expansion_list
 from ygo_app.cardmarket.expansion_seed import load_seed_codes
 from ygo_app.cardmarket.incremental import (
@@ -17,7 +22,9 @@ from ygo_app.cardmarket.incremental import (
 from ygo_app.cardmarket.artifact_io import load_json_list, save_json
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_LIST_PATH,
+    CARDMARKET_EMPTY_EXPANSIONS_PATH,
     CARDMARKET_EXPANSION_LIST_PATH,
+    CARDMARKET_REJECTED_EXPANSIONS_PATH,
 )
 from ygo_app.cardmarket.scrape_cli import (
     add_http_scrape_args,
@@ -51,6 +58,11 @@ def _run(argv: list[str] | None) -> int:
         action="store_true",
         help="Skip regenerating expansion_seed.json after completion",
     )
+    parser.add_argument(
+        "--only-gaps",
+        action="store_true",
+        help="Scrape only expansions missing from cards/empty/rejected (from coverage audit)",
+    )
     add_http_scrape_args(parser)
     args = parser.parse_args(argv)
     apply_polite_args(args)
@@ -75,7 +87,35 @@ def _run(argv: list[str] | None) -> int:
         with scrape_session_context(result) as session:
             expansion_filter = None
             purge_ids = None
-            if args.incremental:
+            if args.only_gaps:
+                expansion_list = load_json_list(args.input)
+                card_list = (
+                    load_json_list(args.output) if args.output.is_file() else []
+                )
+                empty_expansions = (
+                    load_json_list(CARDMARKET_EMPTY_EXPANSIONS_PATH)
+                    if CARDMARKET_EMPTY_EXPANSIONS_PATH.is_file()
+                    else []
+                )
+                rejected_expansions = (
+                    load_json_list(CARDMARKET_REJECTED_EXPANSIONS_PATH)
+                    if CARDMARKET_REJECTED_EXPANSIONS_PATH.is_file()
+                    else []
+                )
+                report = audit_card_list_coverage(
+                    expansion_list=expansion_list,
+                    card_list=card_list,
+                    empty_expansions=empty_expansions,
+                    rejected_expansions=rejected_expansions,
+                )
+                expansion_filter = gap_expansion_ids(report)
+                if not expansion_filter:
+                    log_line("[CARD_LIST] --only-gaps: no expansion gaps to scrape")
+                    return 0 if report.ok else 1
+                log_line(
+                    f"[CARD_LIST] --only-gaps: scraping {len(expansion_filter)} expansion(s)"
+                )
+            elif args.incremental:
                 stored = load_json_list(args.input)
                 live = fetch_expansion_list(session)
                 plan = prepare_incremental_plan(stored, live, seed_codes=load_seed_codes())
@@ -98,6 +138,9 @@ def _run(argv: list[str] | None) -> int:
                 purge_expansion_ids=purge_ids,
             )
         return 0
+    except CardListCoverageError as exc:
+        log_line(f"[CARD_LIST] coverage: {exc}")
+        return 1
     except IncrementalConflictError as exc:
         log_line(f"[CARD_LIST] conflict: {exc}")
         return 1

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from ygo_app.cardmarket.artifact_io import load_checkpoint, load_json_list
+from ygo_app.cardmarket.catalog_consistency import audit_card_list_coverage
 from ygo_app.cardmarket.checkpoints import format_catalog_status_report
 from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
@@ -38,6 +40,16 @@ def _run(argv: list[str] | None) -> int:
         default=None,
         help="Override data/catalog directory (default: project data/catalog)",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 when job-2 full expansion coverage audit fails",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print job-2 coverage audit as JSON instead of the text report",
+    )
     args = parser.parse_args(argv)
 
     if args.catalog_dir is not None:
@@ -66,22 +78,47 @@ def _run(argv: list[str] | None) -> int:
             "details_cp": CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
         }
 
+    expansion_list = _load_list_optional(paths["expansion_list"])
+    card_list = _load_list_optional(paths["card_list"])
+    empty_expansions = _load_list_optional(paths["empty"])
+    rejected_expansions = _load_list_optional(paths["rejected"])
+
     card_list_cp = load_checkpoint(paths["card_list_cp"]) if paths["card_list_cp"].is_file() else None
     recovery_cp = load_checkpoint(paths["recovery_cp"]) if paths["recovery_cp"].is_file() else None
     details_cp = load_checkpoint(paths["details_cp"]) if paths["details_cp"].is_file() else None
 
-    report = format_catalog_status_report(
-        expansion_list=_load_list_optional(paths["expansion_list"]),
-        card_list=_load_list_optional(paths["card_list"]),
-        empty_expansions=_load_list_optional(paths["empty"]),
-        rejected_expansions=_load_list_optional(paths["rejected"]),
-        card_list_checkpoint=card_list_cp or None,
-        recovery_checkpoint=recovery_cp or None,
-        card_details=_load_list_optional(paths["details"]),
-        card_details_rejections=_load_list_optional(paths["details_rejections"]),
-        card_details_checkpoint=details_cp or None,
-    )
-    print(report)
+    coverage_ok = True
+    coverage_report = None
+    if expansion_list is not None and card_list is not None:
+        coverage_report = audit_card_list_coverage(
+            expansion_list=expansion_list,
+            card_list=card_list,
+            empty_expansions=empty_expansions or [],
+            rejected_expansions=rejected_expansions or [],
+        )
+        coverage_ok = coverage_report.ok
+    elif args.strict:
+        coverage_ok = False
+
+    if args.json:
+        payload = coverage_report.to_dict() if coverage_report is not None else {"ok": False}
+        print(json.dumps(payload, indent=2))
+    else:
+        report = format_catalog_status_report(
+            expansion_list=expansion_list,
+            card_list=card_list,
+            empty_expansions=empty_expansions,
+            rejected_expansions=rejected_expansions,
+            card_list_checkpoint=card_list_cp or None,
+            recovery_checkpoint=recovery_cp or None,
+            card_details=_load_list_optional(paths["details"]),
+            card_details_rejections=_load_list_optional(paths["details_rejections"]),
+            card_details_checkpoint=details_cp or None,
+        )
+        print(report)
+
+    if args.strict and not coverage_ok:
+        return 1
     return 0
 
 

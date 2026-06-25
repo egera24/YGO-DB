@@ -1,0 +1,131 @@
+We have to refactor the whole cardmarket scraper logic and workflow.
+
+Full implementation plan (phases, PR order, checklist): docs/cardmarket-scraper-refactor-plan.md
+
+Main painpoints:
+- The scraping process is really slow because the cf_clearance token cannot be extracted, because cardmarket do not load that for us.
+This creates the issue that we have to run the scraping through chrome browser and we have to be careful with the rate limiting, because cardmarket is very strict with it. Based on experiences the card list scraping can be run stable only with 0.05 rps.
+- The scraping process is really sensible, if there is a malfunction, the whole dataset will be corrupted. Currently we have spent 2 days with the card list scraping, there were some malfunctions, I had to stop the process, i have manually modified some files, and now there are so strong incconsistencies that we have start the scraping again from the beginning.
+- The expansion seed list is a middleman for verifications, but we have to maintain it. If any problem occurs in it, we will have a validation error somewhere. We have to find a better maintainable solution.
+
+What we want to achieve:
+- Because the rate limiting is the borderline of the scraping process, we have to have a really stable scraping process. It should be resumable, it should be easily understandable and maintainable by any human being with basic programming knowledge.
+
+
+Currently an output of the cardlist seems like this:
+
+  {
+    "expansion_id": 1651,
+    "expansion_name": "2-Player Starter Deck Yuya & Declan",
+    "expansion_code": "YS15",
+    "card_id": 283146,
+    "card_name": "Dust Tornado",
+    "card_number": "2",
+    "card_rarity": "Common",
+    "card_url": "https://www.cardmarket.com/en/YuGiOh/Products/Singles/2Player-Starter-Deck-Yuya-Declan/Dust-Tornado"
+  },
+
+  That means that the card number is YS15-EN2. But this is wrong, the card number should totally different.
+
+ If i check this url: https://www.cardmarket.com/en/YuGiOh/Products/Search?searchMode=v1&idCategory=0&idExpansion=1651&onlyAvailable=on&idRarity=0&site=1&mode=list
+
+I see the following html code for this card:
+
+<div id="productRow283146" class="row g-0"><div class="d-none col">2</div><div data-testid="preview" class="col-icon"><span data-bs-title="&lt;img src=&quot;https://product-images.s3.cardmarket.com/5/YS15/283146/283146.jpg&quot; alt=&quot;Dust Tornado&quot;&gt;" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" class="thumbnail-icon icon is-24x24 is-yugioh"><span class="fonticon-camera"></span></span></div><div data-testid="expansion" class="col-icon small"><a href="/en/YuGiOh/Expansions/2Player-Starter-Deck-Yuya-Declan" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" class="expansion-symbol is-yugioh is-text yugiohExpansionIcon" data-bs-original-title="2-Player Starter Deck Yuya &amp; Declan"><span>YS15</span></a></div><div class="col"><div class="row g-0"><div class="col-12 col-sm-8 col-md-10 col-lg-8 col-xl-9 px-2 flex-column"><div data-testid="name"><a href="/en/YuGiOh/Products/Singles/2Player-Starter-Deck-Yuya-Declan/Dust-Tornado">Dust Tornado</a></div></div><div class="col-sm-2 col-xl-1 d-none d-sm-flex has-content-centered"><div data-testid="rarity"><span class="d-none d-md-flex"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16px" height="16px" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" aria-label="Common" data-bs-original-title="Common"><path d="M16 3.65v8.71c0 .55-.45 1-1 1H1c-.55 0-1-.45-1-1V3.65c0-.56.45-1 1-1h14c.55 0 1 .44 1 1Z" fill="#cc7e32"></path><path d="M8.74 12.17c-1.8 0-3.23-1.37-3.23-4.17s1.43-4.17 3.23-4.17c.71 0 1.37.18 1.76.43l-.58 1.5c-.21-.16-.55-.29-.94-.29-.92 0-1.53.89-1.53 2.5s.6 2.51 1.53 2.51c.39 0 .72-.15.94-.3l.58 1.55c-.39.26-1.01.43-1.76.43Z" fill="#fff"></path></svg></span></div></div><div class="col-md-2 col-xl-2 d-none d-lg-flex has-content-centered"><div data-testid="collector_number"><span class="d-md-none">#</span><span>D18</span></div></div></div></div><div data-testid="availability" class="col-availability px-2"><span class="d-none d-md-inline">213</span></div><div data-testid="from_price" class="col-price pe-sm-2"><span class="text-truncate">0,02 €</span></div></div>
+
+Based on it the card number should be D18. And therefore the card set number should be YS15-END18.
+
+The correct output should be:
+
+{
+    "expansion_id": 1651,
+    "expansion_name": "2-Player Starter Deck Yuya & Declan",
+    "expansion_code": "YS15",
+    "card_id": 283146,
+    "card_name": "Dust Tornado",
+    "card_number": "D18",
+    "card_rarity": "Common",
+    "card_url": "https://www.cardmarket.com/en/YuGiOh/Products/Singles/2Player-Starter-Deck-Yuya-Declan/Dust-Tornado"
+  },
+
+  But here comes the tricky part, because not every card number gets the EN prefix. 
+
+  Take for example this set:
+  https://www.cardmarket.com/en/YuGiOh/Products/Search?mode=list&searchMode=v2&idCategory=0&idExpansion=1064&onlyAvailable=on&idRarity=0&perSite=30
+
+  and this card:
+  <div id="productRow577985" class="row g-0"><div class="d-none col">1</div><div data-testid="preview" class="col-icon"><span data-bs-title="&lt;img src=&quot;https://product-images.s3.cardmarket.com/5/LOB/577985/577985.jpg&quot; alt=&quot;Mystical Elf (V.1 - Super Rare)&quot;&gt;" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" class="thumbnail-icon icon is-24x24 is-yugioh"><span class="fonticon-camera"></span></span></div><div data-testid="expansion" class="col-icon small"><a href="/en/YuGiOh/Expansions/Legend-of-Blue-Eyes-White-Dragon" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" class="expansion-symbol is-yugioh is-text yugiohExpansionIcon" data-bs-original-title="Legend of Blue Eyes White Dragon"><span>LOB</span></a></div><div class="col"><div class="row g-0"><div class="col-12 col-sm-8 col-md-10 col-lg-8 col-xl-9 px-2 flex-column"><div data-testid="name"><a href="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Mystical-Elf-V1-Super-Rare">Mystical Elf (V.1 - Super Rare)</a></div></div><div class="col-sm-2 col-xl-1 d-none d-sm-flex has-content-centered"><div data-testid="rarity"><span class="d-none d-md-flex"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16px" height="16px" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" aria-label="Super Rare" data-bs-original-title="Super Rare"><path d="M16 3.68v8.71c0 .55-.45 1-1 1H2.65l10.7-10.71H15c.55 0 1 .44 1 1Z" fill="#28aae1"></path><path d="M13.35 2.68 2.65 13.39H1c-.55 0-1-.45-1-1V3.68c0-.56.45-1 1-1h12.35Z" fill="#0d72b9"></path><path d="M4.04 12.41c-.81 0-1.68-.19-2.14-.43l.61-1.65c.36.21.92.38 1.44.38.6 0 .94-.31.94-.75s-.4-.69-.9-.92c-.85-.4-1.98-1-1.98-2.47s.98-2.48 2.68-2.48c.82 0 1.5.19 1.94.43l-.58 1.51c-.29-.16-.78-.33-1.27-.33-.56 0-.88.31-.88.75s.41.69.91.95c.85.43 2.03 1 2.03 2.46s-.98 2.56-2.8 2.56Zm8.24-.14-.88-2.39c-.16-.43-.47-.74-.96-.74h-.47v3.13H8.11V4.51c.67-.28 1.59-.43 2.54-.43 2.08 0 3.15.92 3.15 2.51 0 1.1-.7 1.69-1.41 1.96v.02c.42.25.72.7.92 1.24l.96 2.47h-1.99ZM10.7 5.49c-.26 0-.56.03-.72.09v2.23h.72c.84 0 1.25-.37 1.25-1.11s-.37-1.2-1.25-1.2Z" fill="#fff"></path></svg></span></div></div><div class="col-md-2 col-xl-2 d-none d-lg-flex has-content-centered"><div data-testid="collector_number"><span class="d-md-none">#</span><span>050</span></div></div></div></div><div data-testid="availability" class="col-availability px-2"><span class="d-none d-md-inline">485</span></div><div data-testid="from_price" class="col-price pe-sm-2"><span class="text-truncate">0,20 €</span></div></div>
+
+  The output will be:
+  {
+    "expansion_id": 1064,
+    "expansion_name": "Legend of Blue Eyes White Dragon",
+    "expansion_code": "LOB",
+    "card_id": 577985,
+    "card_name": "Mystical Elf (V.1 - Super Rare)",
+    "card_number": "050",
+    "card_rarity": "Super Rare",
+    "card_url": "https://www.cardmarket.com/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Mystical-Elf-V1-Super-Rare"
+  },
+
+But the problem is that this given card number is LOB-E050. This value is what stands on Yugipedia.
+The problem is that the prefix E is not visible on Cardmarket. Without it we cannot match the two strings (LOB-E050 vs LOB-050). 
+
+Furthermore in cardmarket we can have more difference to the real card number. Take this expansion as example:
+
+https://www.cardmarket.com/en/YuGiOh/Products/Search?mode=list&searchMode=v2&idCategory=0&idExpansion=5339&onlyAvailable=on&idRarity=0&perSite=30
+
+HTML code for Mystical Elf:
+
+<div id="productRow706763" class="row g-0"><div class="d-none col">16</div><div data-testid="preview" class="col-icon"><span data-bs-title="&lt;img src=&quot;https://product-images.s3.cardmarket.com/5/LOB-25TH/706763/706763.jpg&quot; alt=&quot;Mystical Elf&quot;&gt;" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" class="thumbnail-icon icon is-24x24 is-yugioh"><span class="fonticon-camera"></span></span></div><div data-testid="expansion" class="col-icon small"><a href="/en/YuGiOh/Expansions/Legend-of-Blue-Eyes-White-Dragon-25th-Anniversary-Edition" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" class="expansion-symbol is-yugioh is-text yugiohExpansionIcon" data-bs-original-title="Legend of Blue Eyes White Dragon (25th Anniversary Edition)"><span>LOB-25TH</span></a></div><div class="col"><div class="row g-0"><div class="col-12 col-sm-8 col-md-10 col-lg-8 col-xl-9 px-2 flex-column"><div data-testid="name"><a href="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon-25th-Anniversary-Edition/Mystical-Elf">Mystical Elf</a></div></div><div class="col-sm-2 col-xl-1 d-none d-sm-flex has-content-centered"><div data-testid="rarity"><span class="d-none d-md-flex"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16px" height="16px" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" aria-label="Super Rare" data-bs-original-title="Super Rare"><path d="M16 3.68v8.71c0 .55-.45 1-1 1H2.65l10.7-10.71H15c.55 0 1 .44 1 1Z" fill="#28aae1"></path><path d="M13.35 2.68 2.65 13.39H1c-.55 0-1-.45-1-1V3.68c0-.56.45-1 1-1h12.35Z" fill="#0d72b9"></path><path d="M4.04 12.41c-.81 0-1.68-.19-2.14-.43l.61-1.65c.36.21.92.38 1.44.38.6 0 .94-.31.94-.75s-.4-.69-.9-.92c-.85-.4-1.98-1-1.98-2.47s.98-2.48 2.68-2.48c.82 0 1.5.19 1.94.43l-.58 1.51c-.29-.16-.78-.33-1.27-.33-.56 0-.88.31-.88.75s.41.69.91.95c.85.43 2.03 1 2.03 2.46s-.98 2.56-2.8 2.56Zm8.24-.14-.88-2.39c-.16-.43-.47-.74-.96-.74h-.47v3.13H8.11V4.51c.67-.28 1.59-.43 2.54-.43 2.08 0 3.15.92 3.15 2.51 0 1.1-.7 1.69-1.41 1.96v.02c.42.25.72.7.92 1.24l.96 2.47h-1.99ZM10.7 5.49c-.26 0-.56.03-.72.09v2.23h.72c.84 0 1.25-.37 1.25-1.11s-.37-1.2-1.25-1.2Z" fill="#fff"></path></svg></span></div></div><div class="col-md-2 col-xl-2 d-none d-lg-flex has-content-centered"><div data-testid="collector_number"><span class="d-md-none">#</span><span>062</span></div></div></div></div><div data-testid="availability" class="col-availability px-2"><span class="d-none d-md-inline">176</span></div><div data-testid="from_price" class="col-price pe-sm-2"><span class="text-truncate">0,24 €</span></div></div>
+
+The output would be:
+
+{
+    "expansion_id": 5339,
+    "expansion_name": "Legend of Blue Eyes White Dragon (25th Anniversary Edition)",
+    "expansion_code": "LOB-25TH",
+    "card_id": 706763,
+    "card_name": "Mystical Elf",
+    "card_number": "062",
+    "card_rarity": "Super Rare",
+    "card_url": "https://www.cardmarket.com/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon-25th-Anniversary-Edition/Mystical-Elf"
+  },
+
+  But LOB-25TH expansion code does not exists, it was published as LOB. And the card number on yugipedia is LOB-EN062 in Europe and LOB-062 in North America. The is even an Australian English version LOB-A062.
+
+So the only solution is what i can image that we have scrape the Cardmarket expansion list, card list and detail pages.
+
+After that we have to use an alternate comparison method between the cardmarket and yugipedia data.
+
+Example:
+cardmarket expansion code: LOB or LOB-25TH
+yugipedia expansion code: LOB
+
+cardmarket card number: 050 or 062
+yugipedia card number: LOB-E050 or LOB-EN062 or LOB-062 or LOB-A062
+
+So we have to check if the expansion code of the cardmarket contains the expansion code of the yugipedia.
+Parallel we have to check if the cardmarket card number contains the card number of the yugipedia.
+If both conditions are met, we have a match.
+That means the cardmarket card with attributes LOB and 062 will match 3 different yugipedia cards. All 3 yugipedia cards will get the same prices from cardmarket. This is a behaviour with we should work around.
+
+
+So the workflow should be like this:
+1) Scrape the cardmarket expansion list as before. There should be an output json file called cardmarket_expansion_list.json.
+2) Scrape the cardmarket card list based on the expansion list from the previous step from one expansion to another expansion, but be aware that the card_number should be a different value from the page as i have written above. There should be an output json file called cardmarket_card_list.json.
+The checkpoint system is still needed, but without the expansion seed list. One transaction should be one expansion scraping. If one expansion was scraped, it should be written to disk into the json file. A transaction should be atomic ("all or nothing"), so if the scraping is interrupted, the script should be able to resume from the last checkpoint. With this system the script always should know which is the next expansion to be scraped. 
+I still need the current logic regarding the not found any productrows, the rps setting (polite should be 0.08). I also need the logging and the timestamps.
+I need here some validation logic: no duplicates, no missing values, no invalid values.
+3) Scrape the cardmarket card detail page as before, but based on the cardlist from the previous step. There should be an output json file called cardmarket_card_details.json. This should contain all of the data from cardmarket for the given card.
+I need here some validation logic: no duplicates, no missing values, no invalid values.
+4) Now we have the cardmarket data, we have to migrate it into the database. The yugipedia data is already in the database, we should make the comparisons and validations between the two datasets and migrate the cardmarket data to the neon db so we can depict the prices on the frontend portal.
+It is important that every yugipedia card will have only one cardmarket card, otherwise throw an error. I do not want to have corrupted data in the database.
+
+
+
+
+
+
+
+

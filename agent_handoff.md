@@ -92,9 +92,9 @@ flowchart TB
 
 - **Import = full replace.** `import_cards_entries` deletes all `cards` + `printings`, then reloads from JSON. Never truncate manually.
 - **Import side effects.** `users` / `collection_items` are kept; deleting `cards` cascades **favorites**, **tags**, **deck_cards**. [`import_data.py`](ygo_app/import_data.py) detaches `collection_items.printing_id` before the delete, then re-links by `(set_code, rarity_code)` after import (avoids FK violation on `printings`).
-- **TCG-only filter.** Cards with no English printings (empty/missing `cts--EN` → no `card_sets`) are rejected in [`details._process_card`](ygo_app/yugipedia/details.py) and skipped in [`card_import.yugipedia_entries_to_import`](ygo_app/yugipedia/card_import.py). OCG-only entries land in `yugipedia_rejected_cards.json`. Final card count is **below** the ~14k passcode total.
+- **TCG-only filter.** Cards with no English TCG printings (empty/missing `card_sets` from English regional tables `cts--EN|NA|EU|AU|OC`) are rejected in [`details._process_card`](ygo_app/yugipedia/details.py) and skipped in [`card_import.yugipedia_entries_to_import`](ygo_app/yugipedia/card_import.py). OCG-only entries land in `yugipedia_rejected_cards.json`. Final card count is **below** the ~14k passcode total.
 - **Schema vs data.** **Alembic** (`alembic upgrade head`) adds/updates table columns only. **Import** fills card rows. After new `cards` columns (e.g. migration `003`), run a **full re-import** on that DB — GHA `prepare` already runs Alembic; workflow YAML need not change.
-- **Multi-rarity printings.** [`card_sets.py`](ygo_app/yugipedia/card_sets.py) reads all `<a>` tags in the rarity cell (not `<br>` split), English timeline table only (`id` contains `cts--EN`). E.g. `RA03-EN172` yields multiple rarities.
+- **Multi-rarity printings.** [`card_sets.py`](ygo_app/yugipedia/card_sets.py) reads all `<a>` tags in the rarity cell (not `<br>` split), all English TCG regional timeline tables (`cts--EN`, `cts--NA`, `cts--EU`, `cts--AU`, `cts--OC`). E.g. `RA03-EN172` yields multiple rarities; `YS15-END18` comes from the European English table.
 - **No search index rebuild** on import (FTS removed — see [§7](#7-card-search)).
 
 **Row model:** `cards` = one row per card, `id` = 8-digit Yugipedia passcode. `printings` = one row per (set code + rarity), FK `card_id → cards.id`.

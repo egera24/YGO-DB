@@ -15,10 +15,53 @@ DUAL_RARITY_SPELL_ROW = """
 <tr><td>2025-07-31</td><td><a href="/wiki/JUSH-EN040" title="JUSH-EN040">JUSH-EN040</a></td><td><a href="/wiki/Justice_Hunters" title="Justice Hunters"><i>Justice Hunters</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a><br><a href="/wiki/Starlight_Rare" title="Starlight Rare">Starlight Rare</a></td></tr>
 """
 
+EN_ROW = """
+<tr><td>2023-04-20</td><td><a href="/wiki/LOB-EN062" title="LOB-EN062">LOB-EN062</a></td><td><a href="/wiki/LOB" title="LOB"><i>Legend of Blue Eyes White Dragon (25th Anniversary Edition)</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a></td></tr>
+"""
+
+NA_ROW = """
+<tr><td>2002-03-08</td><td><a href="/wiki/LOB-001" title="LOB-001">LOB-001</a></td><td><a href="/wiki/LOB" title="LOB"><i>Legend of Blue Eyes White Dragon</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a></td></tr>
+"""
+
+EU_ROW = """
+<tr><td>2015-05-28</td><td><a href="/wiki/YS15-END18" title="YS15-END18">YS15-END18</a></td><td><a href="/wiki/YS15" title="YS15"><i>2-Player Starter Deck: Yuya &amp; Declan</i></a></td><td><a href="/wiki/Common" title="Common">Common</a></td></tr>
+"""
+
+JA_ROW = """
+<tr><td>2003-12-09</td><td><a href="/wiki/LOB-K062" title="LOB-K062">LOB-K062</a></td><td><a href="/wiki/LOB" title="LOB"><i>Legend of Blue Eyes White Dragon</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a></td></tr>
+"""
+
+FR_ROW = """
+<tr><td>2003-03-01</td><td><a href="/wiki/LDD-F050" title="LDD-F050">LDD-F050</a></td><td><a href="/wiki/LOB" title="LOB"><i>Legend of Blue Eyes White Dragon</i></a></td><td><a href="/wiki/Super_Rare" title="Super Rare">Super Rare</a></td></tr>
+"""
+
 TABLE_TEMPLATE = """
 <table id="cts--EN" class="wikitable sortable card-list cts">
 <thead><tr><th>Release</th><th>Number</th><th>Set</th><th>Rarity</th></tr></thead>
 <tbody>{rows}</tbody>
+</table>
+"""
+
+MULTI_REGION_TEMPLATE = """
+<table id="cts--EN" class="wikitable sortable card-list cts">
+<thead><tr><th>Release</th><th>Number</th><th>Set</th><th>Rarity</th></tr></thead>
+<tbody>{en_rows}</tbody>
+</table>
+<table id="cts--NA" class="wikitable sortable card-list cts">
+<thead><tr><th>Release</th><th>Number</th><th>Set</th><th>Rarity</th></tr></thead>
+<tbody>{na_rows}</tbody>
+</table>
+<table id="cts--EU" class="wikitable sortable card-list cts">
+<thead><tr><th>Release</th><th>Number</th><th>Set</th><th>Rarity</th></tr></thead>
+<tbody>{eu_rows}</tbody>
+</table>
+<table id="cts--JP" class="wikitable sortable card-list cts">
+<thead><tr><th>Release</th><th>Number</th><th>Set</th><th>Rarity</th></tr></thead>
+<tbody>{ja_rows}</tbody>
+</table>
+<table id="cts--FR" class="wikitable sortable card-list cts">
+<thead><tr><th>Release</th><th>Number</th><th>Set</th><th>French name</th><th>Rarity</th></tr></thead>
+<tbody>{fr_rows}</tbody>
 </table>
 """
 
@@ -66,6 +109,21 @@ class TestExtractCardSets(unittest.TestCase):
         self.assertEqual(sets[0]["set_code"], "JUSH-EN040")
         self.assertEqual(sets[1]["set_code"], "JUSH-EN040")
         self.assertEqual({s["set_rarity"] for s in sets}, {"Super Rare", "Starlight Rare"})
+
+    def test_all_english_tcg_regions(self):
+        html = MULTI_REGION_TEMPLATE.format(
+            en_rows=EN_ROW,
+            na_rows=NA_ROW,
+            eu_rows=EU_ROW,
+            ja_rows=JA_ROW,
+            fr_rows=FR_ROW,
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        sets = extract_card_sets(soup) or []
+        codes = [s["set_code"] for s in sets]
+        self.assertEqual(codes, ["LOB-EN062", "LOB-001", "YS15-END18"])
+        self.assertNotIn("LOB-K062", codes)
+        self.assertNotIn("LDD-F050", codes)
 
 
 if __name__ == "__main__":

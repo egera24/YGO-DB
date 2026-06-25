@@ -1,4 +1,4 @@
-"""Extract English card set / printing rows from Yugipedia card pages."""
+"""Extract English TCG card set / printing rows from Yugipedia card pages."""
 
 from __future__ import annotations
 
@@ -7,6 +7,18 @@ import re
 from bs4 import BeautifulSoup, Tag
 
 from ygo_app.yugipedia.constants import RARITY_CODES
+
+# Yugipedia Card Timeline Set table suffixes for English TCG regions
+# (see Module:Data/static/region/data on yugipedia.com).
+ENGLISH_TCG_CTS_SUFFIXES = frozenset({"EN", "NA", "EU", "AU", "OC"})
+
+
+def _is_english_tcg_set_table(table_id: str | None) -> bool:
+    """True if table id is cts--{EN|NA|EU|AU|OC} (English TCG, not OCG/other languages)."""
+    if not table_id or not table_id.startswith("cts--"):
+        return False
+    suffix = table_id[5:].split("-", 1)[0]
+    return suffix in ENGLISH_TCG_CTS_SUFFIXES
 
 
 def rarity_code_for(rarity_name: str) -> str:
@@ -32,10 +44,10 @@ def extract_rarities_from_cell(rarity_cell: Tag) -> list[str]:
 
 
 def extract_card_sets(soup: BeautifulSoup) -> list[dict] | None:
-    """Extract card sets from the English card-timeline-set table."""
+    """Extract card sets from all English TCG card-timeline-set tables."""
     card_sets: list[dict] = []
     for table in soup.find_all("table", class_="card-list"):
-        if "cts--EN" not in (table.get("id") or ""):
+        if not _is_english_tcg_set_table(table.get("id")):
             continue
         tbody = table.find("tbody")
         if not tbody:

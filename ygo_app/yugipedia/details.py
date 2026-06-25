@@ -146,7 +146,7 @@ def _process_card(scraper, input_card: dict) -> dict:
         return {
             "success": False,
             "input_card": input_card,
-            "error": "No English (TCG) printings (empty cts--EN)",
+            "error": "No English (TCG) printings",
         }
     return {"success": True, "card_data": card_data, "input_card": input_card}
 

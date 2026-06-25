@@ -119,7 +119,7 @@ After scrape, each entry in `data/catalog/yugipedia_all_cards.json` should inclu
 
 ### TCG-only catalog (English printings)
 
-The Yugipedia pipeline keeps only cards with at least one English timeline printing (`cts--EN` on the wiki → `card_sets` in JSON). OCG-only cards (e.g. no TCG release) are **rejected** during detail scrape (`yugipedia_rejected_cards.json`) and skipped on import. The passcode list still includes them until scrape runs.
+The Yugipedia pipeline keeps only cards with at least one English TCG printing (`cts--EN`, `cts--NA`, `cts--EU`, `cts--AU`, `cts--OC` on the wiki → `card_sets` in JSON). OCG-only cards (e.g. no TCG release) are **rejected** during detail scrape (`yugipedia_rejected_cards.json`) and skipped on import. The passcode list still includes them until scrape runs.
 
 To remove OCG-only cards already in your dev DB from an older scrape:
 

@@ -22,7 +22,7 @@ class TestProcessCardNoPrintings(unittest.TestCase):
         }
         result = _process_card(MagicMock(), input_card)
         self.assertFalse(result["success"])
-        self.assertIn("cts--EN", result["error"])
+        self.assertIn("English (TCG)", result["error"])
 
     @patch("ygo_app.yugipedia.details.parse_card_page")
     @patch("ygo_app.yugipedia.details.fetch_page")
@@ -51,7 +51,7 @@ class TestHandleScrapeResultNoPrintings(unittest.TestCase):
         result = {
             "success": False,
             "input_card": input_card,
-            "error": "No English (TCG) printings (empty cts--EN)",
+            "error": "No English (TCG) printings",
         }
         ok = _handle_scrape_result(
             result,
@@ -63,7 +63,7 @@ class TestHandleScrapeResultNoPrintings(unittest.TestCase):
         self.assertEqual(len(successful), 0)
         self.assertEqual(len(retryable), 0)
         self.assertEqual(len(rejected), 1)
-        self.assertIn("cts--EN", rejected[0]["rejection_reason"])
+        self.assertIn("English (TCG)", rejected[0]["rejection_reason"])
 
 
 if __name__ == "__main__":

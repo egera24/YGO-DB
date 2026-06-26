@@ -11,15 +11,20 @@ from ygo_app.cardmarket.artifact_io import load_checkpoint, load_json_list
 from ygo_app.cardmarket.catalog_consistency import audit_card_list_coverage
 from ygo_app.cardmarket.checkpoints import format_catalog_status_report
 from ygo_app.cardmarket.paths import (
-    CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
     CARDMARKET_CARD_DETAILS_PATH,
     CARDMARKET_CARD_DETAILS_REJECTION_PATH,
-    CARDMARKET_CARD_LIST_CHECKPOINT_PATH,
-    CARDMARKET_CARD_LIST_PATH,
-    CARDMARKET_CARD_LIST_RECOVERY_CHECKPOINT_PATH,
     CARDMARKET_EMPTY_EXPANSIONS_PATH,
     CARDMARKET_EXPANSION_LIST_PATH,
     CARDMARKET_REJECTED_EXPANSIONS_PATH,
+    CARDMARKET_SCRAPE_STATE_PATH,
+    CARDMARKET_CARD_LIST_PATH,
+)
+from ygo_app.cardmarket.scrape_state import (
+    find_latest_card_list,
+    find_latest_expansion_list,
+    load_scrape_state,
+    resolve_card_list_file,
+    resolve_expansion_list_file,
 )
 from ygo_app.job_logging import run_job_logged
 
@@ -66,16 +71,23 @@ def _run(argv: list[str] | None) -> int:
             "details_cp": catalog / "cardmarket_card_details_checkpoint.json",
         }
     else:
+        state = load_scrape_state() if CARDMARKET_SCRAPE_STATE_PATH.is_file() else {}
+        exp_path = resolve_expansion_list_file(state) if state else CARDMARKET_EXPANSION_LIST_PATH
+        if not exp_path.is_file():
+            latest = find_latest_expansion_list()
+            exp_path = latest[1] if latest else CARDMARKET_EXPANSION_LIST_PATH
+        card_path = resolve_card_list_file(state) if state else CARDMARKET_CARD_LIST_PATH
+        if not card_path.is_file():
+            latest = find_latest_card_list()
+            card_path = latest[1] if latest else CARDMARKET_CARD_LIST_PATH
         paths = {
-            "expansion_list": CARDMARKET_EXPANSION_LIST_PATH,
-            "card_list": CARDMARKET_CARD_LIST_PATH,
+            "expansion_list": exp_path,
+            "card_list": card_path,
             "empty": CARDMARKET_EMPTY_EXPANSIONS_PATH,
             "rejected": CARDMARKET_REJECTED_EXPANSIONS_PATH,
-            "card_list_cp": CARDMARKET_CARD_LIST_CHECKPOINT_PATH,
-            "recovery_cp": CARDMARKET_CARD_LIST_RECOVERY_CHECKPOINT_PATH,
+            "scrape_state": CARDMARKET_SCRAPE_STATE_PATH,
             "details": CARDMARKET_CARD_DETAILS_PATH,
             "details_rejections": CARDMARKET_CARD_DETAILS_REJECTION_PATH,
-            "details_cp": CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
         }
 
     expansion_list = _load_list_optional(paths["expansion_list"])
@@ -83,9 +95,10 @@ def _run(argv: list[str] | None) -> int:
     empty_expansions = _load_list_optional(paths["empty"])
     rejected_expansions = _load_list_optional(paths["rejected"])
 
-    card_list_cp = load_checkpoint(paths["card_list_cp"]) if paths["card_list_cp"].is_file() else None
-    recovery_cp = load_checkpoint(paths["recovery_cp"]) if paths["recovery_cp"].is_file() else None
-    details_cp = load_checkpoint(paths["details_cp"]) if paths["details_cp"].is_file() else None
+    card_list_cp = None
+    recovery_cp = None
+    details_cp = None
+    scrape_state = load_checkpoint(paths["scrape_state"]) if paths.get("scrape_state", Path()).is_file() else None
 
     coverage_ok = True
     coverage_report = None
@@ -115,6 +128,14 @@ def _run(argv: list[str] | None) -> int:
             card_details_rejections=_load_list_optional(paths["details_rejections"]),
             card_details_checkpoint=details_cp or None,
         )
+        if scrape_state:
+            print("--- Scrape state (cardmarket_scrape_state.json) ---")
+            print(f"  run_date: {scrape_state.get('run_date')}")
+            print(f"  phase: {scrape_state.get('phase')}")
+            print(f"  mode: {scrape_state.get('mode')}")
+            print(f"  last_completed_seq: {scrape_state.get('last_completed_seq')}")
+            print(f"  last_completed_card_index: {scrape_state.get('last_completed_card_index')}")
+            print()
         print(report)
 
     if args.strict and not coverage_ok:

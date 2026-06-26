@@ -22,7 +22,7 @@ For **how our browser scraper behaves** (hidden requests, console lines, paginat
 
 Per [request rate calculation](request-rate-calculation.md), counters are keyed by **characteristics** configured in each rule — commonly **source IP**. Rotating Chrome user-data profiles on the **same IP** does not reset an IP-level ban.
 
-Cloudflare’s [anti-scraping examples](best-practices.md#prevent-content-scraping-via-query-string) use thresholds such as **10 requests / 2 minutes** (~0.08 RPS) before challenge/block. Our scraper defaults target **~0.12 RPS** in browser mode (one request every ~8 seconds) plus random jitter and pauses between expansions.
+Cloudflare’s [anti-scraping examples](best-practices.md#prevent-content-scraping-via-query-string) use thresholds such as **10 requests / 2 minutes** (~0.08 RPS) before challenge/block. Our scraper defaults target **~0.05 RPS** in browser mode (`--polite`) plus random jitter and pauses between expansions.
 
 ### Error codes you will see
 
@@ -57,7 +57,7 @@ When the scraper detects `Retry-After >= 600` seconds, it **saves a checkpoint a
 ### Environment overrides
 
 ```env
-# CARDMARKET_DISCOVERY_RPS=0.12
+# CARDMARKET_DISCOVERY_RPS=0.05
 # CARDMARKET_PRICE_RPS=0.2
 # CARDMARKET_WORKERS=1
 ```

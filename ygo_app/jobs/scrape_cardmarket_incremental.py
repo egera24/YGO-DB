@@ -7,12 +7,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ygo_app.cardmarket.artifact_io import load_json_list, save_json
+from ygo_app.cardmarket.catalog_source import load_catalog_printings
 from ygo_app.cardmarket.card_details_scrape import run_card_details_scrape
 from ygo_app.cardmarket.card_list_scrape import scrape_expansions
-from ygo_app.cardmarket.details_export import export_prices_from_details, validate_export_match_keys
+from ygo_app.cardmarket.details_export import (
+    export_prices_from_details,
+    validate_detail_duplicate_keys,
+    validate_export_match_keys,
+)
 from ygo_app.cardmarket.expansion_list_scrape import fetch_expansion_list
-from ygo_app.cardmarket.expansion_seed import load_seed_codes, regenerate_expansion_seed
 from ygo_app.cardmarket.incremental import (
     IncrementalConflictError,
     card_ids_for_expansion_ids,
@@ -77,8 +80,7 @@ def run_incremental_scrape(
     existing_details = load_json_list(CARDMARKET_CARD_DETAILS_PATH)
 
     live_expansions = fetch_expansion_list(session)
-    seed_codes = load_seed_codes()
-    plan = prepare_incremental_plan(stored_expansions, live_expansions, seed_codes=seed_codes)
+    plan = prepare_incremental_plan(stored_expansions, live_expansions)
 
     merged_expansion_list = merge_expansion_lists(stored_expansions, live_expansions)
     save_json(CARDMARKET_EXPANSION_LIST_PATH, merged_expansion_list)
@@ -103,7 +105,7 @@ def run_incremental_scrape(
             cards=existing_cards, details=existing_details, plan=plan
         )
         raise_on_conflicts(conflicts)
-        validate_export_match_keys(existing_details)
+        validate_detail_duplicate_keys(existing_details)
         export_prices_from_details(
             catalog_path=catalog_path,
             output_path=output_prices_path,
@@ -167,7 +169,7 @@ def run_incremental_scrape(
     )
 
     if update_seed:
-        regenerate_expansion_seed(CARDMARKET_EXPANSION_LIST_PATH)
+        pass  # expansion_seed deprecated — expansion_list is sole source of truth
 
     save_json(CARDMARKET_CARD_DETAILS_PATH, merged_details)
 
@@ -183,7 +185,8 @@ def run_incremental_scrape(
     report["details_scraped"] = len(merged_details) - details_before
     conflicts = validate_catalog_integrity(cards=merged_cards, details=merged_details, plan=plan)
     raise_on_conflicts(conflicts)
-    validate_export_match_keys(merged_details)
+    catalog = load_catalog_printings(None, catalog_path=catalog_path)
+    validate_export_match_keys(catalog, merged_details)
 
     export_stats = export_prices_from_details(
         catalog_path=catalog_path,

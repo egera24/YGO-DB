@@ -209,7 +209,7 @@ This diffs the live expansion dropdown against your stored list, scrapes card li
 
 Individual jobs also accept `--incremental` (mutually exclusive with `--resume`) for manual step-by-step runs; the orchestrator is recommended.
 
-**`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.12 discovery / ~0.2 price). Browser mode adds a **2–8 s** randomized delay after each successful page fetch. Checkpoints save every **5** expansions (job 2) or **5** cards (job 3). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
+**`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.05 discovery / ~0.2 price). Browser mode adds a **2–8 s** randomized delay after each successful page fetch. Checkpoints save every **5** expansions (job 2) or **5** cards (job 3). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
 
 ### Console output and request budget
 

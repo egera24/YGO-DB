@@ -51,9 +51,9 @@ REQUEST_TIMEOUT = 20
 DISCOVERY_REQUESTS_PER_SECOND = 0.25
 DISCOVERY_MAX_RETRIES = 5
 
-# Browser (Playwright) mode — conservative rates aligned with CF anti-scraping examples
+# Browser (Playwright) mode — verified stable rate for card-list scraping
 BROWSER_DEFAULT_WORKERS = 1
-BROWSER_DISCOVERY_REQUESTS_PER_SECOND = 0.12
+BROWSER_DISCOVERY_REQUESTS_PER_SECOND = 0.05
 BROWSER_DEFAULT_REQUESTS_PER_SECOND = 0.2
 
 # Human-like pacing between browser requests (seconds, inclusive random range).

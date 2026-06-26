@@ -468,7 +468,7 @@ class TestBrowserCookies(unittest.TestCase):
         )
         self.assertEqual(workers, 1)
         self.assertEqual(backend, "playwright")
-        self.assertAlmostEqual(discovery_rps, 0.12)
+        self.assertAlmostEqual(discovery_rps, 0.05)
         self.assertAlmostEqual(price_rps, 0.2)
 
     def test_http_defaults_are_conservative(self):

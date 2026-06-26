@@ -6,14 +6,16 @@ import unittest
 from unittest.mock import patch
 
 from ygo_app.cardmarket.card_details_scrape import SAVE_INTERVAL
-from ygo_app.cardmarket.card_list_scrape import CHECKPOINT_EVERY
-from ygo_app.cardmarket.constants import INTER_PAGE_DELAY_BROWSER
+from ygo_app.cardmarket.constants import (
+    BROWSER_DISCOVERY_REQUESTS_PER_SECOND,
+    INTER_PAGE_DELAY_BROWSER,
+)
 from ygo_app.cardmarket.http_client import sleep_inter_page_delay
 
 
 class TestCardmarketPacing(unittest.TestCase):
-    def test_job2_checkpoint_every_five(self):
-        self.assertEqual(CHECKPOINT_EVERY, 5)
+    def test_polite_discovery_rps(self):
+        self.assertAlmostEqual(BROWSER_DISCOVERY_REQUESTS_PER_SECOND, 0.05)
 
     def test_job3_save_interval_five(self):
         self.assertEqual(SAVE_INTERVAL, 5)

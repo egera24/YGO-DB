@@ -8,10 +8,10 @@ from pathlib import Path
 
 from ygo_app.cardmarket.card_details_scrape import run_card_details_scrape
 from ygo_app.cardmarket.expansion_list_scrape import fetch_expansion_list
-from ygo_app.cardmarket.expansion_seed import load_seed_codes
 from ygo_app.cardmarket.incremental import IncrementalConflictError, prepare_incremental_plan
 from ygo_app.cardmarket.artifact_io import load_json_list
-from ygo_app.cardmarket.paths import CARDMARKET_CARD_LIST_PATH, CARDMARKET_EXPANSION_LIST_PATH
+from ygo_app.cardmarket.paths import CARDMARKET_CARD_LIST_PATH
+from ygo_app.cardmarket.scrape_state import load_scrape_state, resolve_card_list_file, resolve_expansion_list_file
 from ygo_app.cardmarket.scrape_cli import (
     add_http_scrape_args,
     apply_polite_args,
@@ -68,9 +68,14 @@ def _run(argv: list[str] | None) -> int:
             merge_output = False
             skip_existing = False
             if args.incremental:
-                stored = load_json_list(CARDMARKET_EXPANSION_LIST_PATH)
+                state = load_scrape_state()
+                stored_path = resolve_expansion_list_file(state) if state else None
+                if not stored_path or not stored_path.is_file():
+                    log_line("[DETAILS] incremental: no expansion list in scrape state")
+                    return 0
+                stored = load_json_list(stored_path)
                 live = fetch_expansion_list(session)
-                plan = prepare_incremental_plan(stored, live, seed_codes=load_seed_codes())
+                plan = prepare_incremental_plan(stored, live)
                 expansion_ids = plan.scrape_ids
                 merge_output = True
                 skip_existing = True
@@ -85,8 +90,12 @@ def _run(argv: list[str] | None) -> int:
                     log_line("[DETAILS] incremental: no new expansions to scrape")
                     return 0
 
+            list_input = args.input
+            if list_input == CARDMARKET_CARD_LIST_PATH and load_scrape_state():
+                list_input = resolve_card_list_file(load_scrape_state())
+
             run_card_details_scrape(
-                input_path=args.input,
+                input_path=list_input,
                 session=session,
                 resume=args.resume,
                 limit=args.limit,

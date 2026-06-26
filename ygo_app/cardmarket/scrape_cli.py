@@ -14,7 +14,11 @@ from ygo_app.cardmarket.constants import (
 from ygo_app.cardmarket.http_client import default_fetch_backend
 
 
-def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
+def add_http_scrape_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_incremental: bool = True,
+) -> None:
     default_backend = default_fetch_backend()
     parser.add_argument(
         "--backend",
@@ -67,11 +71,12 @@ def add_http_scrape_args(parser: argparse.ArgumentParser) -> None:
         help="Override discovery-phase requests per second",
     )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
-    parser.add_argument(
-        "--incremental",
-        action="store_true",
-        help="Incremental update (new expansions only; orchestrator recommended)",
-    )
+    if include_incremental:
+        parser.add_argument(
+            "--incremental",
+            action="store_true",
+            help="Incremental update (new expansions only; orchestrator recommended)",
+        )
     parser.add_argument("--limit", type=int, default=None, help="Cap items processed (testing)")
     parser.add_argument(
         "--no-interactive",
@@ -103,4 +108,4 @@ def validate_headed_args(args: argparse.Namespace, parser: argparse.ArgumentPars
     if args.headed and not (args.browser or args.backend == "playwright"):
         parser.error("--headed requires --browser or --backend playwright")
     if getattr(args, "incremental", False) and getattr(args, "resume", False):
-        parser.error("--incremental and --resume are mutually exclusive")
+        parser.error("--incremental and --resume are mutually exclusive for card list job")

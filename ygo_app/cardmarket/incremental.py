@@ -88,11 +88,8 @@ class ExpansionPlan:
 def diff_expansions(
     stored: list[dict],
     live: list[dict],
-    *,
-    seed_codes: dict[int, str] | None = None,
 ) -> ExpansionPlan:
     """Compare stored vs live expansion lists and build a scrape plan."""
-    seed_codes = seed_codes or {}
     stored_map = _expansion_by_id(stored)
     live_map = _expansion_by_id(live)
 
@@ -115,14 +112,14 @@ def diff_expansions(
         if old_id in matched_removed:
             continue
         old_row = stored_map[old_id]
-        old_code = (old_row.get("expansion_code") or seed_codes.get(old_id) or "").strip().upper()
+        old_code = (old_row.get("expansion_code") or "").strip().upper()
         if not old_code:
             continue
         candidates = [
             nid
             for nid in new_pool
             if nid not in matched_new
-            and (live_map[nid].get("expansion_code") or seed_codes.get(nid) or "").strip().upper()
+            and (live_map[nid].get("expansion_code") or "").strip().upper()
             == old_code
         ]
         if len(candidates) == 1:
@@ -174,14 +171,14 @@ def diff_expansions(
         if old_id in matched_removed:
             continue
         old_row = stored_map[old_id]
-        old_code = (old_row.get("expansion_code") or seed_codes.get(old_id) or "").strip().upper()
+        old_code = (old_row.get("expansion_code") or "").strip().upper()
         if not old_code:
             continue
         candidates = [
             nid
             for nid in new_pool
             if nid not in matched_new
-            and (live_map[nid].get("expansion_code") or seed_codes.get(nid) or "").strip().upper()
+            and (live_map[nid].get("expansion_code") or "").strip().upper()
             == old_code
         ]
         if len(candidates) > 1:
@@ -441,11 +438,9 @@ def raise_on_conflicts(conflicts: list[dict[str, Any]], *, path: Path | None = N
 def prepare_incremental_plan(
     stored_expansions: list[dict],
     live_expansions: list[dict],
-    *,
-    seed_codes: dict[int, str] | None = None,
 ) -> ExpansionPlan:
     """Build expansion plan and fail on ambiguous migrations."""
-    plan = diff_expansions(stored_expansions, live_expansions, seed_codes=seed_codes)
+    plan = diff_expansions(stored_expansions, live_expansions)
     if plan.ambiguous_migrations:
         raise_on_conflicts(plan.ambiguous_migrations)
     return plan

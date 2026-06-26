@@ -126,7 +126,7 @@ The resume logic should have a consistency check as well. It should check if the
 If there are gaps (missing expansions) the script should raise an error, stop and inform the user with the exact reason and data.
 A transaction should be atomic ("all or nothing"), so if the scraping is interrupted, the script should be able to resume from the last checkpoint.
 With this system the script always should know which is the next expansion to be scraped. 
-I still need the current logic regarding the not found any productrows, the rps setting (polite should be 0.08). I also need the logging and the timestamps.
+I still need the current logic regarding the not found any productrows, the rps setting (polite should be 0.05). I also need the logging and the timestamps.
 I need here some validation logic: no duplicates, no missing values, no invalid values.
 
 3) Scrape the cardmarket card detail page as before, but based on the cardlist from the previous step. There should be an output json file called card_details.json.

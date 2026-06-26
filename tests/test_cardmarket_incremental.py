@@ -14,7 +14,7 @@ from ygo_app.cardmarket.incremental import (
     raise_on_conflicts,
     validate_catalog_integrity,
 )
-from ygo_app.cardmarket.details_export import validate_export_match_keys
+from ygo_app.cardmarket.details_export import validate_detail_duplicate_keys
 
 
 def _expansion(eid: int, name: str, code: str | None = None) -> dict:
@@ -80,8 +80,8 @@ class TestDiffExpansions(unittest.TestCase):
 
     def test_migration_by_name(self):
         stored = [_expansion(100, "Super Set", "SSP")]
-        live = [_expansion(200, "Super Set", None)]
-        plan = diff_expansions(stored, live, seed_codes={100: "SSP"})
+        live = [_expansion(200, "Super Set", "SSP")]
+        plan = diff_expansions(stored, live)
         self.assertEqual(len(plan.migrations), 1)
         self.assertEqual(plan.migrations[0].old_id, 100)
         self.assertEqual(plan.migrations[0].new_id, 200)
@@ -90,8 +90,8 @@ class TestDiffExpansions(unittest.TestCase):
 
     def test_migration_by_code(self):
         stored = [_expansion(100, "Old Name", "ABC")]
-        live = [_expansion(200, "Renamed", None)]
-        plan = diff_expansions(stored, live, seed_codes={200: "ABC"})
+        live = [_expansion(200, "Renamed", "ABC")]
+        plan = diff_expansions(stored, live)
         self.assertEqual(len(plan.migrations), 1)
         self.assertEqual(plan.migrations[0].new_id, 200)
 
@@ -172,9 +172,9 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(IncrementalConflictError):
             raise_on_conflicts([{"type": "duplicate_card_id", "card_id": 1}])
 
-    def test_validate_export_match_keys(self):
+    def test_validate_detail_duplicate_keys(self):
         with self.assertRaises(IncrementalConflictError):
-            validate_export_match_keys([_detail(1), _detail(2)])
+            validate_detail_duplicate_keys([_detail(1), _detail(2)])
 
     def test_find_duplicate_match_keys(self):
         conflicts = find_duplicate_match_keys([_detail(1), _detail(2)])

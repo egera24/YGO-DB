@@ -11,15 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from ygo_app.cardmarket.artifact_io import (
-    clear_checkpoint,
-    load_checkpoint,
     load_json_list,
-    save_checkpoint,
     save_json,
-)
-from ygo_app.cardmarket.checkpoints import (
-    build_card_details_checkpoint_at_idx,
-    resolve_card_details_resume_index,
+    save_json_atomic,
 )
 from ygo_app.cardmarket.constants import (
     DEFAULT_REQUESTS_PER_SECOND,
@@ -36,10 +30,15 @@ from ygo_app.cardmarket.http_client import (
 )
 from ygo_app.cardmarket.parsing import extract_full_price_data
 from ygo_app.cardmarket.paths import (
-    CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
     CARDMARKET_CARD_DETAILS_PATH,
     CARDMARKET_CARD_DETAILS_REJECTION_PATH,
     CARDMARKET_CARD_LIST_PATH,
+)
+from ygo_app.cardmarket.scrape_state import (
+    load_scrape_state,
+    resolve_card_list_file,
+    save_scrape_state,
+    update_state_card_index,
 )
 from ygo_app.cardmarket.scrape_session import ScrapeSession
 from ygo_app.yugipedia.scrape_progress import log_line
@@ -157,8 +156,6 @@ def _process_card(
             },
         }
 
-    exp_code = str(card["expansion_code"]).strip()
-    card_num = str(card["card_number"]).strip()
     return {
         "status": "success",
         "data": {
@@ -167,7 +164,6 @@ def _process_card(
                 "card_name": card["card_name"],
                 "card_rarity": card["card_rarity"],
                 "card_number": card["card_number"],
-                "card_set_number": f"{exp_code}-EN{card_num}",
             },
             "expansion_data": {
                 "expansion_id": card["expansion_id"],
@@ -194,25 +190,24 @@ def _save_details(
     *,
     details_path: Path,
     rejection_path: Path,
-    checkpoint: dict[str, Any] | None = None,
-    checkpoint_path: Path | None = None,
+    state: dict[str, Any] | None = None,
+    card_index: int | None = None,
     skip_details_write: bool = False,
 ) -> None:
     with _file_lock:
         if not skip_details_write:
-            save_json(details_path, successful)
+            save_json_atomic(details_path, successful)
         if rejections:
-            save_json(rejection_path, rejections)
-        if checkpoint is not None and checkpoint_path is not None:
-            save_checkpoint(checkpoint_path, checkpoint)
+            save_json_atomic(rejection_path, rejections)
+        if state is not None and card_index is not None:
+            update_state_card_index(state, card_index, phase="card_details")
 
 
 def run_card_details_scrape(
     *,
-    input_path: Path = CARDMARKET_CARD_LIST_PATH,
+    input_path: Path | None = None,
     output_path: Path = CARDMARKET_CARD_DETAILS_PATH,
     rejection_path: Path = CARDMARKET_CARD_DETAILS_REJECTION_PATH,
-    checkpoint_path: Path = CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH,
     session: ScrapeSession,
     resume: bool = False,
     limit: int | None = None,
@@ -223,7 +218,11 @@ def run_card_details_scrape(
     merge_output: bool = False,
     purge_card_ids: set[int] | None = None,
 ) -> dict[str, int]:
-    cards = load_json_list(input_path)
+    state = load_scrape_state()
+    list_path = input_path
+    if list_path is None:
+        list_path = resolve_card_list_file(state) if state else CARDMARKET_CARD_LIST_PATH
+    cards = load_json_list(list_path)
     if expansion_ids is not None:
         cards = [c for c in cards if int(c.get("expansion_id", -1)) in expansion_ids]
     if limit is not None:
@@ -272,14 +271,19 @@ def run_card_details_scrape(
     rejections: list[dict] = []
     start_idx = 0
 
-    if resume and checkpoint_path.is_file():
-        checkpoint = load_checkpoint(checkpoint_path)
-        start_idx = resolve_card_details_resume_index(checkpoint, cards)
+    if resume:
+        if state:
+            start_idx = int(state.get("last_completed_card_index", -1)) + 1
         if output_path.is_file():
             successful = load_json_list(output_path)
         if rejection_path.is_file():
             rejections = load_json_list(rejection_path)
         log_line(f"[DETAILS] resuming from card index {start_idx}")
+    elif state:
+        state = dict(state)
+        state["phase"] = "card_details"
+        state["last_completed_card_index"] = -1
+        save_scrape_state(state)
 
     cards_to_process = [(start_idx + i, card) for i, card in enumerate(cards[start_idx:])]
     if not cards_to_process:
@@ -332,12 +336,8 @@ def run_card_details_scrape(
                             rejections,
                             details_path=output_path,
                             rejection_path=rejection_path,
-                            checkpoint=build_card_details_checkpoint_at_idx(
-                                cards,
-                                abs_idx - 1,
-                                phase1_complete=False,
-                            ),
-                            checkpoint_path=checkpoint_path,
+                            state=state,
+                            card_index=abs_idx - 1,
                             skip_details_write=merge_output,
                         )
                         raise SystemExit(2) from exc
@@ -372,12 +372,8 @@ def run_card_details_scrape(
                             rejections,
                             details_path=output_path,
                             rejection_path=rejection_path,
-                            checkpoint=build_card_details_checkpoint_at_idx(
-                                cards,
-                                abs_idx,
-                                phase1_complete=False,
-                            ),
-                            checkpoint_path=checkpoint_path,
+                            state=state,
+                            card_index=abs_idx,
                             skip_details_write=merge_output,
                         )
 
@@ -389,12 +385,8 @@ def run_card_details_scrape(
                 rejections,
                 details_path=output_path,
                 rejection_path=rejection_path,
-                checkpoint=build_card_details_checkpoint_at_idx(
-                    cards,
-                    last_saved_idx,
-                    phase1_complete=False,
-                ),
-                checkpoint_path=checkpoint_path,
+                state=state,
+                card_index=last_saved_idx,
                 skip_details_write=merge_output,
             )
     except KeyboardInterrupt:
@@ -404,12 +396,8 @@ def run_card_details_scrape(
             rejections,
             details_path=output_path,
             rejection_path=rejection_path,
-            checkpoint=build_card_details_checkpoint_at_idx(
-                cards,
-                last_saved_idx,
-                phase1_complete=False,
-            ),
-            checkpoint_path=checkpoint_path,
+            state=state,
+            card_index=last_saved_idx,
             skip_details_write=merge_output,
         )
         log_line("[DETAILS] interrupted — progress saved")
@@ -417,7 +405,11 @@ def run_card_details_scrape(
     if interrupted:
         return {"success": len(successful), "rejected": len(rejections), "interrupted": 1}
 
-    clear_checkpoint(checkpoint_path)
+    if state:
+        state = dict(state)
+        state["phase"] = "done"
+        state["last_completed_card_index"] = len(cards) - 1
+        save_scrape_state(state)
 
     # Phase 2: recover unreachable only
     recoverable = [r for r in rejections if "unreachable" in r.get("rejection_reason", "")]

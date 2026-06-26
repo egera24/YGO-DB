@@ -13,10 +13,18 @@ from ygo_app.cardmarket.catalog_consistency import (
     purge_orphan_card_rows,
 )
 from ygo_app.cardmarket.paths import (
-    CARDMARKET_CARD_LIST_PATH,
     CARDMARKET_EMPTY_EXPANSIONS_PATH,
     CARDMARKET_EXPANSION_LIST_PATH,
     CARDMARKET_REJECTED_EXPANSIONS_PATH,
+    CARDMARKET_SCRAPE_STATE_PATH,
+    CARDMARKET_CARD_LIST_PATH,
+)
+from ygo_app.cardmarket.scrape_state import (
+    find_latest_card_list,
+    find_latest_expansion_list,
+    load_scrape_state,
+    resolve_card_list_file,
+    resolve_expansion_list_file,
 )
 from ygo_app.job_logging import run_job_logged
 from ygo_app.yugipedia.scrape_progress import log_line
@@ -59,18 +67,27 @@ def _run(argv: list[str] | None) -> int:
             "rejected": catalog / "cardmarket_rejected_expansions.json",
         }
     else:
+        state = load_scrape_state() if CARDMARKET_SCRAPE_STATE_PATH.is_file() else {}
+        exp_path = resolve_expansion_list_file(state) if state else CARDMARKET_EXPANSION_LIST_PATH
+        if not exp_path.is_file():
+            latest = find_latest_expansion_list()
+            exp_path = latest[1] if latest else CARDMARKET_EXPANSION_LIST_PATH
+        card_path = resolve_card_list_file(state) if state else CARDMARKET_CARD_LIST_PATH
+        if not card_path.is_file():
+            latest = find_latest_card_list()
+            card_path = latest[1] if latest else CARDMARKET_CARD_LIST_PATH
         paths = {
-            "expansion_list": CARDMARKET_EXPANSION_LIST_PATH,
-            "card_list": CARDMARKET_CARD_LIST_PATH,
+            "expansion_list": exp_path,
+            "card_list": card_path,
             "empty": CARDMARKET_EMPTY_EXPANSIONS_PATH,
             "rejected": CARDMARKET_REJECTED_EXPANSIONS_PATH,
         }
 
     if not paths["expansion_list"].is_file():
-        log_line("[REPAIR] cardmarket_expansion_list.json: MISSING")
+        log_line(f"[REPAIR] expansion list: MISSING ({paths['expansion_list']})")
         return 1
     if not paths["card_list"].is_file():
-        log_line("[REPAIR] cardmarket_card_list.json: MISSING")
+        log_line(f"[REPAIR] card list: MISSING ({paths['card_list']})")
         return 1
 
     expansion_list = _load(paths["expansion_list"])

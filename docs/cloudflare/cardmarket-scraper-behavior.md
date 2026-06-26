@@ -126,7 +126,7 @@ From [`ygo_app/cardmarket/constants.py`](../../ygo_app/cardmarket/constants.py):
 
 | Setting | `--polite` / browser default |
 |---------|----------------------------|
-| `discovery_rps` | 0.12 (~1 request every 8 s) |
+| `discovery_rps` | 0.05 (~1 request every 20 s) |
 | `price_rps` | 0.2 |
 | `workers` | 1 |
 | Inter-request delay (browser) | **2–8 s** random after each successful navigation |
@@ -135,12 +135,10 @@ From [`ygo_app/cardmarket/constants.py`](../../ygo_app/cardmarket/constants.py):
 
 Randomized delays between requests matter more than rotating browser sessions on the same IP — Cloudflare counters are usually keyed by source IP, not session length.
 
-Cloudflare’s [anti-scraping examples](best-practices.md#prevent-content-scraping-via-query-string) cite **~10 requests / 2 minutes** (~0.08 RPS). For recovery or large catalog runs, prefer:
+Cloudflare’s [anti-scraping examples](best-practices.md#prevent-content-scraping-via-query-string) cite **~10 requests / 2 minutes** (~0.08 RPS). Our `--polite` default is **0.05 RPS** (verified stable for card-list scraping). For post-ban recovery, use `--polite` alone or lower:
 
 ```powershell
---discovery-rps 0.05   # verified stable on fresh IP
-# or
---discovery-rps 0.08   # aligns with CF doc example
+--discovery-rps 0.05   # polite default; verified stable on fresh IP
 ```
 
 Override via CLI or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).

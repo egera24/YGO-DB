@@ -8,8 +8,13 @@ from pathlib import Path
 
 from ygo_app.cardmarket.export_schema import load_export
 from ygo_app.cardmarket.market_prices import upsert_market_price
-from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH
+from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH, DEFAULT_CATALOG_PATH
 from ygo_app.cardmarket.r2_storage import download_prices_file
+from ygo_app.cardmarket.catalog_source import load_catalog_printings
+from ygo_app.cardmarket.containment_matching import match_printings_to_cardmarket
+from ygo_app.cardmarket.incremental import raise_on_conflicts
+from ygo_app.cardmarket.paths import CARDMARKET_CARD_DETAILS_PATH
+from ygo_app.cardmarket.artifact_io import load_json_list
 from ygo_app.database import SessionLocal
 from ygo_app.import_data import init_db
 from ygo_app.models import PrintingMarketPrice
@@ -49,8 +54,14 @@ def import_prices_from_payload(session, payload: dict) -> dict[str, int]:
     return stats
 
 
-def run_import(*, file_path: Path) -> int:
+def run_import(*, file_path: Path, strict: bool = True) -> int:
     payload = load_export(file_path)
+    if strict and CARDMARKET_CARD_DETAILS_PATH.is_file() and DEFAULT_CATALOG_PATH.is_file():
+        catalog = load_catalog_printings(None, catalog_path=DEFAULT_CATALOG_PATH)
+        details = load_json_list(CARDMARKET_CARD_DETAILS_PATH)
+        _matches, conflicts = match_printings_to_cardmarket(catalog, details)
+        if conflicts:
+            raise_on_conflicts(conflicts)
     init_db()
     session = SessionLocal()
     try:
@@ -79,6 +90,11 @@ def _run(argv: list[str] | None) -> int:
         default=CARDMARKET_PRICES_PATH,
         help="Where to save R2 object when using --from-r2",
     )
+    parser.add_argument(
+        "--no-strict",
+        action="store_true",
+        help="Skip Yugipedia→Cardmarket ambiguity check before import",
+    )
     args = parser.parse_args(argv)
 
     path = args.file
@@ -86,7 +102,7 @@ def _run(argv: list[str] | None) -> int:
         log_line("[IMPORT] downloading from R2")
         path = download_prices_file(args.download_path)
     assert path is not None
-    return run_import(file_path=path)
+    return run_import(file_path=path, strict=not args.no_strict)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -73,8 +73,6 @@ Use the same browser flags that work for you on job 2. Job 3 (prices) uses `--rp
 ```powershell
 python -m ygo_app.jobs.scrape_cardmarket_incremental `
   --browser --headed --polite `
-  --discovery-rps 0.08 `
-  --rps 0.08 `
   --browser-profiles default,alt1,alt2,alt3
 ```
 
@@ -141,8 +139,8 @@ Use this if you want control between phases. **Do not** combine `--incremental` 
 Shared browser flags (adjust to taste):
 
 ```powershell
-$FLAGS = "--browser --headed --polite --discovery-rps 0.08 --browser-profiles default,alt1,alt2,alt3"
-$PRICE_FLAGS = "--browser --headed --polite --rps 0.08 --browser-profiles default,alt1,alt2,alt3"
+$FLAGS = "--browser --headed --polite --browser-profiles default,alt1,alt2,alt3"
+$PRICE_FLAGS = "--browser --headed --polite --browser-profiles default,alt1,alt2,alt3"
 ```
 
 ### Step A — Merge expansion list
@@ -212,7 +210,6 @@ To refresh **every** card’s prices (not incremental), re-run job 3 on the **fu
 ```powershell
 python -m ygo_app.jobs.scrape_cardmarket_card_details `
   --browser --headed --polite --resume `
-  --rps 0.08 `
   --browser-profiles default,alt1,alt2,alt3
 
 python -m ygo_app.jobs.export_cardmarket_prices
@@ -225,7 +222,7 @@ python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_price
 
 ```powershell
 # 1. Incremental scrape (new expansions + new prices + export)
-python -m ygo_app.jobs.scrape_cardmarket_incremental --browser --headed --polite --discovery-rps 0.08 --rps 0.08 --browser-profiles default,alt1,alt2,alt3
+python -m ygo_app.jobs.scrape_cardmarket_incremental --browser --headed --polite --browser-profiles default,alt1,alt2,alt3
 
 # 2. Import to DB
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json

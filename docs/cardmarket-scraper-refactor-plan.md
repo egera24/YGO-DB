@@ -1,7 +1,8 @@
 # Cardmarket Scraper Refactoring Plan
 
-> **Status:** Planned (not started)  
+> **Status:** Implemented (v2)  
 > **Created:** 2026-06-25  
+> **Updated:** 2026-06-26  
 > **Source notes:** [`DO NOT DELETE/refactor_cardmarket_scraper`](../DO%20NOT%20DELETE/refactor_cardmarket_scraper)
 
 ## Implementation checklist
@@ -14,7 +15,7 @@
 - [ ] Implement `containment_matching.py` and rewrite `details_export.py` with 0/1/>1 match resolution rules
 - [ ] Add `card_list_validate.py` and per-stage validation; wire into scrape commits
 - [ ] Enforce Yugipedia→Cardmarket 1:1 on import; fail on ambiguous matches
-- [ ] Set `--polite` discovery RPS to 0.08; update `agent_handoff.md`, `LOCAL_DEV.md`, cloudflare docs
+- [x] Set `--polite` discovery RPS to 0.05; update `agent_handoff.md`, `LOCAL_DEV.md`, cloudflare docs
 
 ---
 
@@ -82,7 +83,7 @@ flowchart LR
 2. **Resume from manifest** — next expansion = first `expansion_id` in job-1 list not in manifest `completed`.
 3. **No expansion_seed** — `expansion_code` comes only from job-1 list + per-row HTML in job-2.
 4. **Raw Cardmarket values in scrape artifacts** — store `expansion_code` + `card_number` exactly as on Cardmarket; matching logic lives only in job-4.
-5. **Browser-only production path** — keep `--polite` preset; tune discovery RPS to **0.08** (today `BROWSER_DISCOVERY_REQUESTS_PER_SECOND = 0.12` in [`constants.py`](../ygo_app/cardmarket/constants.py)).
+5. **Browser-only production path** — keep `--polite` preset; tune discovery RPS to **0.05** (verified stable for card-list scraping in [`constants.py`](../ygo_app/cardmarket/constants.py)).
 
 ---
 
@@ -292,7 +293,7 @@ Extract shared **checkpointed iterator** used by jobs 2 and 3 (ThreadPoolExecuto
 
 Tune [`scrape_cli.apply_polite_args`](../ygo_app/cardmarket/scrape_cli.py):
 
-- `discovery_rps = 0.08`
+- `discovery_rps = 0.05`
 - Keep `workers = 1`, `--browser` implied
 
 ---
@@ -301,7 +302,7 @@ Tune [`scrape_cli.apply_polite_args`](../ygo_app/cardmarket/scrape_cli.py):
 
 Update:
 
-- [`agent_handoff.md`](../agent_handoff.md) §Cardmarket — sharded layout, no seed, 0.08 RPS, fresh scrape note
+- [`agent_handoff.md`](../agent_handoff.md) §Cardmarket — sharded layout, no seed, 0.05 RPS, fresh scrape note
 - [`docs/LOCAL_DEV.md`](LOCAL_DEV.md) — new artifact paths, resume via manifest
 - [`docs/cloudflare/cardmarket-scraper-behavior.md`](cloudflare/cardmarket-scraper-behavior.md) — per-expansion commit semantics
 
@@ -332,7 +333,7 @@ python -m ygo_app.jobs.cardmarket_catalog_status --strict
 | 4 | Remove expansion_seed | Low |
 | 5 | Containment matcher + export rewrite + tests | High — matching semantics |
 | 6 | Import strict 1:1 + `--validate` defaults | Medium |
-| 7 | Split large modules + polite 0.08 | Low |
+| 7 | Split large modules + polite 0.05 | Low |
 
 ---
 

@@ -28,3 +28,16 @@ CARDMARKET_CARD_DETAILS_CHECKPOINT_PATH = CATALOG_DIR / "cardmarket_card_details
 
 CARDMARKET_INCREMENTAL_CONFLICTS_PATH = CATALOG_DIR / "cardmarket_incremental_conflicts.json"
 CARDMARKET_INCREMENTAL_REPORT_PATH = CATALOG_DIR / "cardmarket_incremental_report.json"
+
+# v2 scrape state + dated artifacts
+CARDMARKET_SCRAPE_STATE_PATH = CATALOG_DIR / "cardmarket_scrape_state.json"
+
+
+def expansion_list_path(run_date: str) -> Path:
+    """Dated expansion list: expansion_list_YYYYMMDD.json"""
+    return CATALOG_DIR / f"expansion_list_{run_date}.json"
+
+
+def card_list_path(run_date: str) -> Path:
+    """Dated card list: card_list_YYYYMMDD.json"""
+    return CATALOG_DIR / f"card_list_{run_date}.json"

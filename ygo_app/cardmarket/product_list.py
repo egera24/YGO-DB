@@ -53,8 +53,49 @@ def is_only_sealed_products(html: str) -> bool:
     return True
 
 
+def _extract_rarity(row) -> str:
+    rarity_div = row.find(attrs={"data-testid": "rarity"})
+    if rarity_div:
+        for svg in rarity_div.find_all("svg"):
+            for attr in ("aria-label", "data-bs-original-title", "title"):
+                val = (svg.get(attr) or "").strip()
+                if val:
+                    return val
+    for svg in row.find_all("svg"):
+        for attr in ("aria-label", "data-bs-original-title", "title"):
+            val = (svg.get(attr) or "").strip()
+            if val:
+                return val
+    return ""
+
+
+def _extract_expansion_code(row, current: str | None) -> str | None:
+    if current:
+        return current
+    exp_div = row.find(attrs={"data-testid": "expansion"})
+    if exp_div:
+        span = exp_div.find("span")
+        if span:
+            text = span.get_text(strip=True)
+            if text:
+                return text
+    exp_symbol = row.find("a", class_="expansion-symbol")
+    if exp_symbol:
+        exp_span = exp_symbol.find("span")
+        if exp_span:
+            return exp_span.get_text().strip()
+    return current
+
+
 def _extract_card_number(row, card_name: str, row_text: str, parts: list[str]) -> str:
-    card_number = ""
+    collector = row.find(attrs={"data-testid": "collector_number"})
+    if collector:
+        spans = collector.find_all("span")
+        for span in reversed(spans):
+            text = span.get_text(strip=True)
+            if text and text != "#":
+                return text
+
     for part in parts:
         if part == card_name:
             continue
@@ -63,24 +104,21 @@ def _extract_card_number(row, card_name: str, row_text: str, parts: list[str]) -
                 continue
             if "€" in part or "," in part or "." in part:
                 continue
-            card_number = part
-            break
+            return part
 
-    if not card_number:
-        main_col = row.find("div", class_="col")
-        if main_col:
-            nested_row = main_col.find("div", class_="row")
-            if nested_row:
-                for col in nested_row.find_all("div", recursive=False):
-                    col_classes = " ".join(col.get("class", []))
-                    if "col-md-2" in col_classes and "d-lg-flex" in col_classes:
-                        number_div = col.find("div")
-                        if number_div:
-                            text = number_div.get_text(strip=True)
-                            if text and len(text) <= 20 and "€" not in text:
-                                card_number = text
-                                break
-    return card_number
+    main_col = row.find("div", class_="col")
+    if main_col:
+        nested_row = main_col.find("div", class_="row")
+        if nested_row:
+            for col in nested_row.find_all("div", recursive=False):
+                col_classes = " ".join(col.get("class", []))
+                if "col-md-2" in col_classes and "d-lg-flex" in col_classes:
+                    number_div = col.find("div")
+                    if number_div:
+                        text = number_div.get_text(strip=True)
+                        if text and len(text) <= 20 and "€" not in text:
+                            return text
+    return ""
 
 
 def extract_cards_from_html(
@@ -89,6 +127,7 @@ def extract_cards_from_html(
     expansion_id: int,
     expansion_name: str,
     expansion_code: str | None = None,
+    expansion_seq: int | None = None,
 ) -> tuple[list[dict], str | None]:
     cards: list[dict] = []
     soup = BeautifulSoup(html, "html.parser")
@@ -102,7 +141,12 @@ def extract_cards_from_html(
                 continue
             card_id = int(match.group(1))
 
-            card_link = row.find("a", href=re.compile(r"/en/YuGiOh/Products/Singles/"))
+            name_div = row.find(attrs={"data-testid": "name"})
+            card_link = None
+            if name_div:
+                card_link = name_div.find("a", href=re.compile(r"/en/YuGiOh/Products/Singles/"))
+            if not card_link:
+                card_link = row.find("a", href=re.compile(r"/en/YuGiOh/Products/Singles/"))
             if not card_link:
                 continue
 
@@ -113,36 +157,22 @@ def extract_cards_from_html(
             row_text = row.get_text(separator="|", strip=True)
             parts = [p.strip() for p in row_text.split("|") if p.strip()]
             card_number = _extract_card_number(row, card_name, row_text, parts)
+            card_rarity = _extract_rarity(row)
+            exp_code = _extract_expansion_code(row, exp_code)
 
-            card_rarity = ""
-            for svg in row.find_all("svg"):
-                for attr in ("aria-label", "data-bs-original-title", "title"):
-                    val = (svg.get(attr) or "").strip()
-                    if val:
-                        card_rarity = val
-                        break
-                if card_rarity:
-                    break
-
-            if not exp_code:
-                exp_symbol = row.find("a", class_="expansion-symbol")
-                if exp_symbol:
-                    exp_span = exp_symbol.find("span")
-                    if exp_span:
-                        exp_code = exp_span.get_text().strip()
-
-            cards.append(
-                {
-                    "expansion_id": expansion_id,
-                    "expansion_name": expansion_name,
-                    "expansion_code": exp_code or "",
-                    "card_id": card_id,
-                    "card_name": card_name,
-                    "card_number": card_number,
-                    "card_rarity": card_rarity,
-                    "card_url": card_url,
-                }
-            )
+            item: dict = {
+                "expansion_id": expansion_id,
+                "expansion_name": expansion_name,
+                "expansion_code": exp_code or "",
+                "card_id": card_id,
+                "card_name": card_name,
+                "card_number": card_number,
+                "card_rarity": card_rarity,
+                "card_url": card_url,
+            }
+            if expansion_seq is not None:
+                item["expansion_seq"] = expansion_seq
+            cards.append(item)
         except Exception:
             continue
 
@@ -179,49 +209,3 @@ def probe_expansion_code(
         expansion_name=expansion_name,
     )
     return exp_code
-
-
-def scrape_expansion_products(
-    scraper,
-    expansion_id: int,
-    expansion_name: str,
-    *,
-    rate_limiter: RateLimiter,
-    expansion_code: str | None = None,
-    backend: FetchBackend = "cloudscraper",
-) -> list[dict]:
-    all_cards: list[dict] = []
-    page = 1
-    exp_code = expansion_code
-
-    while True:
-        html, error = fetch_url(
-            scraper,
-            _search_url(expansion_id, page),
-            backend=backend,
-            rate_limiter=rate_limiter,
-            retries=DISCOVERY_MAX_RETRIES,
-        )
-        if not html:
-            if page == 1:
-                log_line(f"[DISCOVER] expansion {expansion_id} page 1 failed: {error}")
-            break
-
-        if page == 1 and _is_empty_first_page(html):
-            break
-
-        soup = BeautifulSoup(html, "html.parser")
-        product_rows = soup.find_all("div", id=re.compile(r"^productRow\d+"))
-        if not product_rows:
-            break
-
-        cards, exp_code = extract_cards_from_html(
-            html,
-            expansion_id=expansion_id,
-            expansion_name=expansion_name,
-            expansion_code=exp_code,
-        )
-        all_cards.extend(cards)
-        page += 1
-
-    return all_cards

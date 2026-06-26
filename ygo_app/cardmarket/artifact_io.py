@@ -21,6 +21,14 @@ def save_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def save_json_atomic(path: Path, data: Any) -> None:
+    """Write JSON via temp file + replace for crash-safe commits."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
 def load_checkpoint(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}

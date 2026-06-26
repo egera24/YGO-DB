@@ -112,14 +112,29 @@ That means the cardmarket card with attributes LOB and 062 will match 3 differen
 
 
 So the workflow should be like this:
-1) Scrape the cardmarket expansion list as before. There should be an output json file called cardmarket_expansion_list.json.
-2) Scrape the cardmarket card list based on the expansion list from the previous step from one expansion to another expansion, but be aware that the card_number should be a different value from the page as i have written above. There should be an output json file called cardmarket_card_list.json.
-The checkpoint system is still needed, but without the expansion seed list. One transaction should be one expansion scraping. If one expansion was scraped, it should be written to disk into the json file. A transaction should be atomic ("all or nothing"), so if the scraping is interrupted, the script should be able to resume from the last checkpoint. With this system the script always should know which is the next expansion to be scraped. 
+1) Scrape the cardmarket expansion list as before. There should be an output json file called expansion_list_date.json. The date part should be the actual date of the start of the scraping process.
+Every expansion should have an internal id (surrogate key) that incrementals by 1 from 1. The last checkpoint file should contain this surrogate key which should be the last scraped expansion surrogate key.
+
+2) Scrape the cardmarket card list based on the expansion list from the previous step from one expansion to another expansion, but be aware that the card_number should be a different value from the page as i have written above.
+There should be an output json file called card_list_date.json. The date part should be the actual date of the start of the scraping process. The logic of the scraping should support two modes: full load and incremental
+The script should check the last date of the file and if it is the same as the actual date, it should skip the scraping. If there is no previous file, it should start the full load. If it is a different date, the user should define if a full load or an incremental load is needed. 
+The full load scrapes the whole cardlist again. The incremental load scrapes the cards of the new expansions since the last date.
+The checkpoint system is still needed, but without the expansion seed list. One transaction should be one expansion scraping. If one expansion was scraped, it should be written to disk into the json file.
+The main approach should be that the resumeability is easy to handle. The resume logic should be configurable only in one file. If I rewrite the last checkpoint file, the script should resume the process from the checkpoint after that.
+To avoid any duplicates, the resume logic should check the next to be scraped expansion surrogate key, and if there are expansions with a higher surrogate key, it should delete them from the cardlist file and rescrape them as well.
+The resume logic should have a consistency check as well. It should check if the cardlist file contains the already scraped expansions. Because the scraping logic goes through the expansion list one by one, and the surrogate key is ordered and incremented by 1, there should be no gaps at all.
+If there are gaps (missing expansions) the script should raise an error, stop and inform the user with the exact reason and data.
+A transaction should be atomic ("all or nothing"), so if the scraping is interrupted, the script should be able to resume from the last checkpoint.
+With this system the script always should know which is the next expansion to be scraped. 
 I still need the current logic regarding the not found any productrows, the rps setting (polite should be 0.08). I also need the logging and the timestamps.
 I need here some validation logic: no duplicates, no missing values, no invalid values.
-3) Scrape the cardmarket card detail page as before, but based on the cardlist from the previous step. There should be an output json file called cardmarket_card_details.json. This should contain all of the data from cardmarket for the given card.
+
+3) Scrape the cardmarket card detail page as before, but based on the cardlist from the previous step. There should be an output json file called card_details.json.
+This should contain all of the data from cardmarket for the given card.
 I need here some validation logic: no duplicates, no missing values, no invalid values.
-4) Now we have the cardmarket data, we have to migrate it into the database. The yugipedia data is already in the database, we should make the comparisons and validations between the two datasets and migrate the cardmarket data to the neon db so we can depict the prices on the frontend portal.
+
+4) Now we have the cardmarket data, we have to migrate it into the database.
+The yugipedia data is already in the database, we should make the comparisons and validations between the two datasets and migrate the cardmarket data to the neon db so we can depict the prices on the frontend portal.
 It is important that every yugipedia card will have only one cardmarket card, otherwise throw an error. I do not want to have corrupted data in the database.
 
 

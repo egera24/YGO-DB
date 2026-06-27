@@ -3829,18 +3829,50 @@ function invalidateDecksCache() {
   state.decksListCache = null;
 }
 
-function formatDeckDate(iso) {
-  if (!iso) return "";
+function formatRelativeDateParts(iso) {
+  if (!iso) return null;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
+  if (Number.isNaN(d.getTime())) return null;
+  const absolute = d.toLocaleString(undefined, {
+    dateStyle: "full",
+    timeStyle: "short",
+  });
   const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  if (diffMs < 60 * 1000) {
+    return { relative: "just now", absolute, iso: d.toISOString() };
+  }
+  const diffMins = Math.floor(diffMs / (60 * 1000));
+  if (diffMins < 60) {
+    return { relative: `${diffMins} min ago`, absolute, iso: d.toISOString() };
+  }
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const diffDays = Math.round((startOfToday - startOfDate) / (24 * 60 * 60 * 1000));
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays > 1 && diffDays < 7) return `${diffDays} days ago`;
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  if (diffDays === 0) {
+    const timeStr = d.toLocaleString(undefined, { timeStyle: "short" });
+    return { relative: `today at ${timeStr}`, absolute, iso: d.toISOString() };
+  }
+  if (diffDays === 1) return { relative: "yesterday", absolute, iso: d.toISOString() };
+  if (diffDays > 1 && diffDays < 7) {
+    return { relative: `${diffDays} days ago`, absolute, iso: d.toISOString() };
+  }
+  return {
+    relative: d.toLocaleString(undefined, { dateStyle: "medium" }),
+    absolute,
+    iso: d.toISOString(),
+  };
+}
+
+function formatDeckDate(iso) {
+  const parts = formatRelativeDateParts(iso);
+  return parts ? parts.relative : "";
+}
+
+function renderDeckTimeHtml(iso, prefix = "Edited") {
+  const parts = formatRelativeDateParts(iso);
+  if (!parts) return "";
+  return `${escapeHtml(prefix)} <time datetime="${escapeHtml(parts.iso)}" title="${escapeHtml(parts.absolute)}">${escapeHtml(parts.relative)}</time>`;
 }
 
 function deckCardCount(deck) {
@@ -3871,7 +3903,7 @@ function renderDecksGrid(decks) {
       const countLabel = d.card_count === 1 ? "1 card" : `${d.card_count} cards`;
       const dateLine =
         state.decksSort === "updated_at" && d.updated_at
-          ? `<span class="deck-tile-date muted">${escapeHtml(formatDeckDate(d.updated_at))}</span>`
+          ? `<span class="deck-tile-date muted">${renderDeckTimeHtml(d.updated_at, "Edited")}</span>`
           : "";
       return `
     <article class="deck-tile" data-id="${d.id}" tabindex="0" role="button" aria-label="${escapeHtml(d.name)}, ${countLabel}">
@@ -3942,7 +3974,10 @@ function showDeckDetailLoading() {
   const nameEl = $("#deck-name");
   if (nameEl) nameEl.textContent = "Loading…";
   const metaEl = $("#deck-meta");
-  if (metaEl) metaEl.textContent = "";
+  if (metaEl) {
+    metaEl.innerHTML = "";
+    metaEl.removeAttribute("aria-label");
+  }
   $("#deck-zones").innerHTML = ["main", "extra", "side"]
     .map(
       (zone) => `
@@ -3964,8 +3999,16 @@ function renderDeckDetailMeta(deck) {
   if (!metaEl) return;
   const count = deckCardCount(deck);
   const countLabel = count === 1 ? "1 card" : `${count} cards`;
-  const modified = formatDeckDate(deck.updated_at);
-  metaEl.textContent = modified ? `${countLabel} · Last modified ${modified}` : countLabel;
+  const parts = formatRelativeDateParts(deck.updated_at);
+  if (parts) {
+    metaEl.innerHTML = `
+      <span class="deck-meta-stat">${escapeHtml(countLabel)}</span>
+      <span class="deck-meta-edited">${renderDeckTimeHtml(deck.updated_at, "Edited")}</span>`;
+    metaEl.setAttribute("aria-label", `${countLabel}, edited ${parts.relative}`);
+  } else {
+    metaEl.innerHTML = `<span class="deck-meta-stat">${escapeHtml(countLabel)}</span>`;
+    metaEl.setAttribute("aria-label", countLabel);
+  }
 }
 
 async function populateDeckSelect() {
@@ -4156,7 +4199,11 @@ async function openDeckDetail(deckId, { fromRouter = false } = {}) {
     $("#decks-detail-view")?.removeAttribute("aria-busy");
     const nameEl = $("#deck-name");
     if (nameEl) nameEl.textContent = "Failed to load deck";
-    $("#deck-meta").textContent = "";
+    const metaEl = $("#deck-meta");
+    if (metaEl) {
+      metaEl.innerHTML = "";
+      metaEl.removeAttribute("aria-label");
+    }
     $("#deck-zones").innerHTML = `<p class="deck-zone-empty modal-load-error">${escapeHtml(err.message || "Failed to load deck.")}</p>`;
     updateRouteDocumentTitle();
   }

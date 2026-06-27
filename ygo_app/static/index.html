@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=58" />
+  <link rel="stylesheet" href="/static/css/style.css?v=60" />
 </head>
 <body>
   <header class="app-header">
@@ -374,7 +374,7 @@
           <button type="button" id="decks-back-btn" class="decks-back-btn">← Decks</button>
           <div class="deck-title-block">
             <h2 id="deck-name" title="Double-click to rename"></h2>
-            <p id="deck-meta" class="muted"></p>
+            <div id="deck-meta" class="deck-meta" aria-label="Deck summary"></div>
           </div>
           <button type="button" id="deck-rename-btn" class="secondary deck-rename-btn" title="Rename deck">Rename</button>
         </header>
@@ -600,6 +600,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=75" type="module"></script>
+  <script src="/static/js/app.js?v=79" type="module"></script>
 </body>
 </html>

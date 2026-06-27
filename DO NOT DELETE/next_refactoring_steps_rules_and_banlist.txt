@@ -23,9 +23,21 @@ The Forbidden & Limited List: Official tournaments restrict certain overpowered 
     Semi-Limited: Maximum 2 copies allowed.
 
 
-Official banlist: https://www.yugioh-card.com/eu/play/forbidden-and-limited-list/? (what are the icons on the site?)
+Official banlist: https://www.yugioh-card.com/eu/play/forbidden-and-limited-list/?
+
+The icons in the Remarks columns should be ignored.
+
+The above URL contains all of the banlist for the previous years. There are 3 tabs: Forbidden, Limited, Semi-Limited
+The html code is in the file C:\Users\krisztian.toth\Downloads\aaa\YGO App Cursor\DO NOT DELETE\banlist_html_code.html
+
+The data should be stored in the database. There should be a github action that fetches the data from the URL and stores it in the database and runs every once a month (1st day of the month).
+Based on the banlist the database should be able to assing it to the relevant cards so on the frontend the user should be able to see which cards are forbidden, limited or semi-limited.
 
 The idea is that the user should be able to choose the desired banlist and the desired format. By default the Advanced TCG banlist and the most actual banlist should be selected.
+
+On the 
+
+
 
 How to handle it, should we need Traditional-, Advanced- format as well? What about Genesys, speed duel, Edison, Goat? 
 

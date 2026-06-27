@@ -53,6 +53,23 @@ def _resolve_load_mode(args: argparse.Namespace) -> str:
     return "full"
 
 
+def _resolve_card_list_output_path(
+    *,
+    state: dict | None,
+    today: str,
+    resume: bool,
+    only_gaps: bool,
+) -> Path:
+    """Pick card list artifact for this run.
+
+    --only-gaps audits and merges against the catalog named in scrape state, not
+    today's empty dated file when the run was started on a different day.
+    """
+    if state and (resume or only_gaps):
+        return resolve_card_list_file(state)
+    return card_list_path(today)
+
+
 def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description="Scrape Cardmarket expansion product lists")
     mode = parser.add_mutually_exclusive_group()
@@ -102,16 +119,21 @@ def _run(argv: list[str] | None) -> int:
 
     load_mode = _resolve_load_mode(args)
     input_path = resolve_expansion_list_file(state) if state else expansion_list_path(today)
-    if args.resume and state:
-        output_path = resolve_card_list_file(state)
-    else:
-        output_path = card_list_path(today)
+    output_path = _resolve_card_list_output_path(
+        state=state or None,
+        today=today,
+        resume=args.resume,
+        only_gaps=args.only_gaps,
+    )
 
     try:
         with scrape_session_context(result) as session:
             expansion_filter = None
             purge_ids = None
             if args.only_gaps:
+                log_line(
+                    f"[CARD_LIST] --only-gaps: audit {input_path.name} vs {output_path.name}"
+                )
                 expansion_list = load_json_list(input_path)
                 card_list = load_json_list(output_path) if output_path.is_file() else []
                 empty_expansions = (

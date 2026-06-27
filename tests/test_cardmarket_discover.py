@@ -22,6 +22,7 @@ from ygo_app.cardmarket.http_client import (
     RateLimiter,
     RateLimitAbort,
     _looks_like_429,
+    clear_scrape_shutdown,
     create_scraper,
     curl_cffi_available,
     fetch_url,
@@ -231,6 +232,10 @@ class TestLooksLike429(unittest.TestCase):
 
 
 class TestCloudflareRateLimitDetection(unittest.TestCase):
+    def setUp(self):
+        clear_scrape_shutdown()
+        http_client._consecutive_429_count = 0
+
     def test_detects_error_1015_html(self):
         html = "<html><h1>Error 1015</h1><p>You are being rate limited</p></html>"
         self.assertTrue(is_cloudflare_rate_limited(html))
@@ -245,7 +250,7 @@ class TestCloudflareRateLimitDetection(unittest.TestCase):
 
         with (
             mock.patch.object(scraper, "get", side_effect=responses),
-            mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+            mock.patch("ygo_app.cardmarket.http_client._interruptible_sleep") as sleep_mock,
         ):
             with self.assertRaises(RateLimitAbort) as ctx:
                 fetch_url(
@@ -260,6 +265,7 @@ class TestCloudflareRateLimitDetection(unittest.TestCase):
 
 class TestFetchUrl429(unittest.TestCase):
     def setUp(self):
+        clear_scrape_shutdown()
         http_client._consecutive_429_count = 0
 
     def test_honors_retry_after_header(self):
@@ -271,7 +277,7 @@ class TestFetchUrl429(unittest.TestCase):
 
         with (
             mock.patch.object(scraper, "get", side_effect=responses),
-            mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+            mock.patch("ygo_app.cardmarket.http_client._interruptible_sleep") as sleep_mock,
             mock.patch("ygo_app.cardmarket.http_client.log_line") as log_mock,
         ):
             html, error = fetch_url(
@@ -296,7 +302,7 @@ class TestFetchUrl429(unittest.TestCase):
 
         with (
             mock.patch.object(scraper, "get", side_effect=responses),
-            mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+            mock.patch("ygo_app.cardmarket.http_client._interruptible_sleep") as sleep_mock,
         ):
             with self.assertRaises(RateLimitAbort) as ctx:
                 fetch_url(
@@ -339,7 +345,7 @@ class TestFetchUrl429(unittest.TestCase):
                     ("<html>ok</html>", 200, {}, None),
                 ],
             ),
-            mock.patch("ygo_app.cardmarket.http_client.time.sleep") as sleep_mock,
+            mock.patch("ygo_app.cardmarket.http_client._interruptible_sleep") as sleep_mock,
             mock.patch("ygo_app.cardmarket.http_client.log_line") as log_mock,
         ):
             html, error = fetch_url(
@@ -366,7 +372,7 @@ class TestFetchUrl429(unittest.TestCase):
 
         with (
             mock.patch.object(scraper, "get", side_effect=responses),
-            mock.patch("ygo_app.cardmarket.http_client.time.sleep"),
+            mock.patch("ygo_app.cardmarket.http_client._interruptible_sleep"),
             mock.patch("ygo_app.cardmarket.http_client.log_line") as log_mock,
         ):
             html, error = fetch_url(
@@ -383,6 +389,9 @@ class TestFetchUrl429(unittest.TestCase):
 
 
 class TestBrowserSessionThreading(unittest.TestCase):
+    def setUp(self):
+        clear_scrape_shutdown()
+
     def test_fetch_returns_result_from_worker_queue(self):
         from ygo_app.cardmarket.browser_client import _FetchResult, _STOP
 
@@ -503,6 +512,10 @@ class TestBrowserCookies(unittest.TestCase):
 
 
 class TestCloudflareChallengeDetection(unittest.TestCase):
+    def setUp(self):
+        clear_scrape_shutdown()
+        http_client._consecutive_429_count = 0
+
     def test_detects_challenge_markers(self):
         self.assertTrue(is_cloudflare_challenge("<html>Just a moment...</html>"))
         self.assertTrue(
@@ -512,7 +525,6 @@ class TestCloudflareChallengeDetection(unittest.TestCase):
         self.assertFalse(is_cloudflare_challenge("<html>normal page</html>"))
 
     def test_cf_challenge_html_retries(self):
-        http_client._consecutive_429_count = 0
         scraper = create_scraper(0)
         responses = [
             mock.Mock(status_code=200, headers={}, text="<html>Just a moment...</html>"),
@@ -520,7 +532,7 @@ class TestCloudflareChallengeDetection(unittest.TestCase):
         ]
         with (
             mock.patch.object(scraper, "get", side_effect=responses),
-            mock.patch("ygo_app.cardmarket.http_client.time.sleep"),
+            mock.patch("ygo_app.cardmarket.http_client._interruptible_sleep"),
         ):
             html, error = fetch_url(
                 scraper,
@@ -564,6 +576,9 @@ class TestAdaptiveRateLimiter(unittest.TestCase):
 
 @unittest.skipUnless(curl_cffi_available(), "curl_cffi not installed")
 class TestCurlCffiBackend(unittest.TestCase):
+    def setUp(self):
+        clear_scrape_shutdown()
+
     def test_curl_cffi_backend_delegates_to_session(self):
         session = mock.Mock()
         response = mock.Mock(status_code=200, headers={}, text="<html>cffi</html>")

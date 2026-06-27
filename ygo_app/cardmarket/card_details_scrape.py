@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import random
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -25,8 +24,14 @@ from ygo_app.cardmarket.constants import (
 from ygo_app.cardmarket.http_client import (
     AdaptiveRateLimiter,
     RateLimitAbort,
+    ScrapeShutdown,
+    _interruptible_sleep,
+    clear_scrape_shutdown,
     create_session_pool,
     fetch_url,
+    install_scrape_sigint_handler,
+    request_scrape_shutdown,
+    scrape_shutdown_requested,
 )
 from ygo_app.cardmarket.parsing import extract_full_price_data
 from ygo_app.cardmarket.paths import (
@@ -119,18 +124,23 @@ def _process_card(
     if session_pool is not None:
         scraper, _ = session_pool.get_session(worker_id)
 
-    html, error = fetch_url(
-        scraper,
-        card["card_url"],
-        backend=backend,
-        rate_limiter=rate_limiter,
-        jitter=0.0 if backend == "playwright" else RANDOM_JITTER,
-        session_pool=session_pool,
-        worker_id=worker_id,
-        retries=max_retries,
-    )
+    try:
+        html, error = fetch_url(
+            scraper,
+            card["card_url"],
+            backend=backend,
+            rate_limiter=rate_limiter,
+            jitter=0.0 if backend == "playwright" else RANDOM_JITTER,
+            session_pool=session_pool,
+            worker_id=worker_id,
+            retries=max_retries,
+        )
+    except ScrapeShutdown:
+        raise
 
     if not html:
+        if error == "Scrape interrupted" or scrape_shutdown_requested():
+            raise ScrapeShutdown("Scrape interrupted")
         return {
             "status": "rejected",
             "rejection": {
@@ -318,12 +328,28 @@ def run_card_details_scrape(
         f"[DETAILS] phase1 workers={workers} rps={price_rps} cards={len(cards_to_process)}"
     )
 
+    clear_scrape_shutdown()
+    install_scrape_sigint_handler()
     interrupted = False
+
+    def _abort_executor(executor: ThreadPoolExecutor, futures: dict) -> None:
+        nonlocal interrupted
+        interrupted = True
+        request_scrape_shutdown()
+        for pending in futures:
+            pending.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+
     try:
         for chunk_start in range(0, len(cards_to_process), PHASE1_CHUNK_SIZE):
+            if scrape_shutdown_requested():
+                interrupted = True
+                break
+
             chunk = cards_to_process[chunk_start : chunk_start + PHASE1_CHUNK_SIZE]
-            with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
-                futures = {}
+            executor = ThreadPoolExecutor(max_workers=max(1, workers))
+            futures: dict = {}
+            try:
                 for idx_in_chunk, (abs_idx, card) in enumerate(chunk):
                     worker_id = idx_in_chunk % max(workers, 1)
                     future = executor.submit(
@@ -338,6 +364,10 @@ def run_card_details_scrape(
                     futures[future] = abs_idx
 
                 for future in as_completed(futures):
+                    if scrape_shutdown_requested():
+                        _abort_executor(executor, futures)
+                        break
+
                     abs_idx = futures[future]
                     try:
                         result = future.result()
@@ -352,6 +382,9 @@ def run_card_details_scrape(
                             skip_details_write=merge_output,
                         )
                         raise SystemExit(2) from exc
+                    except ScrapeShutdown:
+                        _abort_executor(executor, futures)
+                        break
 
                     if result["status"] == "success":
                         successful.append(result["data"])
@@ -389,7 +422,17 @@ def run_card_details_scrape(
                         )
 
                     if backend == "playwright":
-                        time.sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
+                        _interruptible_sleep(random.uniform(*INTER_EXPANSION_DELAY_BROWSER))
+
+                    if scrape_shutdown_requested():
+                        _abort_executor(executor, futures)
+                        break
+            finally:
+                if not interrupted:
+                    executor.shutdown(wait=True)
+
+            if interrupted:
+                break
 
             _save_details(
                 successful,
@@ -400,8 +443,11 @@ def run_card_details_scrape(
                 card_index=last_saved_idx,
                 skip_details_write=merge_output,
             )
-    except KeyboardInterrupt:
+    except (ScrapeShutdown, KeyboardInterrupt):
         interrupted = True
+        request_scrape_shutdown()
+
+    if interrupted:
         _save_details(
             successful,
             rejections,
@@ -411,9 +457,7 @@ def run_card_details_scrape(
             card_index=last_saved_idx,
             skip_details_write=merge_output,
         )
-        log_line("[DETAILS] interrupted — progress saved")
-
-    if interrupted:
+        log_line("[DETAILS] interrupted — progress saved in scrape state")
         return {"success": len(successful), "rejected": len(rejections), "interrupted": 1}
 
     if state:
@@ -433,15 +477,23 @@ def run_card_details_scrape(
         recovered = 0
 
         for idx, rejection in enumerate(recoverable):
+            if scrape_shutdown_requested():
+                interrupted = True
+                break
             card = rejection["card"]
-            result = _process_card(
-                card,
-                backend=backend,
-                rate_limiter=recovery_limiter,
-                session_pool=None,
-                worker_id=0,
-                max_retries=PHASE2_MAX_RETRIES,
-            )
+            try:
+                result = _process_card(
+                    card,
+                    backend=backend,
+                    rate_limiter=recovery_limiter,
+                    session_pool=None,
+                    worker_id=0,
+                    max_retries=PHASE2_MAX_RETRIES,
+                )
+            except ScrapeShutdown:
+                interrupted = True
+                request_scrape_shutdown()
+                break
             if result["status"] == "success":
                 successful.append(result["data"])
                 recovered += 1
@@ -461,6 +513,17 @@ def run_card_details_scrape(
 
         rejections = non_recoverable + still_rejected
         log_line(f"[DETAILS] phase2 recovered={recovered}")
+
+        if interrupted:
+            _save_details(
+                successful,
+                rejections,
+                details_path=output_path,
+                rejection_path=rejection_path,
+                skip_details_write=merge_output,
+            )
+            log_line("[DETAILS] interrupted — progress saved in scrape state")
+            return {"success": len(successful), "rejected": len(rejections), "interrupted": 1}
 
     if merge_output:
         from ygo_app.cardmarket.incremental import merge_card_details, raise_on_conflicts

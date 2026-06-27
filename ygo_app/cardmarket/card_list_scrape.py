@@ -55,6 +55,7 @@ from ygo_app.cardmarket.http_client import (
     clear_scrape_shutdown,
     create_session_pool,
     fetch_url,
+    install_scrape_sigint_handler,
     request_scrape_shutdown,
     scrape_shutdown_requested,
 )
@@ -611,6 +612,7 @@ def scrape_expansions(
     )
 
     clear_scrape_shutdown()
+    install_scrape_sigint_handler()
     interrupted = False
     executor = ThreadPoolExecutor(max_workers=max(1, workers))
     try:
@@ -1000,6 +1002,7 @@ def run_card_list_scrape(
     pending_rejected: list[dict] = []
     start_time = datetime.now()
     clear_scrape_shutdown()
+    install_scrape_sigint_handler()
 
     log_line(
         f"[CARD_LIST] serial scrape rps={discovery_rps} expansions={len(expansions)} "

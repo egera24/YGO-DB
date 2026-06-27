@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import signal
 import threading
 import time
 from pathlib import Path
@@ -64,6 +65,35 @@ def request_scrape_shutdown() -> None:
 def scrape_shutdown_requested() -> bool:
     return _scrape_shutdown.is_set()
 
+
+_INTERRUPTIBLE_SLEEP_CHUNK = 1.0
+_sigint_handler_installed = False
+
+
+def _interruptible_sleep(seconds: float) -> None:
+    """Sleep in short chunks so Ctrl+C / scrape shutdown can interrupt long backoffs."""
+    remaining = max(0.0, seconds)
+    while remaining > 0 and not scrape_shutdown_requested():
+        chunk = min(_INTERRUPTIBLE_SLEEP_CHUNK, remaining)
+        if _scrape_shutdown.wait(timeout=chunk):
+            return
+        remaining -= chunk
+
+
+def install_scrape_sigint_handler() -> None:
+    """First Ctrl+C requests cooperative shutdown; re-raises KeyboardInterrupt for main thread."""
+    global _sigint_handler_installed
+    if _sigint_handler_installed:
+        return
+
+    def _handler(_signum: int, _frame: object) -> None:
+        request_scrape_shutdown()
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _handler)
+    _sigint_handler_installed = True
+
+
 _CF_LOGIN_HINT = "python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login"
 
 
@@ -105,9 +135,9 @@ def is_cloudflare_rate_limited(html: str | None) -> bool:
 
 def sleep_inter_page_delay(backend: FetchBackend) -> None:
     if backend == "playwright":
-        time.sleep(random.uniform(*INTER_PAGE_DELAY_BROWSER))
+        _interruptible_sleep(random.uniform(*INTER_PAGE_DELAY_BROWSER))
     else:
-        time.sleep(random.uniform(*INTER_PAGE_DELAY_HTTP))
+        _interruptible_sleep(random.uniform(*INTER_PAGE_DELAY_HTTP))
 
 
 def log_rate_limit_recovery(retry_after_seconds: float) -> None:
@@ -525,7 +555,9 @@ def _sleep_for_429(
         )
     else:
         log_line(f"[WARN] HTTP 429; {retry_source}; sleeping {delay:.0f}s (attempt {attempt + 1})")
-    time.sleep(delay)
+    _interruptible_sleep(delay)
+    if scrape_shutdown_requested():
+        raise ScrapeShutdown("Scrape interrupted")
 
 
 def _note_success(rate_limiter: RateLimiter | None) -> None:
@@ -666,9 +698,12 @@ def _handle_block(
 
     if _is_cf_challenge_error(error):
         delay = CF_CHALLENGE_RETRY_DELAYS[min(attempt, len(CF_CHALLENGE_RETRY_DELAYS) - 1)]
-        time.sleep(delay + random.uniform(0, 2))
+        _interruptible_sleep(delay + random.uniform(0, 2))
     else:
-        time.sleep(random.uniform(20, 30))
+        _interruptible_sleep(random.uniform(20, 30))
+
+    if scrape_shutdown_requested():
+        return scraper, False
 
     if session_pool and scraper is not None and backend in ("cloudscraper", "curl_cffi"):
         scraper = session_pool.refresh(worker_id)
@@ -756,7 +791,9 @@ def fetch_url(
             if status in (500, 503):
                 _log_fetch_failure(url, status, error, attempt)
                 if attempt < retries - 1:
-                    time.sleep(5)
+                    _interruptible_sleep(5)
+                    if scrape_shutdown_requested():
+                        raise ScrapeShutdown("Scrape interrupted")
                     continue
                 return None, error or f"HTTP {status}"
 
@@ -784,7 +821,7 @@ def fetch_url(
                 continue
             return None, error_msg
         except Exception as exc:
-            if isinstance(exc, RateLimitAbort):
+            if isinstance(exc, (RateLimitAbort, ScrapeShutdown)):
                 raise
             from ygo_app.cardmarket.browser_client import BrowserStartupError, format_fetch_error
 
@@ -798,7 +835,9 @@ def fetch_url(
                     ) from exc
                 if attempt < retries - 1:
                     _log_fetch_failure(url, None, detail, attempt)
-                    time.sleep(5)
+                    _interruptible_sleep(5)
+                    if scrape_shutdown_requested():
+                        raise ScrapeShutdown("Scrape interrupted")
                     continue
                 log_line(f"[WARN] fetch failed {format_fetch_url(url)}: {detail}")
                 return None, detail
@@ -806,7 +845,9 @@ def fetch_url(
             if attempt < retries - 1:
                 _log_fetch_failure(url, None, detail, attempt)
                 delay = random.uniform(*RETRY_DELAY_RANGE)
-                time.sleep(delay)
+                _interruptible_sleep(delay)
+                if scrape_shutdown_requested():
+                    raise ScrapeShutdown("Scrape interrupted")
                 continue
             log_line(f"[WARN] fetch failed {format_fetch_url(url)}: {detail}")
             return None, detail

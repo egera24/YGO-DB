@@ -48,13 +48,13 @@ let decksSearchTimer = null;
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
 const COLLECTION_CONDITIONS = [
-  { value: "Mint", label: "Mint (MT)" },
-  { value: "NearMint", label: "Near Mint (NM)" },
-  { value: "Excellent", label: "Excellent (EX)" },
-  { value: "Good", label: "Good (GD)" },
-  { value: "LightPlayed", label: "Light Played (LP)" },
-  { value: "Played", label: "Played (PL)" },
-  { value: "Poor", label: "Poor (PO)" },
+  { value: "Mint", label: "Mint (MT)", tone: "mint" },
+  { value: "NearMint", label: "Near Mint (NM)", tone: "nearmint" },
+  { value: "Excellent", label: "Excellent (EX)", tone: "excellent" },
+  { value: "Good", label: "Good (GD)", tone: "good" },
+  { value: "LightPlayed", label: "Light Played (LP)", tone: "lightplayed" },
+  { value: "Played", label: "Played (PL)", tone: "played" },
+  { value: "Poor", label: "Poor (PO)", tone: "poor" },
 ];
 
 const ROUTE_VIEWS = new Set(["search", "collection", "decks"]);
@@ -305,6 +305,14 @@ function conditionLabel(value) {
   if (!value) return "—";
   const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
   return match ? match.label : value;
+}
+
+function conditionBadgeHtml(value) {
+  if (!value) return "—";
+  const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
+  const label = match ? match.label : value;
+  const tone = match ? match.tone : "unknown";
+  return `<span class="condition-badge condition-badge--${tone}">${escapeHtml(label)}</span>`;
 }
 
 async function api(path, options = {}) {
@@ -1953,7 +1961,8 @@ function renderSearchResults(cards) {
       .map(
         (c) => `
       <article class="card-tile ${c.owned ? "owned" : ""}" data-id="${c.id}">
-        ${c.owned ? `<span class="badge">×${c.owned_quantity}</span>` : ""}
+        ${c.owned ? `<span class="badge badge-owned">×${c.owned_quantity}</span>` : ""}
+        ${c.trade_quantity > 0 ? `<span class="badge badge-trade">×${c.trade_quantity}</span>` : ""}
         ${cardImgTag(c.image_url_small)}
         <div class="info">
           <div class="name">${escapeHtml(c.name)}</div>
@@ -3430,6 +3439,10 @@ async function openCollectionEditModal(item, itemId) {
   condSel.value = currentCondition;
 
   $("#collection-edit-quantity").value = String(item.quantity);
+  $("#collection-edit-trade-quantity").value = String(item.trade_quantity ?? 0);
+  const sellDefault =
+    item.sell_price != null ? item.sell_price : item.trend_price != null ? item.trend_price : 0;
+  $("#collection-edit-sell-price").value = String(sellDefault);
 
   const setSel = $("#collection-edit-set");
   const raritySel = $("#collection-edit-rarity");
@@ -3481,6 +3494,18 @@ async function saveCollectionEdit() {
     return;
   }
 
+  const tradeQty = Number($("#collection-edit-trade-quantity").value);
+  if (!Number.isInteger(tradeQty) || tradeQty < 0) {
+    alert("Trade quantity must be a whole number of 0 or more.");
+    return;
+  }
+
+  const sellPrice = Number($("#collection-edit-sell-price").value);
+  if (!Number.isFinite(sellPrice) || sellPrice < 0) {
+    alert("Sell price must be 0 or greater.");
+    return;
+  }
+
   const body = {};
 
   const setSel = $("#collection-edit-set");
@@ -3516,6 +3541,16 @@ async function saveCollectionEdit() {
       body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
       body.folder_allocations = updated;
     }
+  }
+
+  if (tradeQty !== (item.trade_quantity ?? 0)) {
+    body.trade_quantity = tradeQty;
+  }
+
+  const currentSell =
+    item.sell_price != null ? item.sell_price : item.trend_price != null ? item.trend_price : 0;
+  if (sellPrice !== currentSell) {
+    body.sell_price = sellPrice;
   }
 
   if (!Object.keys(body).length) {
@@ -3565,7 +3600,9 @@ function renderCollectionTable(items) {
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
       <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
-      <td>${escapeHtml(conditionLabel(item.condition))}</td>
+      <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
+      <td>${formatMarketPrice(item.sell_price)}</td>
+      <td>${conditionBadgeHtml(item.condition)}</td>
       <td>
         <button type="button" class="secondary collection-folder-picker" aria-label="Folders">
           ${escapeHtml(formatFolderAllocationsLabel(item.folders))}
@@ -3574,7 +3611,7 @@ function renderCollectionTable(items) {
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
       <td>
         <div class="collection-row-actions">
-          <button type="button" class="secondary collection-edit-btn" title="Edit set, rarity, quantity, condition">Edit</button>
+          <button type="button" class="secondary collection-edit-btn" title="Edit set, rarity, quantity, trade quantity, sell price, condition">Edit</button>
           ${inFolder ? `
           <button type="button" class="secondary collection-move-btn" title="Move copies to another folder">Move</button>
           <button type="button" class="secondary collection-copy-btn" title="Copy to another folder">Copy</button>` : ""}

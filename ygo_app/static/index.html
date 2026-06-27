@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=60" />
+  <link rel="stylesheet" href="/static/css/style.css?v=62" />
 </head>
 <body>
   <header class="app-header">
@@ -324,6 +324,7 @@
               <option value="card_name">Sort: Name</option>
               <option value="folder_name">Sort: Folder</option>
               <option value="quantity">Sort: Quantity</option>
+              <option value="trade_quantity">Sort: Trade quantity</option>
             </select>
             <button type="submit">Apply</button>
             <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
@@ -339,6 +340,8 @@
                   <th scope="col">Set</th>
                   <th scope="col">Rarity</th>
                   <th scope="col">Quantity</th>
+                  <th scope="col">Trade Qty</th>
+                  <th scope="col">Sell Price</th>
                   <th scope="col">Condition</th>
                   <th scope="col">Folder</th>
                   <th scope="col">Notes</th>
@@ -576,6 +579,14 @@
           <input type="number" id="collection-edit-quantity" min="1" value="1" />
         </label>
         <label class="collection-edit-field">
+          <span>Trade quantity</span>
+          <input type="number" id="collection-edit-trade-quantity" min="0" value="0" />
+        </label>
+        <label class="collection-edit-field">
+          <span>Sell price (€)</span>
+          <input type="number" id="collection-edit-sell-price" min="0" step="0.01" value="0" />
+        </label>
+        <label class="collection-edit-field">
           <span>Condition</span>
           <select id="collection-edit-condition"></select>
         </label>
@@ -600,6 +611,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=79" type="module"></script>
+  <script src="/static/js/app.js?v=81" type="module"></script>
 </body>
 </html>

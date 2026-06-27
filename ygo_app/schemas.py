@@ -50,6 +50,7 @@ class CardSummary(BaseModel):
     is_favorite: bool
     owned: bool = False
     owned_quantity: int = 0
+    trade_quantity: int = 0
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 
@@ -112,6 +113,7 @@ class CollectionItemOut(BaseModel):
     avg_price: float | None
     low_price: float | None
     trend_price: float | None
+    sell_price: float | None = None
     notes: str | None
     card_id: int | None = None
     image_url_small: str | None = None
@@ -199,7 +201,7 @@ class CollectionItemCreate(BaseModel):
     set_code: str
     rarity: str
     quantity: int = 1
-    trade_quantity: int = 0
+    trade_quantity: int = Field(default=0, ge=0)
     card_name: str | None = None
     expansion_code: str | None = None
     set_name: str | None = None
@@ -210,6 +212,7 @@ class CollectionItemCreate(BaseModel):
     folder_allocations: list[FolderAllocation] | None = None
     price_bought: float | None = None
     date_bought: str | None = None
+    sell_price: float | None = None
     notes: str | None = None
 
 
@@ -226,12 +229,13 @@ COLLECTION_CONDITIONS = (
 
 class CollectionItemUpdate(BaseModel):
     quantity: int | None = None
-    trade_quantity: int | None = None
+    trade_quantity: int | None = Field(default=None, ge=0)
     set_code: str | None = None
     rarity: str | None = None
     condition: str | None = None
     printing: str | None = None
     folder_allocations: list[FolderAllocation] | None = None
+    sell_price: float | None = None
     notes: str | None = None
 
     @field_validator("condition")

@@ -22,6 +22,7 @@ from ygo_app.card_filters import (
     parse_multi_param,
     types_overlap_filter,
 )
+from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.search_query import (
     SearchQueryError,
     Term,
@@ -199,6 +200,29 @@ def _owned_by_card(
         return {}
     stmt = (
         select(Printing.card_id, func.coalesce(func.sum(CollectionItem.quantity), 0))
+        .join(
+            CollectionItem,
+            (CollectionItem.set_code == Printing.set_code)
+            & (CollectionItem.rarity_code == Printing.set_rarity_code)
+            & (CollectionItem.user_id == user_id),
+            isouter=False,
+        )
+        .where(Printing.card_id.in_(card_ids))
+        .group_by(Printing.card_id)
+    )
+    return {row[0]: int(row[1]) for row in session.execute(stmt).all()}
+
+
+def _trade_by_card(
+    session: Session, card_ids: list[int], user_id: int | None
+) -> dict[int, int]:
+    if not card_ids or user_id is None:
+        return {}
+    stmt = (
+        select(
+            Printing.card_id,
+            func.coalesce(func.sum(CollectionItem.trade_quantity), 0),
+        )
         .join(
             CollectionItem,
             (CollectionItem.set_code == Printing.set_code)
@@ -491,10 +515,17 @@ def card_summaries_batch(
         return {}
     if user_id is None:
         return {
-            c.id: {"owned": False, "owned_quantity": 0, "is_favorite": False} for c in cards
+            c.id: {
+                "owned": False,
+                "owned_quantity": 0,
+                "trade_quantity": 0,
+                "is_favorite": False,
+            }
+            for c in cards
         }
     card_ids = [c.id for c in cards]
     owned_map = _owned_by_card(session, card_ids, user_id)
+    trade_map = _trade_by_card(session, card_ids, user_id)
     fav_ids = set(
         session.execute(
             select(UserFavorite.card_id).where(
@@ -509,6 +540,7 @@ def card_summaries_batch(
         cid: {
             "owned": owned_map.get(cid, 0) > 0,
             "owned_quantity": owned_map.get(cid, 0),
+            "trade_quantity": trade_map.get(cid, 0),
             "is_favorite": cid in fav_ids,
         }
         for cid in card_ids
@@ -517,9 +549,24 @@ def card_summaries_batch(
 
 def card_to_summary(session: Session, card: Card, user_id: int | None) -> dict:
     if user_id is None:
-        return {"owned": False, "owned_quantity": 0, "is_favorite": False}
+        return {
+            "owned": False,
+            "owned_quantity": 0,
+            "trade_quantity": 0,
+            "is_favorite": False,
+        }
     owned_qty = session.execute(
         select(func.coalesce(func.sum(CollectionItem.quantity), 0))
+        .select_from(CollectionItem)
+        .join(
+            Printing,
+            (CollectionItem.set_code == Printing.set_code)
+            & (CollectionItem.rarity_code == Printing.set_rarity_code),
+        )
+        .where(Printing.card_id == card.id, CollectionItem.user_id == user_id)
+    ).scalar()
+    trade_qty = session.execute(
+        select(func.coalesce(func.sum(CollectionItem.trade_quantity), 0))
         .select_from(CollectionItem)
         .join(
             Printing,
@@ -532,6 +579,7 @@ def card_to_summary(session: Session, card: Card, user_id: int | None) -> dict:
     return {
         "owned": qty > 0,
         "owned_quantity": qty,
+        "trade_quantity": int(trade_qty or 0),
         "is_favorite": is_favorite(session, user_id, card.id),
     }
 
@@ -867,6 +915,7 @@ _COLLECTION_SORT_COLUMNS = {
     "set_code": CollectionItem.set_code,
     "card_name": CollectionItem.card_name,
     "quantity": CollectionItem.quantity,
+    "trade_quantity": CollectionItem.trade_quantity,
 }
 
 
@@ -1284,12 +1333,47 @@ def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
     return deck
 
 
+def _default_collection_prices(
+    session: Session,
+    *,
+    set_code: str,
+    rarity_code: str,
+    data: dict,
+) -> tuple[float, float | None]:
+    """Resolve (sell_price, trend_price) for a new collection row."""
+    if data.get("sell_price") is not None:
+        sell = float(data["sell_price"])
+        trend = data.get("trend_price")
+        if trend is None:
+            row = load_market_prices(session, [(set_code, rarity_code)]).get(
+                (set_code, rarity_code)
+            )
+            trend = row.trend_price if row else None
+        return sell, trend
+
+    trend = data.get("trend_price")
+    if trend is None:
+        row = load_market_prices(session, [(set_code, rarity_code)]).get(
+            (set_code, rarity_code)
+        )
+        trend = row.trend_price if row else None
+    sell = float(trend) if trend is not None else 0.0
+    return sell, trend
+
+
 def add_collection_item(session: Session, user_id: int, data: dict) -> CollectionItem:
     rarity_code = normalize_rarity_code(data["rarity"])
     quantity = data.get("quantity", 1)
+    set_code = data["set_code"].strip()
+    sell_price, trend_price = _default_collection_prices(
+        session,
+        set_code=set_code,
+        rarity_code=rarity_code,
+        data=data,
+    )
     item = CollectionItem(
         user_id=user_id,
-        set_code=data["set_code"].strip(),
+        set_code=set_code,
         rarity_code=rarity_code,
         card_name=data.get("card_name"),
         expansion_code=data.get("expansion_code"),
@@ -1301,10 +1385,14 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         language=data.get("language"),
         price_bought=data.get("price_bought"),
         date_bought=data.get("date_bought"),
+        avg_price=data.get("avg_price"),
+        low_price=data.get("low_price"),
+        trend_price=trend_price,
+        sell_price=sell_price,
         notes=data.get("notes"),
         printing_id=session.execute(
             select(Printing.id)
-            .where(Printing.set_code == data["set_code"].strip())
+            .where(Printing.set_code == set_code)
             .where(Printing.set_rarity_code == rarity_code)
             .limit(1)
         ).scalar(),

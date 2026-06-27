@@ -168,6 +168,7 @@ class CollectionItem(Base):
     avg_price: Mapped[float | None] = mapped_column(Float)
     low_price: Mapped[float | None] = mapped_column(Float)
     trend_price: Mapped[float | None] = mapped_column(Float)
+    sell_price: Mapped[float | None] = mapped_column(Float)
     printing_id: Mapped[int | None] = mapped_column(ForeignKey("printings.id"), index=True)
     notes: Mapped[str | None] = mapped_column(Text)
 

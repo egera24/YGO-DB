@@ -90,6 +90,7 @@ class TestExportCollectionCsv(unittest.TestCase):
             avg_price=0.26,
             low_price=0.05,
             trend_price=0.32,
+            sell_price=0.45,
             printing_id=self.printing_id,
         )
         session.add(item)
@@ -139,6 +140,7 @@ class TestExportCollectionCsv(unittest.TestCase):
         self.assertEqual(row["Printing"], "Foil")
         self.assertEqual(row["Condition"], "NearMint")
         self.assertEqual(row["TREND"], "0.32")
+        self.assertEqual(row["Sell Price"], "0.45")
 
     def test_unknown_format_raises(self):
         session = self.Session()
@@ -200,6 +202,7 @@ class TestExportCollectionCsv(unittest.TestCase):
             self.assertEqual(item.rarity_code, "(UR)")
             self.assertEqual(item.quantity, 2)
             self.assertEqual(item.trade_quantity, 1)
+            self.assertEqual(item.sell_price, 0.45)
             self.assertEqual(item.edition, "Foil")
             self.assertEqual(folder.name, "main")
             self.assertEqual(allocation.folder_id, folder.id)

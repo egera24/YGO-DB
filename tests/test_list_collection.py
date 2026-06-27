@@ -186,6 +186,25 @@ class TestListCollection(unittest.TestCase):
 
         self.assertLessEqual(query_count, 4)
 
+    def test_sort_by_trade_quantity(self):
+        session = self.Session()
+        items = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalars().all()
+        by_rarity = {item.rarity_code: item for item in items}
+        by_rarity["(UR)"].trade_quantity = 5
+        by_rarity["(SR)"].trade_quantity = 1
+        session.commit()
+
+        sorted_items, total = list_collection(
+            session, user_id=self.user_id, sort="trade_quantity", limit=10
+        )
+        session.close()
+
+        self.assertEqual(total, 2)
+        self.assertEqual(sorted_items[0]["trade_quantity"], 1)
+        self.assertEqual(sorted_items[1]["trade_quantity"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -178,6 +178,33 @@ class TestCollectionItemUpdate(unittest.TestCase):
         with self.assertRaises(ValidationError):
             CollectionItemUpdate(condition="Damaged")
 
+    def test_trade_quantity_independent_of_quantity(self):
+        session = self.Session()
+        item = session.get(CollectionItem, self.item_id)
+        update_collection_item(
+            session,
+            user_id=self.user_id,
+            item=item,
+            data={"trade_quantity": 10, "quantity": 2},
+        )
+        session.refresh(item)
+        self.assertEqual(item.trade_quantity, 10)
+        self.assertEqual(item.quantity, 2)
+        session.close()
+
+    def test_patch_sell_price(self):
+        session = self.Session()
+        item = session.get(CollectionItem, self.item_id)
+        update_collection_item(
+            session,
+            user_id=self.user_id,
+            item=item,
+            data={"sell_price": 4.5},
+        )
+        session.refresh(item)
+        self.assertEqual(item.sell_price, 4.5)
+        session.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,6 +68,7 @@ def _card_summary(card: Card, extra: dict) -> CardSummary:
         is_favorite=extra["is_favorite"],
         owned=extra["owned"],
         owned_quantity=extra["owned_quantity"],
+        trade_quantity=extra.get("trade_quantity", 0),
     )
 
 
@@ -187,10 +188,12 @@ def get_card(
 
 def _summary_extra_from_card(card: Card) -> dict:
     owned_qty = sum(getattr(p, "owned_quantity", 0) for p in card.printings)
+    trade_qty = sum(getattr(p, "trade_quantity", 0) for p in card.printings)
     return {
         "is_favorite": getattr(card, "_is_favorite", False),
         "owned": owned_qty > 0,
         "owned_quantity": owned_qty,
+        "trade_quantity": trade_qty,
     }
 
 

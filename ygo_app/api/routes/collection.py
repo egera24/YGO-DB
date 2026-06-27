@@ -157,7 +157,7 @@ def get_collection(
     q: str | None = None,
     folder: str | None = None,
     set_code: str | None = None,
-    sort: str = Query("set_code", pattern="^(set_code|card_name|folder_name|quantity)$"),
+    sort: str = Query("set_code", pattern="^(set_code|card_name|folder_name|quantity|trade_quantity)$"),
     limit: int = Query(100, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),

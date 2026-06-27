@@ -1016,14 +1016,23 @@ button:disabled {
 .card-tile .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-tile .badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  background: var(--owned);
-  color: #052e16;
   font-size: 0.65rem;
   font-weight: 700;
   padding: 2px 5px;
   border-radius: 4px;
+  line-height: 1.2;
+}
+.card-tile .badge-owned {
+  top: 4px;
+  right: 4px;
+  background: var(--owned);
+  color: #052e16;
+}
+.card-tile .badge-trade {
+  top: 4px;
+  left: 4px;
+  background: var(--danger);
+  color: #fff;
 }
 
 .collection-table-wrap { overflow-x: auto; }
@@ -1032,6 +1041,47 @@ th, td { padding: 0.5rem; border-bottom: 1px solid var(--border); text-align: le
 th { color: var(--muted); font-weight: 500; }
 tr:hover td { background: var(--surface); }
 .set-code { font-family: ui-monospace, monospace; color: var(--accent); }
+
+.condition-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.condition-badge--mint {
+  background: color-mix(in srgb, var(--owned) 25%, transparent);
+  color: var(--owned);
+}
+.condition-badge--nearmint {
+  background: color-mix(in srgb, color-mix(in srgb, var(--owned) 75%, var(--accent)) 25%, transparent);
+  color: color-mix(in srgb, var(--owned) 75%, var(--accent));
+}
+.condition-badge--excellent {
+  background: color-mix(in srgb, color-mix(in srgb, var(--owned) 50%, var(--accent)) 25%, transparent);
+  color: color-mix(in srgb, var(--owned) 50%, var(--accent));
+}
+.condition-badge--good {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent);
+}
+.condition-badge--lightplayed {
+  background: color-mix(in srgb, color-mix(in srgb, var(--accent) 65%, var(--danger)) 25%, transparent);
+  color: color-mix(in srgb, var(--accent) 65%, var(--danger));
+}
+.condition-badge--played {
+  background: color-mix(in srgb, color-mix(in srgb, var(--accent) 30%, var(--danger)) 25%, transparent);
+  color: color-mix(in srgb, var(--accent) 30%, var(--danger));
+}
+.condition-badge--poor {
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  color: var(--danger);
+}
+.condition-badge--unknown {
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  color: var(--muted);
+}
 
 .stats-bar { margin-bottom: 0.75rem; color: var(--muted); font-size: 0.9rem; }
 

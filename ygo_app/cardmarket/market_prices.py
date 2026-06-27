@@ -10,6 +10,31 @@ from sqlalchemy.orm import Session
 from ygo_app.models import Printing, PrintingMarketPrice
 
 
+def market_price_or_zero(value: float | None) -> float:
+    return float(value) if value is not None else 0.0
+
+
+def resolve_sell_price(
+    stored_sell: float | None,
+    market_trend: float | None,
+) -> float:
+    if stored_sell is not None:
+        return float(stored_sell)
+    return market_price_or_zero(market_trend)
+
+
+def market_prices_tuple(
+    row: PrintingMarketPrice | None,
+) -> tuple[float, float, float]:
+    if row is None:
+        return 0.0, 0.0, 0.0
+    return (
+        market_price_or_zero(row.low_price),
+        market_price_or_zero(row.avg_price),
+        market_price_or_zero(row.trend_price),
+    )
+
+
 def load_market_prices(
     session: Session,
     keys: list[tuple[str, str]],

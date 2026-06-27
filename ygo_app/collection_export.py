@@ -10,7 +10,12 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from ygo_app.models import CollectionItem, CollectionItemFolder, Printing
+from ygo_app.cardmarket.market_prices import (
+    load_market_prices,
+    market_prices_tuple,
+    resolve_sell_price,
+)
+from ygo_app.models import CollectionItem, CollectionItemFolder, Printing, PrintingMarketPrice
 from ygo_app.utils import rarity_display
 
 DRAGONSHIELD_HEADERS = [
@@ -49,10 +54,10 @@ class ExportRow:
     language: str | None
     price_bought: float | None
     date_bought: str | None
-    avg_price: float | None
-    low_price: float | None
-    trend_price: float | None
-    sell_price: float | None
+    avg_price: float
+    low_price: float
+    trend_price: float
+    sell_price: float
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,17 @@ def _format_price(value: float | None) -> str:
     return str(value)
 
 
-def _item_base_row(item: CollectionItem) -> dict:
+def _format_export_market_price(value: float) -> str:
+    if value == int(value):
+        return str(int(value))
+    return str(value)
+
+
+def _item_base_row(
+    item: CollectionItem,
+    *,
+    market_row: PrintingMarketPrice | None,
+) -> dict:
     card_name = item.card_name
     set_name = item.set_name
     printing = item.linked_printing
@@ -79,6 +94,8 @@ def _item_base_row(item: CollectionItem) -> dict:
             set_name = printing.set_name
         if not card_name and printing.card:
             card_name = printing.card.name
+    low_price, avg_price, trend_price = market_prices_tuple(market_row)
+    market_trend = market_row.trend_price if market_row is not None else None
     return {
         "trade_quantity": item.trade_quantity,
         "card_name": card_name,
@@ -91,15 +108,19 @@ def _item_base_row(item: CollectionItem) -> dict:
         "language": item.language,
         "price_bought": item.price_bought,
         "date_bought": item.date_bought,
-        "avg_price": item.avg_price,
-        "low_price": item.low_price,
-        "trend_price": item.trend_price,
-        "sell_price": item.sell_price,
+        "avg_price": avg_price,
+        "low_price": low_price,
+        "trend_price": trend_price,
+        "sell_price": resolve_sell_price(item.sell_price, market_trend),
     }
 
 
-def _item_to_rows(item: CollectionItem) -> list[ExportRow]:
-    base = _item_base_row(item)
+def _item_to_rows(
+    item: CollectionItem,
+    *,
+    market_row: PrintingMarketPrice | None,
+) -> list[ExportRow]:
+    base = _item_base_row(item, market_row=market_row)
     allocations = item.folder_allocations
     if not allocations:
         return [
@@ -140,10 +161,10 @@ def _write_dragonshield(rows: list[ExportRow]) -> str:
                 "Language": row.language or "",
                 "Price Bought": _format_price(row.price_bought),
                 "Date Bought": row.date_bought or "",
-                "AVG": _format_price(row.avg_price),
-                "LOW": _format_price(row.low_price),
-                "TREND": _format_price(row.trend_price),
-                "Sell Price": _format_price(row.sell_price),
+                "AVG": _format_export_market_price(row.avg_price),
+                "LOW": _format_export_market_price(row.low_price),
+                "TREND": _format_export_market_price(row.trend_price),
+                "Sell Price": _format_export_market_price(row.sell_price),
             }
         )
     return buf.getvalue()
@@ -162,9 +183,12 @@ def load_collection_for_export(session: Session, user_id: int) -> list[ExportRow
         .order_by(CollectionItem.set_code)
     )
     items = session.execute(stmt).unique().scalars().all()
+    keys = [(item.set_code, item.rarity_code) for item in items]
+    market_map = load_market_prices(session, keys)
     rows: list[ExportRow] = []
     for item in items:
-        rows.extend(_item_to_rows(item))
+        market_row = market_map.get((item.set_code, item.rarity_code))
+        rows.extend(_item_to_rows(item, market_row=market_row))
     return rows
 
 

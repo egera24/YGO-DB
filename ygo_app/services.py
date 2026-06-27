@@ -12,6 +12,7 @@ from ygo_app.models import (
     Deck,
     DeckCard,
     Printing,
+    PrintingMarketPrice,
     SearchPreset,
     User,
     UserCardTag,
@@ -961,12 +962,21 @@ def _collection_item_row(
     *,
     set_code_fallback: dict[str, Card | None] | None = None,
     folder_filter: str | None = None,
+    market_row: PrintingMarketPrice | None = None,
 ) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
     linked = item.linked_printing
     rarity_name = linked.set_rarity if linked is not None else None
     row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
     row["printing"] = row.pop("edition", None)
+    if market_row is not None:
+        row["low_price"] = market_row.low_price
+        row["avg_price"] = market_row.avg_price
+        row["trend_price"] = market_row.trend_price
+    else:
+        row["low_price"] = None
+        row["avg_price"] = None
+        row["trend_price"] = None
     folders = _folder_allocations_for_row(item)
     display_quantity = item.quantity
     if folder_filter == NO_FOLDER:
@@ -1077,9 +1087,15 @@ def list_collection(
     }
     fallback_map = _cards_by_set_codes(session, missing_codes)
 
+    market_keys = [(item.set_code, item.rarity_code) for item in items]
+    market_map = load_market_prices(session, market_keys)
+
     results = [
         _collection_item_row(
-            item, set_code_fallback=fallback_map, folder_filter=folder
+            item,
+            set_code_fallback=fallback_map,
+            folder_filter=folder,
+            market_row=market_map.get((item.set_code, item.rarity_code)),
         )
         for item in items
     ]
@@ -1333,43 +1349,12 @@ def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
     return deck
 
 
-def _default_collection_prices(
-    session: Session,
-    *,
-    set_code: str,
-    rarity_code: str,
-    data: dict,
-) -> tuple[float, float | None]:
-    """Resolve (sell_price, trend_price) for a new collection row."""
-    if data.get("sell_price") is not None:
-        sell = float(data["sell_price"])
-        trend = data.get("trend_price")
-        if trend is None:
-            row = load_market_prices(session, [(set_code, rarity_code)]).get(
-                (set_code, rarity_code)
-            )
-            trend = row.trend_price if row else None
-        return sell, trend
-
-    trend = data.get("trend_price")
-    if trend is None:
-        row = load_market_prices(session, [(set_code, rarity_code)]).get(
-            (set_code, rarity_code)
-        )
-        trend = row.trend_price if row else None
-    sell = float(trend) if trend is not None else 0.0
-    return sell, trend
-
-
 def add_collection_item(session: Session, user_id: int, data: dict) -> CollectionItem:
     rarity_code = normalize_rarity_code(data["rarity"])
     quantity = data.get("quantity", 1)
     set_code = data["set_code"].strip()
-    sell_price, trend_price = _default_collection_prices(
-        session,
-        set_code=set_code,
-        rarity_code=rarity_code,
-        data=data,
+    sell_price = (
+        float(data["sell_price"]) if data.get("sell_price") is not None else None
     )
     item = CollectionItem(
         user_id=user_id,
@@ -1385,9 +1370,6 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         language=data.get("language"),
         price_bought=data.get("price_bought"),
         date_bought=data.get("date_bought"),
-        avg_price=data.get("avg_price"),
-        low_price=data.get("low_price"),
-        trend_price=trend_price,
         sell_price=sell_price,
         notes=data.get("notes"),
         printing_id=session.execute(

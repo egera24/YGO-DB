@@ -194,6 +194,47 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertEqual(printing.set_code, "LOB-001")
         self.assertEqual(printing.set_rarity_code, "(UR)")
 
+    def test_import_ignores_market_price_columns(self):
+        csv_path = Path(self._tmp.name).with_suffix(".prices.csv")
+        fieldnames = [
+            "Card Number",
+            "Rarity",
+            "Card Name",
+            "Quantity",
+            "Price Bought",
+            "AVG",
+            "LOW",
+            "TREND",
+            "Sell Price",
+        ]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "A",
+                    "Quantity": "1",
+                    "Price Bought": "1.25",
+                    "AVG": "9.99",
+                    "LOW": "8.88",
+                    "TREND": "7.77",
+                    "Sell Price": "6.66",
+                }
+            )
+
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1)
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertAlmostEqual(item.price_bought, 1.25)
+        self.assertIsNone(item.sell_price)
+
     def test_import_creates_folder_once(self):
         csv_path = Path(self._tmp.name).with_suffix(".folders.csv")
         fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity", "Folder Name"]

@@ -2707,6 +2707,12 @@ function formatMarketPrice(value) {
   return `${Number(value).toFixed(2).replace(".", ",")} €`;
 }
 
+function resolvedCollectionSellPrice(item) {
+  if (item.sell_price != null) return item.sell_price;
+  if (item.trend_price != null) return item.trend_price;
+  return 0;
+}
+
 function printingHasMarketPrices(p) {
   return [p.low_price, p.avg_price, p.trend_price].some(
     (value) => value != null && !Number.isNaN(Number(value))
@@ -3440,8 +3446,7 @@ async function openCollectionEditModal(item, itemId) {
 
   $("#collection-edit-quantity").value = String(item.quantity);
   $("#collection-edit-trade-quantity").value = String(item.trade_quantity ?? 0);
-  const sellDefault =
-    item.sell_price != null ? item.sell_price : item.trend_price != null ? item.trend_price : 0;
+  const sellDefault = resolvedCollectionSellPrice(item);
   $("#collection-edit-sell-price").value = String(sellDefault);
 
   const setSel = $("#collection-edit-set");
@@ -3547,8 +3552,7 @@ async function saveCollectionEdit() {
     body.trade_quantity = tradeQty;
   }
 
-  const currentSell =
-    item.sell_price != null ? item.sell_price : item.trend_price != null ? item.trend_price : 0;
+  const currentSell = resolvedCollectionSellPrice(item);
   if (sellPrice !== currentSell) {
     body.sell_price = sellPrice;
   }
@@ -3601,7 +3605,7 @@ function renderCollectionTable(items) {
       <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
-      <td>${formatMarketPrice(item.sell_price)}</td>
+      <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
       <td>
         <button type="button" class="secondary collection-folder-picker" aria-label="Folders">

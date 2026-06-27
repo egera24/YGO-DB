@@ -157,14 +157,6 @@ def _float_or_none(value):
         return None
 
 
-def _csv_sell_price(row: dict) -> float:
-    sell = _float_or_none(row.get("Sell Price"))
-    if sell is not None:
-        return sell
-    trend = _float_or_none(row.get("TREND"))
-    return trend if trend is not None else 0.0
-
-
 def _date_or_none(value) -> date | None:
     if value is None or value == "":
         return None
@@ -431,10 +423,7 @@ def import_collection_csv(
             language=row.get("Language"),
             price_bought=_float_or_none(row.get("Price Bought")),
             date_bought=row.get("Date Bought"),
-            avg_price=_float_or_none(row.get("AVG")),
-            low_price=_float_or_none(row.get("LOW")),
-            trend_price=_float_or_none(row.get("TREND")),
-            sell_price=_csv_sell_price(row),
+            sell_price=None,
             printing_id=printing_id,
         )
         session.add(item)

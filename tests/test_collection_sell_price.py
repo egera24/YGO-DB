@@ -8,7 +8,7 @@ import unittest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.models import Base, Card, CollectionItem, Printing, PrintingMarketPrice, User
+from ygo_app.models import Base, Card, Printing, PrintingMarketPrice, User
 from ygo_app.services import add_collection_item, update_collection_item
 
 
@@ -66,26 +66,24 @@ class TestCollectionSellPrice(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
-    def test_add_defaults_sell_price_from_market_trend(self):
+    def test_add_without_override_leaves_sell_price_null(self):
         session = self.Session()
         item = add_collection_item(
             session,
             self.user_id,
             {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1},
         )
-        self.assertEqual(item.sell_price, 12.5)
-        self.assertEqual(item.trend_price, 12.5)
+        self.assertIsNone(item.sell_price)
         session.close()
 
-    def test_add_defaults_sell_price_to_zero_without_market_data(self):
+    def test_add_without_market_data_leaves_sell_price_null(self):
         session = self.Session()
         item = add_collection_item(
             session,
             self.user_id,
             {"set_code": "LOB-001", "rarity": "(SR)", "quantity": 1},
         )
-        self.assertEqual(item.sell_price, 0.0)
-        self.assertIsNone(item.trend_price)
+        self.assertIsNone(item.sell_price)
         session.close()
 
     def test_add_honors_explicit_sell_price(self):

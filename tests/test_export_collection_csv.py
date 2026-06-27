@@ -24,6 +24,7 @@ from ygo_app.models import (
     CollectionItem,
     CollectionItemFolder,
     Printing,
+    PrintingMarketPrice,
     User,
 )
 
@@ -87,9 +88,6 @@ class TestExportCollectionCsv(unittest.TestCase):
             language="English",
             price_bought=0.52,
             date_bought="2019-09-19",
-            avg_price=0.26,
-            low_price=0.05,
-            trend_price=0.32,
             sell_price=0.45,
             printing_id=self.printing_id,
         )
@@ -100,6 +98,15 @@ class TestExportCollectionCsv(unittest.TestCase):
                 collection_item_id=item.id,
                 folder_id=folder.id,
                 quantity=2,
+            )
+        )
+        session.add(
+            PrintingMarketPrice(
+                set_code="LOB-001",
+                rarity_code="(UR)",
+                low_price=0.05,
+                avg_price=0.26,
+                trend_price=0.32,
             )
         )
         session.commit()
@@ -115,7 +122,7 @@ class TestExportCollectionCsv(unittest.TestCase):
         for key in ("id", "label", "filename", "description"):
             self.assertIn(key, dragon)
 
-    def test_dragonshield_export_fields(self):
+    def test_dragonshield_export_uses_cardmarket_prices(self):
         session = self.Session()
         csv_text, media_type, filename = export_collection_csv(
             session, user_id=self.user_id, format_id="dragonshield"
@@ -139,8 +146,46 @@ class TestExportCollectionCsv(unittest.TestCase):
         self.assertEqual(row["Trade Quantity"], "1")
         self.assertEqual(row["Printing"], "Foil")
         self.assertEqual(row["Condition"], "NearMint")
+        self.assertEqual(row["AVG"], "0.26")
+        self.assertEqual(row["LOW"], "0.05")
         self.assertEqual(row["TREND"], "0.32")
         self.assertEqual(row["Sell Price"], "0.45")
+
+    def test_export_zero_fills_missing_market_prices(self):
+        session = self.Session()
+        session.query(PrintingMarketPrice).delete()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        item.sell_price = None
+        session.commit()
+        csv_text, _, _ = export_collection_csv(
+            session, user_id=self.user_id, format_id="dragonshield"
+        )
+        session.close()
+
+        reader = csv.DictReader(io.StringIO("\n".join(csv_text.splitlines()[1:])))
+        row = next(reader)
+        self.assertEqual(row["AVG"], "0")
+        self.assertEqual(row["LOW"], "0")
+        self.assertEqual(row["TREND"], "0")
+        self.assertEqual(row["Sell Price"], "0")
+
+    def test_export_sell_price_falls_back_to_market_trend(self):
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        item.sell_price = None
+        session.commit()
+        csv_text, _, _ = export_collection_csv(
+            session, user_id=self.user_id, format_id="dragonshield"
+        )
+        session.close()
+
+        reader = csv.DictReader(io.StringIO("\n".join(csv_text.splitlines()[1:])))
+        row = next(reader)
+        self.assertEqual(row["Sell Price"], "0.32")
 
     def test_unknown_format_raises(self):
         session = self.Session()
@@ -202,7 +247,8 @@ class TestExportCollectionCsv(unittest.TestCase):
             self.assertEqual(item.rarity_code, "(UR)")
             self.assertEqual(item.quantity, 2)
             self.assertEqual(item.trade_quantity, 1)
-            self.assertEqual(item.sell_price, 0.45)
+            self.assertAlmostEqual(item.price_bought, 0.52)
+            self.assertIsNone(item.sell_price)
             self.assertEqual(item.edition, "Foil")
             self.assertEqual(folder.name, "main")
             self.assertEqual(allocation.folder_id, folder.id)

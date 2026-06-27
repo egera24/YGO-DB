@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from ygo_app.auth import get_current_user
+from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.collection_export import export_collection_csv, list_export_formats
 from ygo_app.config import COLLECTION_CSV_MAX_BYTES
 from ygo_app.database import get_db
@@ -46,8 +47,18 @@ from ygo_app.services import (
 router = APIRouter(prefix="/collection", tags=["collection"])
 
 
-def _item_out(item: CollectionItem, *, folder_filter: str | None = None) -> CollectionItemOut:
-    return CollectionItemOut(**_collection_item_row(item, folder_filter=folder_filter))
+def _item_out(
+    db: Session,
+    item: CollectionItem,
+    *,
+    folder_filter: str | None = None,
+) -> CollectionItemOut:
+    market_row = load_market_prices(db, [(item.set_code, item.rarity_code)]).get(
+        (item.set_code, item.rarity_code)
+    )
+    return CollectionItemOut(
+        **_collection_item_row(item, folder_filter=folder_filter, market_row=market_row)
+    )
 
 
 def _load_item_with_card(
@@ -217,7 +228,7 @@ def create_item(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     item = _load_item_with_card(db, item.id, user.id) or item
-    return _item_out(item)
+    return _item_out(db, item)
 
 
 @router.patch("/{item_id}", response_model=CollectionItemOut)
@@ -240,7 +251,7 @@ def update_item(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     item = _load_item_with_card(db, item_id, user.id) or item
-    return _item_out(item)
+    return _item_out(db, item)
 
 
 @router.delete("/{item_id}")

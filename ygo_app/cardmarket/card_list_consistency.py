@@ -28,8 +28,9 @@ def assert_no_seq_gaps(
     cards: list[dict[str, Any]],
     empty_expansions: list[dict[str, Any]],
     rejected_expansions: list[dict[str, Any]],
+    min_seq: int = 1,
 ) -> None:
-    """Raise if any seq in 1..last_completed_seq is not accounted for."""
+    """Raise if any seq in min_seq..last_completed_seq is not accounted for."""
     if last_completed_seq <= 0:
         return
 
@@ -38,8 +39,9 @@ def assert_no_seq_gaps(
     rejected_seqs = _seq_set(rejected_expansions)
     accounted = card_seqs | empty_seqs | rejected_seqs
 
+    start = max(1, int(min_seq))
     gaps: list[int] = []
-    for seq in range(1, last_completed_seq + 1):
+    for seq in range(start, last_completed_seq + 1):
         if seq not in accounted:
             gaps.append(seq)
 
@@ -47,9 +49,36 @@ def assert_no_seq_gaps(
         sample = gaps[:20]
         suffix = "..." if len(gaps) > 20 else ""
         raise CardListConsistencyError(
-            f"Expansion seq gap(s) in 1..{last_completed_seq}: {sample}{suffix}. "
+            f"Expansion seq gap(s) in {start}..{last_completed_seq}: {sample}{suffix}. "
             "Edit cardmarket_scrape_state.json last_completed_seq and re-run --resume."
         )
+
+
+def merge_spill_card_list(
+    primary: list[dict[str, Any]],
+    spill: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Append spill cards whose expansion_seq is absent from primary."""
+    if not spill:
+        return primary, 0
+    primary_seqs = {
+        int(c["expansion_seq"])
+        for c in primary
+        if c.get("expansion_seq") is not None
+    }
+    spill_only = [
+        c
+        for c in spill
+        if c.get("expansion_seq") is not None
+        and int(c["expansion_seq"]) not in primary_seqs
+    ]
+    if not spill_only:
+        return primary, 0
+    merged = primary + spill_only
+    merged.sort(
+        key=lambda c: (int(c.get("expansion_seq", 0)), int(c.get("card_id", 0)))
+    )
+    return merged, len(spill_only)
 
 
 def expansions_for_new_ids(

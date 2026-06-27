@@ -21,8 +21,10 @@ from ygo_app.cardmarket.artifact_io import (
 from ygo_app.cardmarket.card_list_consistency import (
     CardListConsistencyError,
     assert_no_seq_gaps,
+    card_seqs_present,
     copy_cards_for_incremental,
     expansions_for_new_ids,
+    merge_spill_card_list,
 )
 from ygo_app.cardmarket.card_list_validate import (
     CardListValidationError,
@@ -96,6 +98,67 @@ PHASE2_MAX_RETRIES = 5
 PHASE2_RETRY_DELAY = (20, 30)
 
 _file_lock = threading.Lock()
+
+_DEBUG_LOG_PATH = Path(__file__).resolve().parents[2] / "debug-928113.log"
+
+
+def _agent_debug_log(
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, Any],
+    *,
+    run_id: str = "pre-fix",
+) -> None:
+    #region agent log
+    import json
+    import time
+
+    payload = {
+        "sessionId": "928113",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+        "runId": run_id,
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload) + "\n")
+    except OSError:
+        pass
+    #endregion
+
+
+def _absorb_dated_spill_card_list(primary_path: Path) -> list[dict]:
+    """Merge cards from a newer dated spill file into the state's primary card list."""
+    spill_path = card_list_path(today_run_date())
+    if not spill_path.is_file() or spill_path.resolve() == primary_path.resolve():
+        return load_json_list(primary_path) if primary_path.is_file() else []
+
+    primary = load_json_list(primary_path) if primary_path.is_file() else []
+    spill = load_json_list(spill_path)
+    merged, added = merge_spill_card_list(primary, spill)
+    if added:
+        save_json_atomic(primary_path, merged)
+        log_line(
+            f"[CARD_LIST] merged {added} spill card(s) from {spill_path.name} "
+            f"into {primary_path.name}"
+        )
+        _agent_debug_log(
+            "D",
+            "card_list_scrape.py:_absorb_dated_spill_card_list",
+            "merged spill card list",
+            {
+                "primary": str(primary_path),
+                "spill": str(spill_path),
+                "added_cards": added,
+                "primary_count": len(primary),
+                "merged_count": len(merged),
+            },
+        )
+    return merged if added else primary
 
 
 def _rejection_row_from_worker(expansion: dict[str, Any], result: dict[str, Any]) -> dict:
@@ -871,16 +934,45 @@ def run_card_list_scrape(
         all_cards = []
 
     if resume and card_out.is_file():
-        all_cards = load_json_list(card_out)
+        all_cards = _absorb_dated_spill_card_list(card_out)
         if empty_path.is_file():
             empty_expansions = load_json_list(empty_path)
         last_seq = int(state.get("last_completed_seq", 0))
-        assert_no_seq_gaps(
-            last_completed_seq=last_seq,
-            cards=all_cards,
-            empty_expansions=empty_expansions,
-            rejected_expansions=rejected_expansions,
+        resume_from_seq = next_expansion_seq(state)
+        card_seqs = card_seqs_present(all_cards)
+        empty_seqs = {
+            int(r["expansion_seq"])
+            for r in empty_expansions
+            if r.get("expansion_seq") is not None
+        }
+        rejected_seqs = {
+            int(r["expansion_seq"])
+            for r in rejected_expansions
+            if r.get("expansion_seq") is not None
+        }
+        accounted = card_seqs | empty_seqs | rejected_seqs
+        gap_count = sum(1 for seq in range(1, last_seq + 1) if seq not in accounted)
+        _agent_debug_log(
+            "A",
+            "card_list_scrape.py:resume",
+            "resume paths and gap snapshot",
+            {
+                "card_out": str(card_out),
+                "run_date": run_date,
+                "last_completed_seq": last_seq,
+                "resume_from_seq": resume_from_seq,
+                "card_count": len(all_cards),
+                "unique_card_seqs": len(card_seqs),
+                "gap_count_1_to_last": gap_count,
+            },
         )
+        if resume_from_seq <= 1:
+            assert_no_seq_gaps(
+                last_completed_seq=last_seq,
+                cards=all_cards,
+                empty_expansions=empty_expansions,
+                rejected_expansions=rejected_expansions,
+            )
         all_cards = rollback_cards_after_seq(all_cards, last_seq)
         empty_expansions = [
             e for e in empty_expansions if int(e.get("expansion_seq", 0)) <= last_seq

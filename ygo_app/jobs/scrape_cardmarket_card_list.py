@@ -102,7 +102,10 @@ def _run(argv: list[str] | None) -> int:
 
     load_mode = _resolve_load_mode(args)
     input_path = resolve_expansion_list_file(state) if state else expansion_list_path(today)
-    output_path = card_list_path(today)
+    if args.resume and state:
+        output_path = resolve_card_list_file(state)
+    else:
+        output_path = card_list_path(today)
 
     try:
         with scrape_session_context(result) as session:

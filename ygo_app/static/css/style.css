@@ -1197,15 +1197,36 @@ tr:hover td { background: var(--surface); }
   line-height: 1;
 }
 .collection-folder-delete:hover { color: #f87171; }
-.collection-folder-picker {
-  width: 100%;
-  min-width: 6rem;
-  max-width: 12rem;
-  text-align: left;
-  font-size: 0.85rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.collection-folder-icon-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.75;
+}
+.collection-folder-icon-btn--assigned {
+  color: var(--accent);
+  opacity: 1;
+}
+.collection-row:hover .collection-folder-icon-btn {
+  opacity: 1;
+}
+.collection-folder-icon-btn:hover,
+.collection-folder-icon-btn:focus-visible {
+  color: var(--text);
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.collection-folder-icon-btn--assigned:hover,
+.collection-folder-icon-btn--assigned:focus-visible {
+  color: var(--accent);
+}
+.collection-folder-icon-btn svg {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 .folder-allocation-popover {
   position: absolute;
@@ -1251,10 +1272,61 @@ tr:hover td { background: var(--surface); }
 #collection-table.collection-table--in-folder tbody tr.collection-row td:nth-child(7) {
   display: none;
 }
-.collection-row-actions {
+#collection-table td:last-child,
+#collection-table th:last-child {
+  width: 4.5rem;
+  text-align: center;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+.collection-row-actions-wrap {
   display: flex;
-  gap: 0.35rem;
-  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+}
+.collection-row-menu-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.collection-row-menu-btn {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.7;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.collection-row:hover .collection-row-menu-btn {
+  opacity: 1;
+}
+.collection-row-menu-btn:hover,
+.collection-row-menu-btn:focus-visible {
+  opacity: 1;
+  color: var(--text);
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.collection-row-menu {
+  width: max-content;
+  min-width: 7rem;
+  max-width: 11rem;
+}
+.collection-row-menu [role="menuitem"] {
+  width: auto;
+  white-space: nowrap;
+}
+.collection-row-menu.collection-row-menu--fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 200;
 }
 .move-copy-field {
   display: grid;
@@ -1319,7 +1391,11 @@ tr:hover td { background: var(--surface); }
   padding: 1rem;
   min-width: 0;
 }
-.collection-thumb { width: 40px; padding-right: 0.25rem; }
+.collection-thumb {
+  width: 40px;
+  padding-right: 0.25rem;
+  cursor: pointer;
+}
 .collection-thumb-img {
   width: 36px;
   height: 52px;
@@ -1328,7 +1404,10 @@ tr:hover td { background: var(--surface); }
   display: block;
   background: #000;
 }
-.collection-row { cursor: pointer; }
+.collection-thumb:hover .collection-thumb-img {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 1px;
+}
 .collection-qty-cell {
   text-align: center;
   white-space: nowrap;

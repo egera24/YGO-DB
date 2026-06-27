@@ -47,6 +47,7 @@ let decksSearchTimer = null;
 
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
+const COLLECTION_FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 const COLLECTION_CONDITIONS = [
   { value: "Mint", label: "Mint (MT)", tone: "mint" },
   { value: "NearMint", label: "Near Mint (NM)", tone: "nearmint" },
@@ -1566,6 +1567,46 @@ function togglePresetMenu() {
   btn.setAttribute("aria-expanded", "true");
 }
 
+function closeAllCollectionRowMenus() {
+  document.querySelectorAll(".collection-row-menu").forEach((menu) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    menu.classList.remove("collection-row-menu--fixed");
+    menu.style.top = "";
+    menu.style.left = "";
+    menu.style.width = "";
+  });
+  document.querySelectorAll(".collection-row-menu-btn").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function openCollectionRowMenu(btn) {
+  const wrap = btn.closest(".collection-row-menu-wrap");
+  const menu = wrap?.querySelector(".collection-row-menu");
+  if (!menu) return;
+  closeAllCollectionRowMenus();
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  menu.classList.add("collection-row-menu--fixed");
+  const rect = btn.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth;
+  const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, left)}px`;
+}
+
+function toggleCollectionRowMenu(btn) {
+  const wrap = btn.closest(".collection-row-menu-wrap");
+  const menu = wrap?.querySelector(".collection-row-menu");
+  if (!menu) return;
+  if (!menu.hidden) {
+    closeAllCollectionRowMenus();
+    return;
+  }
+  openCollectionRowMenu(btn);
+}
+
 function buildSearchParams() {
   const params = new URLSearchParams();
   const q = $("#q").value.trim();
@@ -2983,8 +3024,24 @@ function formatFolderAllocationsLabel(folders) {
     .join(", ");
 }
 
+function hasNamedFolderAssignment(folders) {
+  return Boolean(folders?.some((row) => row.folder_id != null));
+}
+
 function closeFolderAllocationPopover() {
   document.querySelector(".folder-allocation-popover")?.remove();
+  document.querySelectorAll(".collection-folder-picker").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function toggleFolderAllocationEditor(item, itemId) {
+  const existing = document.querySelector(".folder-allocation-popover:not(.move-copy-popover)");
+  if (existing?.dataset.itemId === String(itemId)) {
+    closeFolderAllocationPopover();
+    return;
+  }
+  openFolderAllocationEditor(item, itemId);
 }
 
 function openFolderAllocationEditor(item, itemId) {
@@ -2997,6 +3054,7 @@ function openFolderAllocationEditor(item, itemId) {
 
   const popover = document.createElement("div");
   popover.className = "folder-allocation-popover";
+  popover.dataset.itemId = String(itemId);
   popover.innerHTML = `
     <p class="folder-allocation-title">Assign folders (total: ${totalQty})</p>
     <div class="folder-allocation-options">
@@ -3024,6 +3082,7 @@ function openFolderAllocationEditor(item, itemId) {
   document.body.appendChild(popover);
   const anchor = document.querySelector(`tr[data-id="${itemId}"] .collection-folder-picker`);
   if (anchor) {
+    anchor.setAttribute("aria-expanded", "true");
     const rect = anchor.getBoundingClientRect();
     popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
     popover.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - popover.offsetWidth - 8)}px`;
@@ -3607,19 +3666,22 @@ function renderCollectionTable(items) {
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
-      <td>
-        <button type="button" class="secondary collection-folder-picker" aria-label="Folders">
-          ${escapeHtml(formatFolderAllocationsLabel(item.folders))}
-        </button>
-      </td>
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
-      <td>
-        <div class="collection-row-actions">
-          <button type="button" class="secondary collection-edit-btn" title="Edit set, rarity, quantity, trade quantity, sell price, condition">Edit</button>
-          ${inFolder ? `
-          <button type="button" class="secondary collection-move-btn" title="Move copies to another folder">Move</button>
-          <button type="button" class="secondary collection-copy-btn" title="Copy to another folder">Copy</button>` : ""}
-          <button type="button" class="secondary collection-delete-btn" title="Remove">Delete</button>
+      <td class="collection-row-actions-col">
+        <div class="collection-row-actions-wrap">
+          <button type="button" class="icon-btn collection-folder-picker collection-folder-icon-btn${hasNamedFolderAssignment(item.folders) ? " collection-folder-icon-btn--assigned" : ""}" aria-label="Edit folder assignments: ${escapeHtml(formatFolderAllocationsLabel(item.folders))}" title="${escapeHtml(formatFolderAllocationsLabel(item.folders))}" aria-haspopup="dialog" aria-expanded="false">
+            ${COLLECTION_FOLDER_ICON_SVG}
+          </button>
+          <div class="collection-row-menu-wrap preset-menu-wrap">
+            <button type="button" class="icon-btn secondary collection-row-menu-btn preset-menu-btn" aria-label="Row actions" title="Row actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
+            <div class="collection-row-menu preset-menu" hidden role="menu">
+              <button type="button" role="menuitem" class="collection-edit-btn">Edit</button>
+              ${inFolder ? `
+              <button type="button" role="menuitem" class="collection-move-btn">Move</button>
+              <button type="button" role="menuitem" class="collection-copy-btn">Copy</button>` : ""}
+              <button type="button" role="menuitem" class="collection-delete-btn preset-menu-danger">Delete</button>
+            </div>
+          </div>
         </div>
       </td>
     </tr>`
@@ -3641,28 +3703,41 @@ function setupCollectionTableDelegation() {
     const item = state.collectionItemsById[itemId];
     if (!item) return;
 
+    if (e.target.closest(".collection-row-menu-btn")) {
+      e.stopPropagation();
+      closeFolderAllocationPopover();
+      toggleCollectionRowMenu(e.target.closest(".collection-row-menu-btn"));
+      return;
+    }
     if (e.target.closest(".collection-edit-btn")) {
       e.stopPropagation();
+      closeAllCollectionRowMenus();
       openCollectionEditModal(item, itemId);
       return;
     }
     if (e.target.closest(".collection-folder-picker")) {
       e.stopPropagation();
-      openFolderAllocationEditor(item, itemId);
+      closeAllCollectionRowMenus();
+      toggleFolderAllocationEditor(item, itemId);
       return;
     }
     if (e.target.closest(".collection-move-btn")) {
       e.stopPropagation();
-      openMoveCopyPopover(item, itemId, "move", e.target.closest(".collection-move-btn"));
+      const anchor = row.querySelector(".collection-row-menu-btn");
+      closeAllCollectionRowMenus();
+      openMoveCopyPopover(item, itemId, "move", anchor);
       return;
     }
     if (e.target.closest(".collection-copy-btn")) {
       e.stopPropagation();
-      openMoveCopyPopover(item, itemId, "copy", e.target.closest(".collection-copy-btn"));
+      const anchor = row.querySelector(".collection-row-menu-btn");
+      closeAllCollectionRowMenus();
+      openMoveCopyPopover(item, itemId, "copy", anchor);
       return;
     }
     if (e.target.closest(".collection-delete-btn")) {
       e.stopPropagation();
+      closeAllCollectionRowMenus();
       try {
         await removeCollectionItem(itemId);
       } catch (err) {
@@ -3670,10 +3745,9 @@ function setupCollectionTableDelegation() {
       }
       return;
     }
-    if (e.target.closest("input") || e.target.closest("button") || !cardId) {
-      return;
+    if (e.target.closest(".collection-thumb") && cardId) {
+      openCardModal(cardId);
     }
-    openCardModal(cardId);
   });
 }
 
@@ -3685,7 +3759,7 @@ async function loadCollectionPage(pageIndex) {
   const seq = ++collectionRequestSeq;
   state.collectionPage = pageIndex;
   const tbody = $("#collection-tbody");
-  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="empty-msg">Loading…</td></tr>';
   $("#collection-pagination")?.classList.add("hidden");
 
   try {
@@ -3705,7 +3779,7 @@ async function loadCollectionPage(pageIndex) {
   } catch (err) {
     if (seq !== collectionRequestSeq) return;
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -3732,7 +3806,7 @@ async function loadCollectionView({ background = false } = {}) {
     loadCollectionViewFresh().catch((err) => {
       const tbody = $("#collection-tbody");
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
       }
     });
     return;
@@ -3743,7 +3817,7 @@ async function loadCollectionView({ background = false } = {}) {
   } catch (err) {
     const tbody = $("#collection-tbody");
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -4433,7 +4507,8 @@ function wireEvents() {
     );
   });
   document.addEventListener("click", (e) => {
-    if (!e.target.closest(".preset-menu-wrap")) closePresetMenu();
+    if (!e.target.closest(".preset-menu-wrap:not(.collection-row-menu-wrap)")) closePresetMenu();
+    if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
   });
   $("#auth-tab-login")?.addEventListener("click", () => {
     switchAuthTab("login");
@@ -4703,7 +4778,10 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (!$("#search-preset-menu")?.hidden) closePresetMenu();
+    if (document.querySelector(".folder-allocation-popover:not(.move-copy-popover)")) {
+      closeFolderAllocationPopover();
+    } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
+    else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();

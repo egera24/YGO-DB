@@ -57,7 +57,7 @@ PHASE1_CHUNK_SIZE = 300
 PHASE2_MAX_RETRIES = 5
 PHASE2_RETRY_DELAYS = [15, 30, 45, 60, 90]
 SAVE_INTERVAL = 5
-DISPLAY_INTERVAL = 100
+SUMMARY_INTERVAL = 100
 
 _file_lock = threading.Lock()
 
@@ -404,9 +404,15 @@ def run_card_details_scrape(
                     total_completed += 1
                     last_saved_idx = abs_idx
 
-                    if total_completed % DISPLAY_INTERVAL == 0:
+                    card_id = cards[abs_idx]["card_id"]
+                    log_line(
+                        f"[DETAILS] card {card_id} "
+                        f"({total_completed}/{len(cards_to_process)}): {result['status']}"
+                    )
+
+                    if total_completed % SUMMARY_INTERVAL == 0:
                         log_line(
-                            f"[DETAILS] progress {total_completed}/{len(cards_to_process)} "
+                            f"[DETAILS] summary {total_completed}/{len(cards_to_process)} "
                             f"success={stats['success']} rejected={len(rejections)}"
                         )
 
@@ -501,6 +507,10 @@ def run_card_details_scrape(
                 stats["rejected_unreachable"] -= 1
             else:
                 still_rejected.append(result["rejection"])
+
+            log_line(
+                f"[DETAILS] recovery ({idx + 1}/{len(recoverable)}): {result['status']}"
+            )
 
             if (idx + 1) % 10 == 0:
                 _save_details(

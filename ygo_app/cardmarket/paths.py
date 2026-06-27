@@ -41,3 +41,13 @@ def expansion_list_path(run_date: str) -> Path:
 def card_list_path(run_date: str) -> Path:
     """Dated card list: card_list_YYYYMMDD.json"""
     return CATALOG_DIR / f"card_list_{run_date}.json"
+
+
+def card_details_path(run_date: str) -> Path:
+    """Dated card details: card_details_YYYYMMDD.json"""
+    return CATALOG_DIR / f"card_details_{run_date}.json"
+
+
+def card_details_rejection_path(run_date: str) -> Path:
+    """Dated detail rejections: card_details_rejection_YYYYMMDD.json"""
+    return CATALOG_DIR / f"card_details_rejection_{run_date}.json"

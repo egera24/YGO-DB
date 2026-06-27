@@ -412,18 +412,18 @@ def _dismiss_cookie_consent(page) -> bool:
 
 def _cardmarket_page_ready(page, html: str | None) -> bool:
     """True when Cloudflare is cleared and Cardmarket content is visible."""
-    cookies = page.context.cookies()
-    if any(c.get("name") == "cf_clearance" for c in cookies):
-        return True
     if html is None:
         try:
             html = page.content()
         except Exception:
             return False
+    lower = html.lower()
     if is_cloudflare_challenge(html) or is_cf_incompatible_page(html):
         return False
     if _page_needs_cookie_consent(page, html):
         return False
+    if "price trend" in lower and ("30-day" in lower or "7-day" in lower):
+        return True
     if any(
         marker in html
         for marker in (
@@ -438,8 +438,6 @@ def _cardmarket_page_ready(page, html: str | None) -> bool:
         if page.locator(_WARMUP_SELECTOR).count() > 0:
             return True
         if page.locator('div[id^="productRow"]').count() > 0:
-            return True
-        if page.locator('a[href*="/YuGiOh/Products"]').count() > 0:
             return True
     except Exception:
         pass
@@ -471,7 +469,12 @@ def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
                 page.wait_for_load_state("domcontentloaded", timeout=15_000)
             except Exception:
                 pass
-            return True
+            try:
+                cookie_html = page.content()
+            except Exception:
+                cookie_html = None
+            if cookie_html and _cardmarket_page_ready(page, cookie_html):
+                return True
 
         html: str | None = None
         try:
@@ -848,6 +851,21 @@ class BrowserSession:
                         headers,
                         "Cardmarket page did not finish loading",
                     )
+            if status == 200 and "/Products/Singles/" in url:
+                lower_detail = (html or "").lower()
+                if "price trend" not in lower_detail:
+                    if _headed and _wait_for_cf_clearance(
+                        page, timeout_seconds=_cf_wait_seconds
+                    ):
+                        html = page.content()
+                        lower_detail = (html or "").lower()
+                    if "price trend" not in lower_detail:
+                        return _FetchResult(
+                            None,
+                            403,
+                            headers,
+                            "Product detail page missing price data (challenge or load failure)",
+                        )
             if status == 200:
                 return _FetchResult(html, status, headers, None)
             accepted = _accept_html_if_page_ready(

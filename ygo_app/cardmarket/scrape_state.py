@@ -11,8 +11,9 @@ from ygo_app.cardmarket.artifact_io import load_checkpoint, save_json_atomic
 from ygo_app.cardmarket.paths import (
     CARDMARKET_SCRAPE_STATE_PATH,
     CATALOG_DIR,
-    expansion_list_path,
+    card_details_path,
     card_list_path,
+    expansion_list_path,
 )
 
 ScrapePhase = Literal["expansion_list", "card_list", "card_details", "done"]
@@ -22,6 +23,7 @@ STATE_VERSION = 1
 RUN_DATE_RE = re.compile(r"^(\d{8})$")
 EXPANSION_LIST_RE = re.compile(r"^expansion_list_(\d{8})\.json$")
 CARD_LIST_RE = re.compile(r"^card_list_(\d{8})\.json$")
+CARD_DETAILS_RE = re.compile(r"^card_details_(\d{8})\.json$")
 
 
 class ScrapeStateError(ValueError):
@@ -93,6 +95,7 @@ def default_state(*, run_date: str | None = None, mode: ScrapeMode = "full") -> 
         "last_completed_card_index": -1,
         "expansion_list_file": expansion_list_path(rd).name,
         "card_list_file": card_list_path(rd).name,
+        "card_details_file": card_details_path(rd).name,
         "phase": "expansion_list",
         "updated_at": utc_now_iso(),
     }
@@ -149,6 +152,13 @@ def resolve_card_list_file(state: dict[str, Any]) -> Path:
     if name:
         return CATALOG_DIR / str(name)
     return card_list_path(str(state["run_date"]))
+
+
+def resolve_card_details_file(state: dict[str, Any]) -> Path:
+    name = state.get("card_details_file")
+    if name:
+        return CATALOG_DIR / str(name)
+    return card_details_path(str(state["run_date"]))
 
 
 def update_state_seq(

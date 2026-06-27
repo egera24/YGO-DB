@@ -505,6 +505,9 @@ class TestBrowserCookies(unittest.TestCase):
 class TestCloudflareChallengeDetection(unittest.TestCase):
     def test_detects_challenge_markers(self):
         self.assertTrue(is_cloudflare_challenge("<html>Just a moment...</html>"))
+        self.assertTrue(
+            is_cloudflare_challenge("<html>Performing security verification</html>")
+        )
         self.assertTrue(is_cloudflare_challenge('<script>_cf_chl_opt</script>'))
         self.assertFalse(is_cloudflare_challenge("<html>normal page</html>"))
 

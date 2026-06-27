@@ -80,6 +80,8 @@ _CF_CHALLENGE_MARKERS = (
     "just a moment",
     "challenge-platform",
     "checking your browser",
+    "security verification",
+    "performing security verification",
 )
 
 

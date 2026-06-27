@@ -33,11 +33,15 @@ from ygo_app.cardmarket.paths import (
     CARDMARKET_CARD_DETAILS_PATH,
     CARDMARKET_CARD_DETAILS_REJECTION_PATH,
     CARDMARKET_CARD_LIST_PATH,
+    card_details_path,
+    card_details_rejection_path,
 )
 from ygo_app.cardmarket.scrape_state import (
     load_scrape_state,
+    resolve_card_details_file,
     resolve_card_list_file,
     save_scrape_state,
+    today_run_date,
     update_state_card_index,
 )
 from ygo_app.cardmarket.scrape_session import ScrapeSession
@@ -219,6 +223,12 @@ def run_card_details_scrape(
     purge_card_ids: set[int] | None = None,
 ) -> dict[str, int]:
     state = load_scrape_state()
+    run_date = str((state or {}).get("run_date") or today_run_date())
+    if output_path == CARDMARKET_CARD_DETAILS_PATH:
+        output_path = resolve_card_details_file(state) if state else card_details_path(run_date)
+    if rejection_path == CARDMARKET_CARD_DETAILS_REJECTION_PATH:
+        rejection_path = card_details_rejection_path(run_date)
+    log_line(f"[DETAILS] output={output_path.name} rejections={rejection_path.name}")
     list_path = input_path
     if list_path is None:
         list_path = resolve_card_list_file(state) if state else CARDMARKET_CARD_LIST_PATH
@@ -283,6 +293,7 @@ def run_card_details_scrape(
         state = dict(state)
         state["phase"] = "card_details"
         state["last_completed_card_index"] = -1
+        state["card_details_file"] = output_path.name
         save_scrape_state(state)
 
     cards_to_process = [(start_idx + i, card) for i, card in enumerate(cards[start_idx:])]

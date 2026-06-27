@@ -12,7 +12,17 @@ from ygo_app.cardmarket.paths import (
     CARDMARKET_PRICES_PATH,
     DEFAULT_CATALOG_PATH,
 )
+from ygo_app.cardmarket.scrape_state import load_scrape_state, resolve_card_details_file
 from ygo_app.job_logging import run_job_logged
+
+
+def _default_details_path() -> Path:
+    state = load_scrape_state()
+    if state:
+        dated = resolve_card_details_file(state)
+        if dated.is_file():
+            return dated
+    return CARDMARKET_CARD_DETAILS_PATH
 
 
 def _run(argv: list[str] | None) -> int:
@@ -22,7 +32,7 @@ def _run(argv: list[str] | None) -> int:
     parser.add_argument(
         "--details",
         type=Path,
-        default=CARDMARKET_CARD_DETAILS_PATH,
+        default=_default_details_path(),
         help="Card details JSON from job 3",
     )
     parser.add_argument(

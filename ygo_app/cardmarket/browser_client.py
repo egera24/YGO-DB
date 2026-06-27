@@ -21,6 +21,7 @@ from ygo_app.cardmarket.browser_profiles import (
     save_profile_state,
     switch_active_profile,
 )
+from ygo_app.cardmarket.agent_debug_log import agent_debug_log
 from ygo_app.cardmarket.constants import BASE_URL, CARD_LIST_PROBE_URL, REQUEST_TIMEOUT, SEARCH_URL
 from ygo_app.cardmarket.http_client import browser_headers, is_cloudflare_challenge, is_cloudflare_rate_limited, user_agent_for_worker
 from ygo_app.cardmarket.paths import CARDMARKET_BROWSER_STATE_PATH
@@ -410,19 +411,39 @@ def _dismiss_cookie_consent(page) -> bool:
     return False
 
 
+def _detail_page_url(url: str) -> bool:
+    return "/Products/Singles/" in url
+
+
+def _page_is_blocked(
+    html: str | None,
+    page,
+    *,
+    require_prices: bool = False,
+) -> bool:
+    """True when the page is a CF challenge, cookie banner, or missing required content."""
+    if not html:
+        return True
+    if is_cloudflare_challenge(html) or is_cf_incompatible_page(html):
+        return True
+    if _page_needs_cookie_consent(page, html):
+        return True
+    if require_prices and "price trend" not in html.lower():
+        return True
+    return False
+
+
 def _cardmarket_page_ready(page, html: str | None) -> bool:
-    """True when Cloudflare is cleared and Cardmarket content is visible."""
+    """True when Cardmarket content is visible (used for non-200 recovery paths)."""
     if html is None:
         try:
             html = page.content()
         except Exception:
             return False
-    lower = html.lower()
-    if is_cloudflare_challenge(html) or is_cf_incompatible_page(html):
+    if _page_is_blocked(html, page):
         return False
-    if _page_needs_cookie_consent(page, html):
-        return False
-    if "price trend" in lower and ("30-day" in lower or "7-day" in lower):
+    lower = (html or "").lower()
+    if "price trend" in lower:
         return True
     if any(
         marker in html
@@ -431,6 +452,9 @@ def _cardmarket_page_ready(page, html: str | None) -> bool:
             "Search Results",
             "Sorry, no matches",
             'name="idExpansion"',
+            "Search Cardmarket",
+            "Best Sellers",
+            "Trends",
         )
     ):
         return True
@@ -439,19 +463,16 @@ def _cardmarket_page_ready(page, html: str | None) -> bool:
             return True
         if page.locator('div[id^="productRow"]').count() > 0:
             return True
+        if page.locator('a[href*="/YuGiOh/Products"]').count() > 0:
+            return True
     except Exception:
         pass
     return False
 
 
-def _cookies_have_cf_clearance(page) -> bool:
-    try:
-        return any(c.get("name") == "cf_clearance" for c in page.context.cookies())
-    except Exception:
-        return False
-
-
-def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
+def _wait_for_cardmarket_page(page, url: str, *, timeout_seconds: int) -> bool:
+    """Wait until challenge/cookie clears and optional detail prices appear."""
+    require_prices = _detail_page_url(url)
     log_line(
         f"[CF-WAIT] Waiting for Cardmarket to finish loading in the browser "
         f"(up to {timeout_seconds}s)..."
@@ -464,19 +485,6 @@ def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
     deadline = time.time() + timeout_seconds
     last_hint_at = 0.0
     while time.time() < deadline:
-        if _cookies_have_cf_clearance(page):
-            try:
-                page.wait_for_load_state("domcontentloaded", timeout=15_000)
-            except Exception:
-                pass
-            try:
-                cookie_html = page.content()
-            except Exception:
-                cookie_html = None
-            if cookie_html and _cardmarket_page_ready(page, cookie_html):
-                return True
-
-        html: str | None = None
         try:
             html = page.content()
         except Exception as exc:
@@ -505,14 +513,39 @@ def _wait_for_cf_clearance(page, *, timeout_seconds: int) -> bool:
                 )
                 last_hint_at = time.time()
 
-        if is_cf_incompatible_page(html):
-            if time.time() - last_hint_at >= 30:
-                _log_cf_incompatible_help()
-                last_hint_at = time.time()
-        if _cardmarket_page_ready(page, html):
+        if is_cf_incompatible_page(html) and time.time() - last_hint_at >= 30:
+            _log_cf_incompatible_help()
+            last_hint_at = time.time()
+
+        if not _page_is_blocked(html, page, require_prices=require_prices):
+            # #region agent log
+            agent_debug_log(
+                "F",
+                "browser_client._wait_for_cardmarket_page",
+                "page unblocked",
+                {
+                    "url": format_fetch_url(url),
+                    "require_prices": require_prices,
+                    "is_challenge": is_cloudflare_challenge(html),
+                    "has_price_trend": "price trend" in html.lower(),
+                },
+            )
+            # #endregion
             return True
         time.sleep(2)
     return False
+
+
+def _cookies_have_cf_clearance(page) -> bool:
+    try:
+        return any(c.get("name") == "cf_clearance" for c in page.context.cookies())
+    except Exception:
+        return False
+
+
+def _wait_for_cf_clearance(page, *, timeout_seconds: int, url: str | None = None) -> bool:
+    target = url or getattr(page, "url", None) or _WARMUP_URL
+    return _wait_for_cardmarket_page(page, target, timeout_seconds=timeout_seconds)
 
 
 def _wait_for_cf_login(page, *, timeout_seconds: int) -> CfLoginWaitResult:
@@ -778,7 +811,19 @@ class BrowserSession:
 
         if is_cloudflare_rate_limited(html):
             return _FetchResult(None, 429, {}, "Cloudflare rate limit (Error 1015)")
-        if _cardmarket_page_ready(page, html):
+        if not _page_is_blocked(html, page, require_prices=False):
+            # #region agent log
+            agent_debug_log(
+                "G",
+                "browser_client._warmup_page_after_launch",
+                "warmup accepted loaded page",
+                {
+                    "is_challenge": is_cloudflare_challenge(html),
+                    "has_price_trend": "price trend" in html.lower(),
+                    "html_len": len(html),
+                },
+            )
+            # #endregion
             return _FetchResult(html, 200, {}, None)
         return self._navigate_page(page, _WARMUP_URL)
 
@@ -802,20 +847,17 @@ class BrowserSession:
             if response is not None:
                 headers = dict(response.headers)
 
+            require_prices = _detail_page_url(url)
+
             if _page_needs_cookie_consent(page, html):
                 if _dismiss_cookie_consent(page):
                     html = page.content()
-                elif _headed and not _cardmarket_page_ready(page, html):
-                    log_line(
-                        "[BROWSER] Cookie consent visible — click 'Accept All Cookies' "
-                        "if the page stays unstyled."
-                    )
-                    if _wait_for_cf_clearance(page, timeout_seconds=60):
-                        html = page.content()
 
             if is_cf_incompatible_page(html):
                 _log_cf_incompatible_help()
-                if _headed and _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds):
+                if _headed and _wait_for_cardmarket_page(
+                    page, url, timeout_seconds=_cf_wait_seconds
+                ):
                     html = page.content()
                     status = 200
                 else:
@@ -825,7 +867,9 @@ class BrowserSession:
                 return _FetchResult(None, 429, headers, "Cloudflare rate limit (Error 1015)")
 
             if status == 200 and is_cloudflare_challenge(html):
-                if _headed and _wait_for_cf_clearance(page, timeout_seconds=_cf_wait_seconds):
+                if _headed and _wait_for_cardmarket_page(
+                    page, url, timeout_seconds=_cf_wait_seconds
+                ):
                     html = page.content()
                     if is_cloudflare_rate_limited(html):
                         return _FetchResult(None, 429, headers, "Cloudflare rate limit (Error 1015)")
@@ -833,40 +877,35 @@ class BrowserSession:
                         return _FetchResult(None, 403, headers, "Cloudflare challenge page")
                 else:
                     return _FetchResult(None, 403, headers, "Cloudflare challenge page")
-            if status == 200 and not _cardmarket_page_ready(page, html):
-                if _headed:
-                    if _wait_for_cf_clearance(page, timeout_seconds=60):
-                        html = page.content()
-                    else:
-                        return _FetchResult(
-                            None,
-                            403,
-                            headers,
-                            "Cardmarket page did not finish loading (cookie consent or challenge)",
-                        )
-                else:
-                    return _FetchResult(
-                        None,
-                        403,
-                        headers,
-                        "Cardmarket page did not finish loading",
+
+            if status == 200 and _page_is_blocked(html, page, require_prices=require_prices):
+                wait_seconds = _cf_wait_seconds if require_prices else 60
+                if _headed and _wait_for_cardmarket_page(
+                    page, url, timeout_seconds=wait_seconds
+                ):
+                    html = page.content()
+                if _page_is_blocked(html, page, require_prices=require_prices):
+                    detail = (
+                        "Product detail page missing price data (challenge or load failure)"
+                        if require_prices
+                        else "Cardmarket page did not finish loading (cookie consent or challenge)"
                     )
-            if status == 200 and "/Products/Singles/" in url:
-                lower_detail = (html or "").lower()
-                if "price trend" not in lower_detail:
-                    if _headed and _wait_for_cf_clearance(
-                        page, timeout_seconds=_cf_wait_seconds
-                    ):
-                        html = page.content()
-                        lower_detail = (html or "").lower()
-                    if "price trend" not in lower_detail:
-                        return _FetchResult(
-                            None,
-                            403,
-                            headers,
-                            "Product detail page missing price data (challenge or load failure)",
-                        )
+                    return _FetchResult(None, 403, headers, detail)
+
             if status == 200:
+                # #region agent log
+                agent_debug_log(
+                    "H",
+                    "browser_client._navigate_page",
+                    "HTTP 200 accepted",
+                    {
+                        "url": format_fetch_url(url),
+                        "require_prices": require_prices,
+                        "is_challenge": is_cloudflare_challenge(html),
+                        "has_price_trend": "price trend" in (html or "").lower(),
+                    },
+                )
+                # #endregion
                 return _FetchResult(html, status, headers, None)
             accepted = _accept_html_if_page_ready(
                 page, url, html, headers, http_status=status, reason="non_200_status"

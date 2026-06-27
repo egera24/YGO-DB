@@ -33,6 +33,8 @@ def _printing_out(p: Printing) -> PrintingOut:
         set_rarity_code=p.set_rarity_code,
         set_price=p.set_price,
         owned_quantity=getattr(p, "owned_quantity", 0),
+        trade_quantity=getattr(p, "trade_quantity", 0),
+        collection_item_id=getattr(p, "collection_item_id", None),
         low_price=getattr(p, "low_price", None),
         avg_price=getattr(p, "avg_price", None),
         trend_price=getattr(p, "trend_price", None),

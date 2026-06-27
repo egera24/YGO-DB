@@ -1,0 +1,35 @@
+For the deck creation/edit i need a ruleset which defines the validations for the deck. An error or warning should be shown to the user if the deck or the action is not valid.
+The followings are the offical rules. Use them as a reference for the rules itself. On the page (card details and deck creation/edit) the user should see the rules and the information.
+
+The Main Deck
+Card Count: Must contain between 40 and 60 cards. It can be also 40 or 60 as well.
+Consistency Rule: It is highly recommended to stick exactly to the 40-card minimum to increase the odds of drawing your best cards.
+
+The Extra Deck
+Card Count: Can contain up to 15 cards.
+Allowed Cards: Fusion, Synchro, Xyz, Pendulum, and Link Monsters. Of course these kind of cards cannot be part of the Main deck.
+Not Mandatory: You do not have to include an Extra Deck if your deck strategy doesn't require it.
+
+The Side Deck
+Card Count: Can contain up to 15 cards.
+Usage: Used to swap cards between games in a Best-of-3 Match.
+Rule: Before and after swapping cards in between duels, your Side Deck must contain the exact same number of cards.
+
+General Card & Banlist Rules
+The "Maximum of 3" Rule: You can have no more than 3 copies of the same card across your Main Deck, Extra Deck, and Side Deck combined.
+The Forbidden & Limited List: Official tournaments restrict certain overpowered or meta-defining cards. You must always adhere to the current list:
+    Forbidden: 0 copies allowed.
+    Limited: Maximum 1 copy allowed.
+    Semi-Limited: Maximum 2 copies allowed.
+
+
+Official banlist: https://www.yugioh-card.com/eu/play/forbidden-and-limited-list/? (what are the icons on the site?)
+
+The idea is that the user should be able to choose the desired banlist and the desired format. By default the Advanced TCG banlist and the most actual banlist should be selected.
+
+How to handle it, should we need Traditional-, Advanced- format as well? What about Genesys, speed duel, Edison, Goat? 
+
+From architectural point of view this list should be extendable. We should be able to add new formats and new banlists easily.
+
+In genesys format there are no bans, but every card has a point value. The user should be able to see the point value of the card and the point value of the deck. The deck should not exceed the point value of the deck.
+Link: https://www.yugioh-card.com/en/genesys/

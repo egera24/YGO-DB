@@ -11,6 +11,8 @@ class PrintingOut(BaseModel):
     set_rarity_code: str
     set_price: str | None
     owned_quantity: int = 0
+    trade_quantity: int = 0
+    collection_item_id: int | None = None
     low_price: float | None = None
     avg_price: float | None = None
     trend_price: float | None = None
@@ -224,6 +226,16 @@ COLLECTION_CONDITIONS = (
     "LightPlayed",
     "Played",
     "Poor",
+)
+
+COLLECTION_EDITIONS = ("Unlimited", "1st Edition", "Limited Edition")
+COLLECTION_LANGUAGES = (
+    "English",
+    "French",
+    "Italian",
+    "German",
+    "Spanish",
+    "Portuguese",
 )
 
 

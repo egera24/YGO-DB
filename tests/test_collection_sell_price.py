@@ -46,6 +46,7 @@ class TestCollectionSellPrice(unittest.TestCase):
         printing = Printing(
             card_id=card.id,
             set_code="LOB-001",
+            set_name="Legend of Blue Eyes White Dragon",
             set_rarity_code="(UR)",
             set_rarity="Ultra Rare",
         )
@@ -74,6 +75,18 @@ class TestCollectionSellPrice(unittest.TestCase):
             {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1},
         )
         self.assertIsNone(item.sell_price)
+        session.close()
+
+    def test_add_enriches_metadata_from_catalog(self):
+        session = self.Session()
+        item = add_collection_item(
+            session,
+            self.user_id,
+            {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1},
+        )
+        self.assertEqual(item.card_name, "Blue-Eyes White Dragon")
+        self.assertEqual(item.expansion_code, "LOB")
+        self.assertEqual(item.set_name, "Legend of Blue Eyes White Dragon")
         session.close()
 
     def test_add_without_market_data_leaves_sell_price_null(self):

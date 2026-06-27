@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from ygo_app.models import Base, Card, CollectionItem, Printing, User
-from ygo_app.services import card_summaries_batch
+from ygo_app.services import card_summaries_batch, get_card_detail
 
 
 def _sqlite_engine(path: str):
@@ -58,25 +58,24 @@ class TestCardSummaryTradeQuantity(unittest.TestCase):
             ]
         )
         session.flush()
-        session.add_all(
-            [
-                CollectionItem(
-                    user_id=self.user_id,
-                    set_code="LOB-001",
-                    rarity_code="(UR)",
-                    quantity=2,
-                    trade_quantity=1,
-                ),
-                CollectionItem(
-                    user_id=self.user_id,
-                    set_code="LOB-002",
-                    rarity_code="(SR)",
-                    quantity=3,
-                    trade_quantity=2,
-                ),
-            ]
+        item_lob = CollectionItem(
+            user_id=self.user_id,
+            set_code="LOB-001",
+            rarity_code="(UR)",
+            quantity=2,
+            trade_quantity=1,
         )
+        item_lob2 = CollectionItem(
+            user_id=self.user_id,
+            set_code="LOB-002",
+            rarity_code="(SR)",
+            quantity=3,
+            trade_quantity=2,
+        )
+        session.add_all([item_lob, item_lob2])
         session.commit()
+        self.item_lob_id = item_lob.id
+        self.item_lob2_id = item_lob2.id
         self.card_id = card.id
         session.close()
 
@@ -93,6 +92,20 @@ class TestCardSummaryTradeQuantity(unittest.TestCase):
         self.assertTrue(summary["owned"])
         self.assertEqual(summary["owned_quantity"], 5)
         self.assertEqual(summary["trade_quantity"], 3)
+
+    def test_get_card_detail_sets_per_printing_quantities(self):
+        session = self.Session()
+        card = get_card_detail(session, self.card_id, self.user_id)
+        session.close()
+
+        self.assertIsNotNone(card)
+        by_code = {p.set_code: p for p in card.printings}
+        self.assertEqual(by_code["LOB-001"].owned_quantity, 2)
+        self.assertEqual(by_code["LOB-001"].trade_quantity, 1)
+        self.assertEqual(by_code["LOB-001"].collection_item_id, self.item_lob_id)
+        self.assertEqual(by_code["LOB-002"].owned_quantity, 3)
+        self.assertEqual(by_code["LOB-002"].trade_quantity, 2)
+        self.assertEqual(by_code["LOB-002"].collection_item_id, self.item_lob2_id)
 
 
 if __name__ == "__main__":

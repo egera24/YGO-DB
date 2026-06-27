@@ -1,0 +1,1 @@
+There are a lot of non-english expansions (eg: Pegasus Starter Deck MIP) which could be excluded. Maybe there is a need of yugipedia comperison at the beginning after the expansion list scrape?

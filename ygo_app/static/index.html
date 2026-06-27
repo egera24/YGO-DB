@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=68" />
+  <link rel="stylesheet" href="/static/css/style.css?v=70" />
 </head>
 <body>
   <header class="app-header">
@@ -442,24 +442,12 @@
           <section class="modal-section modal-section--printings" aria-labelledby="modal-printings-heading">
             <div class="modal-section-header">
               <h3 id="modal-printings-heading">All printings</h3>
-              <span id="modal-price-legend" class="printings-price-legend muted" hidden>Low / Avg / Trend</span>
+              <div class="modal-printings-header-actions">
+                <span id="modal-price-legend" class="printings-price-legend muted" hidden>Low / Avg / Trend</span>
+                <button type="button" id="owned-add-btn" class="primary">Add to collection</button>
+              </div>
             </div>
             <div id="modal-printings" class="printings-list"></div>
-          </section>
-          <section class="modal-section modal-section--owned" aria-labelledby="modal-owned-heading">
-            <h3 id="modal-owned-heading">Mark as owned</h3>
-            <p id="owned-single-printing" class="owned-single-printing muted" hidden></p>
-            <div class="modal-action-grid">
-              <div class="owned-printing-wrap" id="owned-printing-wrap">
-                <label for="owned-printing">Printing</label>
-                <select id="owned-printing"></select>
-              </div>
-              <div class="owned-qty-wrap">
-                <label for="owned-qty">Quantity</label>
-                <input type="number" id="owned-qty" min="1" value="1" />
-              </div>
-              <button type="button" id="owned-add-btn" class="primary modal-action-submit">Add to collection</button>
-            </div>
           </section>
           <section class="modal-section modal-section--deck" aria-labelledby="modal-deck-heading">
             <h3 id="modal-deck-heading">Add to active deck</h3>
@@ -555,6 +543,115 @@
     </article>
   </div>
 
+  <div id="collection-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-add-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="collection-add-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="collection-edit-header">
+        <h2 id="collection-add-title">Add to collection</h2>
+        <p class="muted">Fill in the details for this card.</p>
+      </header>
+      <div class="collection-add-form collection-edit-form">
+        <label class="collection-edit-field">
+          <span>Folder</span>
+          <div class="collection-add-folder-row">
+            <select id="collection-add-folder">
+              <option value="">No Folder</option>
+            </select>
+            <button type="button" id="collection-add-new-folder-toggle" class="secondary collection-add-folder-new-btn">+ New folder</button>
+          </div>
+        </label>
+        <div id="collection-add-new-folder-row" class="collection-add-new-folder-row hidden">
+          <label class="collection-edit-field" for="collection-add-new-folder-name">
+            <span>New folder</span>
+            <div class="collection-add-new-folder-inputs">
+              <input type="text" id="collection-add-new-folder-name" maxlength="128" placeholder="Folder name" autocomplete="off" />
+              <button type="button" id="collection-add-new-folder-create" class="secondary">Create</button>
+            </div>
+          </label>
+        </div>
+        <label class="collection-edit-field" for="collection-add-quantity">
+          <span>Quantity</span>
+          <input type="number" id="collection-add-quantity" min="1" value="1" />
+        </label>
+        <label class="collection-edit-field" for="collection-add-trade-quantity">
+          <span>Trade qty</span>
+          <input type="number" id="collection-add-trade-quantity" min="0" value="0" />
+        </label>
+        <div class="collection-add-readonly-group">
+          <p class="collection-add-group-label muted">From catalog</p>
+          <label class="collection-edit-field">
+            <span>Card name</span>
+            <span id="collection-add-card-name" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field">
+            <span>Set code</span>
+            <span id="collection-add-set-code" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field">
+            <span>Set name</span>
+            <span id="collection-add-set-name" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field collection-add-card-number-field" id="collection-add-card-number-static-wrap">
+            <span>Card number</span>
+            <span id="collection-add-card-number-static" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field collection-add-card-number-field" id="collection-add-card-number-wrap" hidden>
+            <span>Card number</span>
+            <select id="collection-add-card-number"></select>
+          </label>
+          <label class="collection-edit-field">
+            <span>Rarity</span>
+            <span id="collection-add-rarity" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field">
+            <span>Low / Avg / Trend</span>
+            <span id="collection-add-market-prices" class="collection-add-readonly muted"></span>
+          </label>
+        </div>
+        <label class="collection-edit-field" for="collection-add-condition">
+          <span>Condition</span>
+          <select id="collection-add-condition"></select>
+        </label>
+        <label class="collection-edit-field" for="collection-add-edition">
+          <span>Printing</span>
+          <select id="collection-add-edition">
+            <option value="Unlimited">Unlimited</option>
+            <option value="1st Edition">1st Edition</option>
+            <option value="Limited Edition">Limited Edition</option>
+          </select>
+        </label>
+        <label class="collection-edit-field" for="collection-add-language">
+          <span>Language</span>
+          <select id="collection-add-language">
+            <option value="English">English</option>
+            <option value="French">French</option>
+            <option value="Italian">Italian</option>
+            <option value="German">German</option>
+            <option value="Spanish">Spanish</option>
+            <option value="Portuguese">Portuguese</option>
+          </select>
+        </label>
+        <label class="collection-edit-field" for="collection-add-price-bought">
+          <span>Price bought (€)</span>
+          <input type="number" id="collection-add-price-bought" min="0" step="0.01" value="0" />
+        </label>
+        <label class="collection-edit-field" for="collection-add-date-bought">
+          <span>Date bought</span>
+          <input type="date" id="collection-add-date-bought" />
+        </label>
+      </div>
+      <div class="collection-edit-actions">
+        <button type="button" id="collection-add-cancel" class="secondary">Cancel</button>
+        <button type="button" id="collection-add-submit">Add to collection</button>
+      </div>
+    </article>
+  </div>
+
   <div id="collection-edit-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-edit-title" hidden>
     <article class="modal-card modal-card--narrow">
       <button type="button" id="collection-edit-close" class="modal-close" aria-label="Close">
@@ -613,6 +710,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=90" type="module"></script>
+  <script src="/static/js/app.js?v=96" type="module"></script>
 </body>
 </html>

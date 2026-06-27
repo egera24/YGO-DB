@@ -57,6 +57,15 @@ const COLLECTION_CONDITIONS = [
   { value: "Played", label: "Played (PL)", tone: "played" },
   { value: "Poor", label: "Poor (PO)", tone: "poor" },
 ];
+const COLLECTION_EDITIONS = ["Unlimited", "1st Edition", "Limited Edition"];
+const COLLECTION_LANGUAGES = [
+  "English",
+  "French",
+  "Italian",
+  "German",
+  "Spanish",
+  "Portuguese",
+];
 
 const ROUTE_VIEWS = new Set(["search", "collection", "decks"]);
 const DEFAULT_ROUTE_VIEW = "search";
@@ -2062,6 +2071,16 @@ async function runSearch(e, { skipHashSync = false } = {}) {
 const MODAL_TEXT = "#e8eef7";
 const MODAL_MUTED = "#94a3b8";
 
+function isPrintingQtyBadgeElement(el) {
+  return (
+    el.classList.contains("printing-qty-badges") ||
+    el.classList.contains("printing-owned-qty") ||
+    el.classList.contains("printing-trade-qty") ||
+    el.classList.contains("badge-owned") ||
+    el.classList.contains("badge-trade")
+  );
+}
+
 function applyModalReadableColors() {
   const dlg = $("#card-modal");
   const card = dlg?.querySelector(".modal-card");
@@ -2071,7 +2090,8 @@ function applyModalReadableColors() {
   dlg.querySelectorAll(
     ".modal-info h2, .modal-info h3, .modal-info p, .modal-info label, #modal-desc, .printings-list, .printing-row, .printing-row span, .tag"
   ).forEach((el) => {
-    if (!el.classList.contains("set-code")) setLight(el, MODAL_TEXT);
+    if (el.classList.contains("set-code") || isPrintingQtyBadgeElement(el)) return;
+    setLight(el, MODAL_TEXT);
   });
   setLight($("#modal-name"), MODAL_TEXT);
   setLight($("#modal-desc"), MODAL_TEXT);
@@ -2091,6 +2111,8 @@ function openCardModalOverlay() {
 function closeCardModalOverlay({ fromRouter = false } = {}) {
   closeCardErrataModal();
   closeCardTipsModal();
+  closeAddCollectionModal();
+  addCollectionSelectedPrintingKey = null;
   const dlg = $("#card-modal");
   dlg.hidden = true;
   state.currentCardId = null;
@@ -2123,6 +2145,7 @@ function syncModalOpenClass() {
     isModalVisible("#search-help-modal") ||
     isModalVisible("#export-collection-modal") ||
     isModalVisible("#search-preset-save-modal") ||
+    isModalVisible("#collection-add-modal") ||
     isModalVisible("#collection-edit-modal")
   ) {
     document.body.classList.add("modal-open");
@@ -2531,20 +2554,6 @@ function renderModalSkeleton() {
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>`;
   applyModalPriceLegend([]);
-  const printingWrap = $("#owned-printing-wrap");
-  const singlePrintingEl = $("#owned-single-printing");
-  const ownedSection = document.querySelector(".modal-section--owned");
-  if (printingWrap) printingWrap.hidden = false;
-  if (singlePrintingEl) {
-    singlePrintingEl.hidden = true;
-    singlePrintingEl.textContent = "";
-  }
-  ownedSection?.classList.remove("is-single-printing");
-  const printingSel = $("#owned-printing");
-  if (printingSel) {
-    printingSel.innerHTML = '<option value="">Loading…</option>';
-    printingSel.disabled = true;
-  }
 }
 
 function setModalLoadingState(loading) {
@@ -2554,8 +2563,6 @@ function setModalLoadingState(loading) {
     "#modal-favorite",
     "#tag-input",
     "#tag-add-btn",
-    "#owned-printing",
-    "#owned-qty",
     "#owned-add-btn",
     "#deck-target",
     "#deck-zone",
@@ -2760,14 +2767,39 @@ function printingHasMarketPrices(p) {
   );
 }
 
-function formatMarketPrices(p) {
+function formatMarketPrices(p, { showUnavailable = true } = {}) {
   if (!printingHasMarketPrices(p)) {
+    if (!showUnavailable) return "";
     return '<span class="printing-prices-unavailable">Prices unavailable</span>';
   }
   const low = formatMarketPrice(p.low_price);
   const avg = formatMarketPrice(p.avg_price);
   const trend = formatMarketPrice(p.trend_price);
   return `<span aria-label="Low ${low}, Average ${avg}, Trend ${trend}">${low} / ${avg} / ${trend}</span>`;
+}
+
+function formatPrintingOwnershipBadges(p) {
+  const parts = [];
+  if (p.owned_quantity > 0) {
+    parts.push(
+      `<span class="badge badge-owned printing-owned-qty" aria-label="Owned: ${p.owned_quantity}">×${p.owned_quantity}</span>`
+    );
+  }
+  if (p.trade_quantity > 0) {
+    parts.push(
+      `<span class="badge badge-trade printing-trade-qty" aria-label="For trade: ${p.trade_quantity}">×${p.trade_quantity}</span>`
+    );
+  }
+  return parts.length
+    ? `<span class="printing-qty-badges">${parts.join("")}</span>`
+    : "";
+}
+
+function formatPrintingOwnershipLabel(p) {
+  const parts = [];
+  if (p.owned_quantity > 0) parts.push(`×${p.owned_quantity}`);
+  if (p.trade_quantity > 0) parts.push(`×${p.trade_quantity}`);
+  return parts.length ? ` ${parts.join(" ")}` : "";
 }
 
 function formatPriceUpdatedAt(iso) {
@@ -2807,6 +2839,13 @@ function formatPriceLegend(printings) {
 function applyModalPriceLegend(printings) {
   const priceLegend = $("#modal-price-legend");
   if (!priceLegend) return;
+  const hasAnyPrices = printings.some(printingHasMarketPrices);
+  if (!hasAnyPrices) {
+    priceLegend.hidden = false;
+    priceLegend.innerHTML = "Prices unavailable · Cardmarket";
+    priceLegend.setAttribute("aria-label", "Market prices unavailable from Cardmarket");
+    return;
+  }
   const legend = formatPriceLegend(printings);
   if (!legend) {
     priceLegend.hidden = true;
@@ -2843,24 +2882,17 @@ function renderModalPasscode(cardId) {
   if (copyBtn) copyBtn.hidden = false;
 }
 
-function updateOwnedPrintingUi(printings) {
-  const printingWrap = $("#owned-printing-wrap");
-  const singlePrintingEl = $("#owned-single-printing");
-  const ownedSection = document.querySelector(".modal-section--owned");
-  const isSingle = printings.length === 1;
+function expansionCodeFromSetCode(setCode) {
+  const idx = setCode.indexOf("-");
+  return idx > 0 ? setCode.slice(0, idx) : setCode;
+}
 
-  if (printingWrap) printingWrap.hidden = isSingle;
-  if (singlePrintingEl) {
-    if (isSingle) {
-      const p = printings[0];
-      singlePrintingEl.textContent = `${p.set_code} ${p.set_rarity}`;
-      singlePrintingEl.hidden = false;
-    } else {
-      singlePrintingEl.hidden = true;
-      singlePrintingEl.textContent = "";
-    }
-  }
-  ownedSection?.classList.toggle("is-single-printing", isSingle);
+function collectionPrintingKey(p) {
+  return `${p.set_code}|${p.set_rarity_code}`;
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function renderModalTags(tags) {
@@ -2882,6 +2914,62 @@ async function searchByTag(tag) {
   await runSearch();
 }
 
+function renderModalPrintingsList(printings, selectedKey) {
+  const listEl = $("#modal-printings");
+  if (!listEl) return;
+
+  const hasAnyPrices = printings.some(printingHasMarketPrices);
+  listEl.className = `printings-list printings-list--grid${
+    hasAnyPrices ? " printings-list--has-prices" : ""
+  }`;
+
+  const headerPriceCol = hasAnyPrices
+    ? '<span class="printings-col-price">Price</span>'
+    : "";
+  const header = hasAnyPrices
+    ? `
+    <div class="printings-list-header" aria-hidden="true">
+      <span class="printings-col-printing"></span>
+      ${headerPriceCol}
+    </div>`
+    : "";
+
+  const rows = printings
+    .map((p) => {
+      const key = collectionPrintingKey(p);
+      const selected = selectedKey === key ? " printing-row--selected" : "";
+      const owned = p.owned_quantity > 0;
+      const canEdit = owned && p.collection_item_id;
+      const rowAction = canEdit
+        ? "Edit collection entry"
+        : "Select for add to collection";
+      const priceCell = hasAnyPrices
+        ? `<span class="printing-col printing-col-prices muted">${
+            formatMarketPrices(p, { showUnavailable: false }) || "—"
+          }</span>`
+        : "";
+      return `
+      <div class="printing-row printing-row--selectable printing-row--grid${selected}${
+        owned ? " owned" : ""
+      }${canEdit ? " printing-row--editable" : ""}"
+        data-printing-key="${escapeHtml(key)}"
+        data-collection-item-id="${p.collection_item_id ?? ""}"
+        role="button" tabindex="0"
+        title="${escapeHtml(rowAction)}"
+        aria-label="${escapeHtml(`${p.set_code} ${p.set_rarity || ""}. ${rowAction}`)}">
+        <span class="printing-col printing-col-main">
+          <span class="set-code">${escapeHtml(p.set_code)}</span>
+          <span class="rarity">${escapeHtml(p.set_rarity)}</span>
+          ${formatPrintingOwnershipBadges(p)}
+        </span>
+        ${priceCell}
+      </div>`;
+    })
+    .join("");
+
+  listEl.innerHTML = printings.length ? header + rows : "";
+}
+
 function renderModalCard(card) {
   $("#modal-name").textContent = card.name;
   renderModalPasscode(card.id);
@@ -2893,34 +2981,11 @@ function renderModalCard(card) {
   renderModalTags(card.tags);
 
   const printings = card.printings || [];
-  const printingSel = $("#owned-printing");
-  printingSel.innerHTML = printings
-    .map(
-      (p) =>
-        `<option value="${escapeHtml(p.set_code)}|${escapeHtml(p.set_rarity_code)}">
-          ${escapeHtml(p.set_code)} ${escapeHtml(p.set_rarity)} ${p.owned_quantity ? `(${p.owned_quantity}x)` : ""}
-        </option>`
-    )
-    .join("");
-  printingSel.disabled = false;
-  updateOwnedPrintingUi(printings);
-
+  const selectedKey = addCollectionSelectedPrintingKey;
   applyModalPriceLegend(printings);
-
-  $("#modal-printings").innerHTML = printings
-    .map(
-      (p) => `
-      <div class="printing-row ${p.owned_quantity ? "owned" : ""}">
-        <span class="printing-main">
-          <span class="set-code">${escapeHtml(p.set_code)}</span>
-          <span class="rarity">${escapeHtml(p.set_rarity)}</span>
-          ${p.owned_quantity ? `<span class="owned-qty">(${p.owned_quantity}x)</span>` : ""}
-        </span>
-        <span class="printing-prices muted">${formatMarketPrices(p)}</span>
-      </div>`
-    )
-    .join("");
+  renderModalPrintingsList(printings, selectedKey);
   renderModalSupplements(card);
+  applyModalReadableColors();
 }
 
 async function refreshModalCard() {
@@ -2934,6 +2999,9 @@ async function refreshModalCard() {
 }
 
 async function openCardModal(cardId, { fromRouter = false } = {}) {
+  if (state.currentCardId !== cardId) {
+    addCollectionSelectedPrintingKey = null;
+  }
   state.currentCardId = cardId;
   state.currentCard = null;
 
@@ -2968,7 +3036,6 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
     renderModalCard(card);
     setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
     setModalLoadingState(false);
-    applyModalReadableColors();
     updateRouteDocumentTitle();
   } catch (err) {
     if (state.currentCardId !== cardId) return;
@@ -3447,6 +3514,280 @@ async function removeCollectionItem(itemId, { confirm: askConfirm = true } = {})
   return true;
 }
 
+let addCollectionContext = null;
+let addCollectionSelectedPrintingKey = null;
+
+function populateAddCollectionConditionSelect() {
+  const condSel = $("#collection-add-condition");
+  if (!condSel || condSel.options.length) return;
+  condSel.innerHTML = COLLECTION_CONDITIONS.map(
+    (c) => `<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}</option>`
+  ).join("");
+}
+
+function populateAddCollectionFolderSelect() {
+  const sel = $("#collection-add-folder");
+  if (!sel) return;
+  const folders = state.collectionStats?.folders || [];
+  const current = sel.value;
+  sel.innerHTML = [
+    '<option value="">No Folder</option>',
+    ...folders.map(
+      (f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`
+    ),
+  ].join("");
+  if (current && [...sel.options].some((o) => o.value === current)) {
+    sel.value = current;
+  }
+}
+
+function getAddCollectionSelectedPrinting() {
+  const ctx = addCollectionContext;
+  if (!ctx) return null;
+  const printings = ctx.card.printings || [];
+  if (!printings.length) return null;
+  if (printings.length === 1) return printings[0];
+  const sel = $("#collection-add-card-number");
+  const key = sel?.value;
+  if (!key) return printings[0];
+  const [setCode, rarityCode] = key.split("|");
+  return (
+    printings.find(
+      (p) => p.set_code === setCode && p.set_rarity_code === rarityCode
+    ) || printings[0]
+  );
+}
+
+function syncAddCollectionPrintingFields() {
+  const card = addCollectionContext?.card;
+  const printing = getAddCollectionSelectedPrinting();
+  if (!card || !printing) return;
+
+  const cardNameEl = $("#collection-add-card-name");
+  if (cardNameEl) cardNameEl.textContent = card.name || "";
+
+  const setCodeEl = $("#collection-add-set-code");
+  if (setCodeEl) setCodeEl.textContent = expansionCodeFromSetCode(printing.set_code);
+
+  const setNameEl = $("#collection-add-set-name");
+  if (setNameEl) setNameEl.textContent = printing.set_name || "";
+
+  const rarityEl = $("#collection-add-rarity");
+  if (rarityEl) {
+    rarityEl.textContent = printing.set_rarity || printing.set_rarity_code || "";
+  }
+
+  const staticEl = $("#collection-add-card-number-static");
+  if (staticEl) staticEl.textContent = printing.set_code;
+
+  const pricesEl = $("#collection-add-market-prices");
+  if (pricesEl) pricesEl.textContent = formatMarketPrices(printing) || "—";
+}
+
+function renderAddCollectionCardNumberControl(printings, preselectKey) {
+  const wrapMulti = $("#collection-add-card-number-wrap");
+  const wrapStatic = $("#collection-add-card-number-static-wrap");
+  const sel = $("#collection-add-card-number");
+  if (!wrapMulti || !wrapStatic || !sel) return;
+
+  if (printings.length <= 1) {
+    wrapMulti.hidden = true;
+    wrapStatic.hidden = false;
+  } else {
+    wrapMulti.hidden = false;
+    wrapStatic.hidden = true;
+    sel.innerHTML = printings
+      .map((p) => {
+        const key = collectionPrintingKey(p);
+        const owned = formatPrintingOwnershipLabel(p);
+        return `<option value="${escapeHtml(key)}">${escapeHtml(p.set_code)} ${escapeHtml(p.set_rarity)}${owned}</option>`;
+      })
+      .join("");
+    const key =
+      preselectKey && printings.some((p) => collectionPrintingKey(p) === preselectKey)
+        ? preselectKey
+        : collectionPrintingKey(printings[0]);
+    sel.value = key;
+  }
+}
+
+function resetAddCollectionNewFolderRow() {
+  $("#collection-add-new-folder-row")?.classList.add("hidden");
+  const nameInput = $("#collection-add-new-folder-name");
+  if (nameInput) nameInput.value = "";
+}
+
+async function openAddCollectionModal(card, { printingKey: preselectKey = null } = {}) {
+  if (!state.token) {
+    showToast("Log in to add to your collection.", { variant: "error" });
+    return;
+  }
+
+  populateAddCollectionConditionSelect();
+  addCollectionContext = { card };
+
+  if (!state.collectionStats) {
+    try {
+      await loadCollectionStats();
+    } catch (err) {
+      addCollectionContext = null;
+      showToast(err.message || "Could not load folders.", { variant: "error" });
+      return;
+    }
+  }
+
+  populateAddCollectionFolderSelect();
+
+  const printings = card.printings || [];
+  const selectedKey = preselectKey || addCollectionSelectedPrintingKey;
+  renderAddCollectionCardNumberControl(printings, selectedKey);
+
+  $("#collection-add-quantity").value = "1";
+  $("#collection-add-trade-quantity").value = "0";
+  $("#collection-add-condition").value = "NearMint";
+  $("#collection-add-edition").value = "Unlimited";
+  $("#collection-add-language").value = "English";
+  $("#collection-add-price-bought").value = "0";
+  $("#collection-add-date-bought").value = todayIsoDate();
+  $("#collection-add-folder").value = "";
+  resetAddCollectionNewFolderRow();
+
+  syncAddCollectionPrintingFields();
+
+  const dlg = $("#collection-add-modal");
+  if (!dlg) return;
+  dlg.hidden = false;
+  syncModalOpenClass();
+  $("#collection-add-close")?.focus();
+}
+
+function closeAddCollectionModal() {
+  const dlg = $("#collection-add-modal");
+  if (!dlg || dlg.hidden) return;
+  dlg.hidden = true;
+  addCollectionContext = null;
+  syncModalOpenClass();
+}
+
+async function createFolderFromAddModal() {
+  const nameInput = $("#collection-add-new-folder-name");
+  const name = nameInput?.value?.trim();
+  if (!name) {
+    showToast("Enter a folder name.", { variant: "error" });
+    return;
+  }
+  try {
+    const folder = await api("/collection/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    await loadCollectionStats();
+    populateAddCollectionFolderSelect();
+    $("#collection-add-folder").value = String(folder.id);
+    resetAddCollectionNewFolderRow();
+    showToast(`Folder "${folder.name}" created.`);
+  } catch (err) {
+    showToast(err.message, { variant: "error" });
+  }
+}
+
+async function submitAddCollection() {
+  if (!addCollectionContext) return;
+  const printing = getAddCollectionSelectedPrinting();
+  if (!printing) {
+    showToast("No printing selected.", { variant: "error" });
+    return;
+  }
+
+  const qty = Number($("#collection-add-quantity").value);
+  if (!Number.isInteger(qty) || qty < 1) {
+    showToast("Quantity must be at least 1.", { variant: "error" });
+    return;
+  }
+
+  const tradeQty = Number($("#collection-add-trade-quantity").value);
+  if (!Number.isInteger(tradeQty) || tradeQty < 0) {
+    showToast("Trade quantity must be 0 or more.", { variant: "error" });
+    return;
+  }
+
+  const priceBought = Number($("#collection-add-price-bought").value);
+  if (!Number.isFinite(priceBought) || priceBought < 0) {
+    showToast("Price bought must be 0 or greater.", { variant: "error" });
+    return;
+  }
+
+  const folderVal = $("#collection-add-folder").value;
+  const folderId = folderVal ? Number(folderVal) : null;
+  const card = addCollectionContext.card;
+
+  const body = {
+    set_code: printing.set_code,
+    rarity: printing.set_rarity_code,
+    quantity: qty,
+    trade_quantity: tradeQty,
+    card_name: card.name,
+    expansion_code: expansionCodeFromSetCode(printing.set_code),
+    set_name: printing.set_name,
+    condition: $("#collection-add-condition").value,
+    printing: $("#collection-add-edition").value,
+    language: $("#collection-add-language").value,
+    folder_id: folderId,
+    price_bought: priceBought,
+    date_bought: $("#collection-add-date-bought").value || todayIsoDate(),
+  };
+
+  const btn = $("#collection-add-submit");
+  try {
+    await runModalAction(
+      btn,
+      () =>
+        api("/collection", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      { busyLabel: "Adding…", successMessage: `Added ${qty}× ${printing.set_code}` }
+    );
+  } catch {
+    return;
+  }
+
+  addCollectionSelectedPrintingKey = collectionPrintingKey(printing);
+  state.collectionViewCache = null;
+  closeAddCollectionModal();
+  refreshModalCard();
+  loadStatus();
+  refreshOwnedSearchState();
+  refreshCollectionIfActive();
+}
+
+function selectModalPrintingRow(key) {
+  if (!key || !state.currentCard) return;
+  addCollectionSelectedPrintingKey = key;
+  renderModalCard(state.currentCard);
+}
+
+async function activateModalPrintingRow(row) {
+  const key = row?.dataset.printingKey;
+  if (!key) return;
+  const itemId = Number(row.dataset.collectionItemId);
+  const printing = (state.currentCard?.printings || []).find(
+    (p) => collectionPrintingKey(p) === key
+  );
+  if (printing?.owned_quantity > 0 && itemId) {
+    try {
+      const item = await api(`/collection/${itemId}`);
+      await openCollectionEditModal(item, itemId);
+    } catch (err) {
+      showToast(err.message || "Could not open collection entry.", { variant: "error" });
+    }
+    return;
+  }
+  selectModalPrintingRow(key);
+}
+
 let collectionEditContext = null;
 
 function closeCollectionEditModal() {
@@ -3624,6 +3965,9 @@ async function saveCollectionEdit() {
     await patchCollectionItem(itemId, body);
     closeCollectionEditModal();
     await loadCollectionPage(state.collectionPage);
+    if (state.currentCardId) {
+      await refreshModalCard();
+    }
   } catch (err) {
     alert(err.message);
   }
@@ -4670,6 +5014,25 @@ function wireEvents() {
     );
   });
 
+  $("#collection-add-cancel")?.addEventListener("click", closeAddCollectionModal);
+  $("#collection-add-close")?.addEventListener("click", closeAddCollectionModal);
+  $("#collection-add-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#collection-add-modal")) closeAddCollectionModal();
+  });
+  $("#collection-add-submit")?.addEventListener("click", submitAddCollection);
+  $("#collection-add-card-number")?.addEventListener("change", syncAddCollectionPrintingFields);
+  $("#collection-add-new-folder-toggle")?.addEventListener("click", () => {
+    $("#collection-add-new-folder-row")?.classList.toggle("hidden");
+    $("#collection-add-new-folder-name")?.focus();
+  });
+  $("#collection-add-new-folder-create")?.addEventListener("click", createFolderFromAddModal);
+  $("#collection-add-new-folder-name")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      createFolderFromAddModal();
+    }
+  });
+
   $("#export-collection-confirm")?.addEventListener("click", async () => {
     const selected = document.querySelector('input[name="export-format"]:checked');
     if (!selected) {
@@ -4783,6 +5146,7 @@ function wireEvents() {
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
     else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
+    else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
@@ -4903,34 +5267,23 @@ function wireEvents() {
     }
   });
 
-  $("#owned-add-btn").addEventListener("click", async () => {
-    if (!state.token) {
-      showToast("Log in to add to your collection.", { variant: "error" });
-      return;
-    }
-    const val = $("#owned-printing").value;
-    const [set_code, rarity] = val.split("|");
-    const qty = Number($("#owned-qty").value) || 1;
-    const btn = $("#owned-add-btn");
-    try {
-      await runModalAction(
-        btn,
-        () =>
-          api("/collection", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ set_code, rarity, quantity: qty }),
-          }),
-        { busyLabel: "Adding…", successMessage: `Added ${qty}× ${set_code}` }
-      );
-    } catch {
-      return;
-    }
-    state.collectionViewCache = null;
-    refreshModalCard();
-    loadStatus();
-    refreshOwnedSearchState();
-    refreshCollectionIfActive();
+  $("#owned-add-btn").addEventListener("click", () => {
+    if (!state.currentCard) return;
+    const preselectKey = addCollectionSelectedPrintingKey;
+    openAddCollectionModal(state.currentCard, { printingKey: preselectKey });
+  });
+
+  $("#modal-printings")?.addEventListener("click", (e) => {
+    const row = e.target.closest(".printing-row--selectable");
+    if (!row?.dataset.printingKey) return;
+    void activateModalPrintingRow(row);
+  });
+  $("#modal-printings")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const row = e.target.closest(".printing-row--selectable");
+    if (!row?.dataset.printingKey) return;
+    e.preventDefault();
+    void activateModalPrintingRow(row);
   });
 
   $("#deck-add-card-btn").addEventListener("click", async () => {

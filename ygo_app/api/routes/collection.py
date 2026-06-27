@@ -234,6 +234,18 @@ def create_item(
     return _item_out(db, item)
 
 
+@router.get("/{item_id}", response_model=CollectionItemOut)
+def get_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    item = _load_item_with_card(db, item_id, user.id)
+    if not item:
+        raise HTTPException(404, "Collection item not found")
+    return _item_out(db, item)
+
+
 @router.patch("/{item_id}", response_model=CollectionItemOut)
 def update_item(
     item_id: int,

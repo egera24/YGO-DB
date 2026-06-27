@@ -598,12 +598,16 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
         return None
 
     owned_map: dict[tuple[str, str], int] = {}
+    trade_map: dict[tuple[str, str], int] = {}
+    collection_item_id_map: dict[tuple[str, str], int] = {}
     if user_id is not None:
         rows = session.execute(
             select(
                 CollectionItem.set_code,
                 CollectionItem.rarity_code,
                 func.sum(CollectionItem.quantity),
+                func.sum(CollectionItem.trade_quantity),
+                func.min(CollectionItem.id),
             )
             .join(
                 Printing,
@@ -613,13 +617,16 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
             .where(Printing.card_id == card_id, CollectionItem.user_id == user_id)
             .group_by(CollectionItem.set_code, CollectionItem.rarity_code)
         ).all()
-        for set_code, rarity_code, qty in rows:
+        for set_code, rarity_code, qty, trade_qty, item_id in rows:
             owned_map[(set_code, rarity_code)] = int(qty or 0)
+            trade_map[(set_code, rarity_code)] = int(trade_qty or 0)
+            collection_item_id_map[(set_code, rarity_code)] = int(item_id)
 
     for printing in card.printings:
-        printing.owned_quantity = owned_map.get(
-            (printing.set_code, printing.set_rarity_code), 0
-        )
+        key = (printing.set_code, printing.set_rarity_code)
+        printing.owned_quantity = owned_map.get(key, 0)
+        printing.trade_quantity = trade_map.get(key, 0)
+        printing.collection_item_id = collection_item_id_map.get(key)
 
     from ygo_app.cardmarket.market_prices import attach_market_prices_to_printings
 
@@ -1381,6 +1388,18 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
     )
     session.add(item)
     session.flush()
+
+    if item.printing_id:
+        printing = session.get(Printing, item.printing_id)
+        if printing is not None:
+            if not item.set_name:
+                item.set_name = printing.set_name
+            if not item.expansion_code and "-" in set_code:
+                item.expansion_code = set_code.split("-", 1)[0]
+            if not item.card_name:
+                card = session.get(Card, printing.card_id)
+                if card is not None:
+                    item.card_name = card.name
 
     if data.get("folder_allocations"):
         set_item_folder_allocations(

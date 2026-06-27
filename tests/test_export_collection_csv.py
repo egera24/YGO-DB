@@ -27,6 +27,7 @@ from ygo_app.models import (
     PrintingMarketPrice,
     User,
 )
+from ygo_app.services import NO_FOLDER
 
 
 def _sqlite_engine(path: str):
@@ -256,6 +257,166 @@ class TestExportCollectionCsv(unittest.TestCase):
         finally:
             self.init_db_patcher.stop()
             self.session_factory_patcher.stop()
+
+
+def _read_export_rows(csv_text: str) -> list[dict]:
+    reader = csv.DictReader(io.StringIO("\n".join(csv_text.splitlines()[1:])))
+    return list(reader)
+
+
+class TestExportCollectionCsvFolderFilter(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.engine = _sqlite_engine(self._tmp.name)
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine)
+
+        session = self.Session()
+        user = User(email="export-folders@test.example", hashed_password="x")
+        session.add(user)
+        session.flush()
+        self.user_id = user.id
+
+        card = Card(id=89631139, name="Blue-Eyes White Dragon")
+        session.add(card)
+        printing = Printing(
+            card_id=89631139,
+            set_code="LOB-001",
+            set_name="Legend of Blue Eyes White Dragon",
+            set_rarity_code="(UR)",
+            set_rarity="Ultra Rare",
+        )
+        session.add(printing)
+        session.flush()
+
+        main = CollectionFolder(user_id=self.user_id, name="main", name_key="main")
+        trade = CollectionFolder(user_id=self.user_id, name="trade", name_key="trade")
+        session.add_all([main, trade])
+        session.flush()
+        self.main_folder_id = main.id
+        self.trade_folder_id = trade.id
+
+        split_item = CollectionItem(
+            user_id=self.user_id,
+            set_code="LOB-001",
+            rarity_code="(UR)",
+            card_name="Split Card",
+            expansion_code="LOB",
+            quantity=2,
+            printing_id=printing.id,
+        )
+        session.add(split_item)
+        session.flush()
+        session.add_all(
+            [
+                CollectionItemFolder(
+                    collection_item_id=split_item.id,
+                    folder_id=main.id,
+                    quantity=1,
+                ),
+                CollectionItemFolder(
+                    collection_item_id=split_item.id,
+                    folder_id=trade.id,
+                    quantity=1,
+                ),
+            ]
+        )
+
+        loose_item = CollectionItem(
+            user_id=self.user_id,
+            set_code="LOB-002",
+            rarity_code="(UR)",
+            card_name="Loose Card",
+            expansion_code="LOB",
+            quantity=3,
+            printing_id=printing.id,
+        )
+        session.add(loose_item)
+        session.flush()
+        session.add(
+            CollectionItemFolder(
+                collection_item_id=loose_item.id,
+                folder_id=None,
+                quantity=3,
+            )
+        )
+        session.commit()
+        session.close()
+
+    def tearDown(self):
+        self.engine.dispose()
+
+    def test_export_filters_single_folder(self):
+        session = self.Session()
+        csv_text, _, _ = export_collection_csv(
+            session,
+            user_id=self.user_id,
+            format_id="dragonshield",
+            folder_ids=[str(self.main_folder_id)],
+        )
+        session.close()
+
+        rows = _read_export_rows(csv_text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Folder Name"], "main")
+        self.assertEqual(rows[0]["Quantity"], "1")
+        self.assertEqual(rows[0]["Card Name"], "Split Card")
+
+    def test_export_filters_multiple_folders(self):
+        session = self.Session()
+        csv_text, _, _ = export_collection_csv(
+            session,
+            user_id=self.user_id,
+            format_id="dragonshield",
+            folder_ids=[str(self.main_folder_id), str(self.trade_folder_id)],
+        )
+        session.close()
+
+        rows = _read_export_rows(csv_text)
+        self.assertEqual(len(rows), 2)
+        folders = {row["Folder Name"] for row in rows}
+        self.assertEqual(folders, {"main", "trade"})
+        self.assertTrue(all(row["Quantity"] == "1" for row in rows))
+        self.assertTrue(all(row["Card Name"] == "Split Card" for row in rows))
+
+    def test_export_filters_no_folder_only(self):
+        session = self.Session()
+        csv_text, _, _ = export_collection_csv(
+            session,
+            user_id=self.user_id,
+            format_id="dragonshield",
+            folder_ids=[NO_FOLDER],
+        )
+        session.close()
+
+        rows = _read_export_rows(csv_text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Folder Name"], "")
+        self.assertEqual(rows[0]["Quantity"], "3")
+        self.assertEqual(rows[0]["Card Name"], "Loose Card")
+
+    def test_export_unknown_folder_raises(self):
+        session = self.Session()
+        with self.assertRaises(ValueError):
+            export_collection_csv(
+                session,
+                user_id=self.user_id,
+                format_id="dragonshield",
+                folder_ids=["99999"],
+            )
+        session.close()
+
+    def test_export_empty_folder_list_raises(self):
+        session = self.Session()
+        with self.assertRaises(ValueError):
+            export_collection_csv(
+                session,
+                user_id=self.user_id,
+                format_id="dragonshield",
+                folder_ids=[],
+            )
+        session.close()
 
 
 if __name__ == "__main__":

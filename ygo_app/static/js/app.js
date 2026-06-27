@@ -3807,6 +3807,93 @@ function renderExportFormatOptions(formats) {
   });
 }
 
+function syncExportFolderSelection() {
+  const list = $("#export-folder-list");
+  const master = $("#export-folder-all");
+  const summary = $("#export-folder-summary");
+  const confirmBtn = $("#export-collection-confirm");
+  if (!list || list.hidden) return;
+
+  const inputs = list.querySelectorAll('input[name="export-folder"]');
+  const checked = list.querySelectorAll('input[name="export-folder"]:checked');
+  const total = inputs.length;
+  const count = checked.length;
+
+  if (master) {
+    master.indeterminate = count > 0 && count < total;
+    master.checked = count === total;
+  }
+  if (summary) {
+    if (count === 0) {
+      summary.textContent = "No folders selected";
+    } else if (count === total) {
+      summary.textContent = `All folders (${total})`;
+    } else {
+      summary.textContent = `${count} of ${total} folders`;
+    }
+  }
+  if (confirmBtn) confirmBtn.disabled = count === 0;
+}
+
+function renderExportFolderOptions(stats) {
+  const list = $("#export-folder-list");
+  if (!list) return;
+  const options = [];
+  if (stats.no_folder_count > 0) {
+    options.push({ value: NO_FOLDER, label: "No Folder" });
+  }
+  for (const folder of stats.folders || []) {
+    options.push({ value: String(folder.id), label: folder.name });
+  }
+  if (!options.length) {
+    list.hidden = true;
+    const confirmBtn = $("#export-collection-confirm");
+    if (confirmBtn) confirmBtn.disabled = false;
+    return;
+  }
+  list.hidden = false;
+  list.innerHTML = `
+    <legend>Folders</legend>
+    <label class="export-folder-master check">
+      <input type="checkbox" id="export-folder-all" checked />
+      <span>All folders</span>
+    </label>
+    <p id="export-folder-summary" class="export-folder-summary muted"></p>
+    <div class="export-folder-options">
+      ${options
+        .map(
+          (opt) => `
+        <label class="export-folder-option check">
+          <input type="checkbox" name="export-folder" value="${escapeHtml(opt.value)}" checked />
+          <span>${escapeHtml(opt.label)}</span>
+        </label>`
+        )
+        .join("")}
+    </div>`;
+
+  const master = $("#export-folder-all");
+  master?.addEventListener("change", () => {
+    const checked = master.checked;
+    list.querySelectorAll('input[name="export-folder"]').forEach((input) => {
+      input.checked = checked;
+    });
+    syncExportFolderSelection();
+  });
+  list.querySelectorAll('input[name="export-folder"]').forEach((input) => {
+    input.addEventListener("change", syncExportFolderSelection);
+  });
+  syncExportFolderSelection();
+}
+
+function getSelectedExportFolders() {
+  const inputs = document.querySelectorAll('input[name="export-folder"]');
+  if (!inputs.length) return null;
+  const checked = document.querySelectorAll('input[name="export-folder"]:checked');
+  if (!checked.length) return [];
+  if (checked.length === inputs.length) return null;
+  return [...checked].map((input) => input.value);
+}
+
 let exportCollectionTrigger = null;
 
 function openExportCollectionModal() {
@@ -3828,13 +3915,14 @@ function closeExportCollectionModal() {
   exportCollectionTrigger = null;
 }
 
-async function downloadCollectionExport(formatId) {
+async function downloadCollectionExport(formatId, folderIds = null) {
   const headers = { Accept: "text/csv" };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const res = await fetch(
-    `${API}/collection/export-csv?format=${encodeURIComponent(formatId)}`,
-    { headers }
-  );
+  const params = new URLSearchParams({ format: formatId });
+  if (folderIds) {
+    for (const id of folderIds) params.append("folders", id);
+  }
+  const res = await fetch(`${API}/collection/export-csv?${params}`, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || res.statusText);
@@ -4453,12 +4541,17 @@ function wireEvents() {
       return;
     }
     try {
-      const formats = await loadExportFormats();
+      const [formats, stats] = await Promise.all([
+        loadExportFormats(),
+        api("/collection/stats"),
+      ]);
       if (!formats.length) {
         alert("No export formats available.");
         return;
       }
+      state.collectionStats = stats;
       renderExportFormatOptions(formats);
+      renderExportFolderOptions(stats);
       openExportCollectionModal();
     } catch (err) {
       alert(err.message);
@@ -4511,7 +4604,8 @@ function wireEvents() {
     const confirmBtn = $("#export-collection-confirm");
     if (confirmBtn) confirmBtn.disabled = true;
     try {
-      await downloadCollectionExport(selected.value);
+      const folderIds = getSelectedExportFolders();
+      await downloadCollectionExport(selected.value, folderIds);
       closeExportCollectionModal();
     } catch (err) {
       alert(err.message);

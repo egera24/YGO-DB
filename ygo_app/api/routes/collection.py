@@ -200,12 +200,15 @@ def get_export_formats(user: User = Depends(get_current_user)):
 @router.get("/export-csv")
 def export_csv(
     format: str = Query(..., description="Export format id (e.g. dragonshield)"),
+    folders: list[str] | None = Query(
+        None, description="Folder id or __no_folder__; omit for all"
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     try:
         csv_text, media_type, filename = export_collection_csv(
-            db, user_id=user.id, format_id=format
+            db, user_id=user.id, format_id=format, folder_ids=folders
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

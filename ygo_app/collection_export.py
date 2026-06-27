@@ -15,7 +15,14 @@ from ygo_app.cardmarket.market_prices import (
     market_prices_tuple,
     resolve_sell_price,
 )
-from ygo_app.models import CollectionItem, CollectionItemFolder, Printing, PrintingMarketPrice
+from ygo_app.models import (
+    CollectionFolder,
+    CollectionItem,
+    CollectionItemFolder,
+    Printing,
+    PrintingMarketPrice,
+)
+from ygo_app.services import NO_FOLDER
 from ygo_app.utils import rarity_display
 
 DRAGONSHIELD_HEADERS = [
@@ -115,14 +122,51 @@ def _item_base_row(
     }
 
 
+def _allocation_in_filters(
+    folder_id: int | None, folder_filters: set[str] | None
+) -> bool:
+    if folder_filters is None:
+        return True
+    if folder_id is None:
+        return NO_FOLDER in folder_filters
+    return str(folder_id) in folder_filters
+
+
+def validate_export_folder_ids(
+    session: Session, user_id: int, folder_ids: list[str]
+) -> set[str]:
+    if not folder_ids:
+        raise ValueError("Select at least one folder")
+    validated: set[str] = set()
+    for raw in folder_ids:
+        token = raw.strip()
+        if not token:
+            raise ValueError("Select at least one folder")
+        if token == NO_FOLDER:
+            validated.add(NO_FOLDER)
+            continue
+        try:
+            folder_id = int(token)
+        except ValueError as exc:
+            raise ValueError(f"Unknown folder: {token}") from exc
+        folder = session.get(CollectionFolder, folder_id)
+        if not folder or folder.user_id != user_id:
+            raise ValueError("Folder not found")
+        validated.add(str(folder_id))
+    return validated
+
+
 def _item_to_rows(
     item: CollectionItem,
     *,
     market_row: PrintingMarketPrice | None,
+    folder_filters: set[str] | None = None,
 ) -> list[ExportRow]:
     base = _item_base_row(item, market_row=market_row)
     allocations = item.folder_allocations
     if not allocations:
+        if not _allocation_in_filters(None, folder_filters):
+            return []
         return [
             ExportRow(
                 folder_name=None,
@@ -130,14 +174,18 @@ def _item_to_rows(
                 **base,
             )
         ]
-    return [
-        ExportRow(
-            folder_name=allocation.folder.name if allocation.folder else None,
-            quantity=int(allocation.quantity),
-            **base,
+    rows: list[ExportRow] = []
+    for allocation in allocations:
+        if not _allocation_in_filters(allocation.folder_id, folder_filters):
+            continue
+        rows.append(
+            ExportRow(
+                folder_name=allocation.folder.name if allocation.folder else None,
+                quantity=int(allocation.quantity),
+                **base,
+            )
         )
-        for allocation in allocations
-    ]
+    return rows
 
 
 def _write_dragonshield(rows: list[ExportRow]) -> str:
@@ -170,7 +218,12 @@ def _write_dragonshield(rows: list[ExportRow]) -> str:
     return buf.getvalue()
 
 
-def load_collection_for_export(session: Session, user_id: int) -> list[ExportRow]:
+def load_collection_for_export(
+    session: Session,
+    user_id: int,
+    *,
+    folder_filters: set[str] | None = None,
+) -> list[ExportRow]:
     stmt = (
         select(CollectionItem)
         .where(CollectionItem.user_id == user_id)
@@ -188,7 +241,9 @@ def load_collection_for_export(session: Session, user_id: int) -> list[ExportRow
     rows: list[ExportRow] = []
     for item in items:
         market_row = market_map.get((item.set_code, item.rarity_code))
-        rows.extend(_item_to_rows(item, market_row=market_row))
+        rows.extend(
+            _item_to_rows(item, market_row=market_row, folder_filters=folder_filters)
+        )
     return rows
 
 
@@ -218,11 +273,20 @@ def list_export_formats() -> list[dict]:
 
 
 def export_collection_csv(
-    session: Session, *, user_id: int, format_id: str
+    session: Session,
+    *,
+    user_id: int,
+    format_id: str,
+    folder_ids: list[str] | None = None,
 ) -> tuple[str, str, str]:
     fmt = FORMATS.get(format_id)
     if fmt is None:
         raise ValueError(f"Unknown export format: {format_id}")
-    rows = load_collection_for_export(session, user_id)
+    folder_filters = None
+    if folder_ids is not None:
+        folder_filters = validate_export_folder_ids(session, user_id, folder_ids)
+    rows = load_collection_for_export(
+        session, user_id, folder_filters=folder_filters
+    )
     csv_text = fmt.write(rows)
     return csv_text, "text/csv; charset=utf-8", fmt.filename

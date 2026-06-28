@@ -1,0 +1,452 @@
+The cardmarket scraping process takes too long. 
+Scraping the cardlist of 1000 expansions takes about 20 hours if i do not hit the rate limit. 
+The card details scraping process should extract the data of about 66000 cards, which would take days.
+
+So i need you to archive the cardmarket scraping moduls. They will not be used. 
+
+But instead of it i want to use the cardmarket catalogs. Based on Cardmakret announcement:
+
+"
+05.06.2024, 16:07:30
+
+Dear Cardmarket Users,
+
+Starting next Tuesday, Cardmarket's price guide and product catalogue will be available for download for all games. You can download these files from this downloads page. Previously, these files were only available to API users, but we've decided to widen their availability to all of our users. Please note that the price guide is updated once daily and the product catalogue is updated whenever we add a new release, so these files may not always be 100% up to date.
+
+Because this information is now publicly available, we don't need the old API endpoint. As such, the API endpoints will be deprecated on release - we won't support or maintain it - and we will remove the endpoints altogether six months after release. API users should keep this in mind and change their requests accordingly.
+
+Happy Shopping!
+
+Your Cardmarket Team"
+
+
+
+This is the url of the files: https://www.cardmarket.com/en/YuGiOh/Data
+
+Inside the above url you will find the following links:
+https://www.cardmarket.com/en/YuGiOh/Data/Price-Guide
+https://www.cardmarket.com/en/YuGiOh/Data/Product-List
+
+There you should search for the files which are for "Yugioh". 
+
+Product catalog:
+https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json
+https://downloads.s3.cardmarket.com/productCatalog/productList/products_nonsingles_3.json
+
+Price guide:
+https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json
+
+
+products_nonsingles_3.json: Contains the list of non-single products. It is a little bit tricky.
+
+The cardmarket expansion id 5316 is the Speed Duel: Streets of Battle City Box.
+But in the json file the different products are listed and the expansion id is only part of their attributes.
+
+Example:
+        {
+            "idProduct": 703088,
+            "name": "Speed Duel: Streets of Battle City Box",
+            "idCategory": 37,
+            "categoryName": "Yugioh Promo Products",
+            "idExpansion": 5316,
+            "idMetacard": 0,
+            "dateAdded": "2023-03-23 09:30:14"
+        },
+        {
+            "idProduct": 727683,
+            "name": "Speed Duel: Streets of Battle City Decks Only (4 Card Packs)",
+            "idCategory": 28,
+            "categoryName": "Yugioh Starter Deck",
+            "idExpansion": 5316,
+            "idMetacard": 0,
+            "dateAdded": "2023-08-15 05:11:14"
+        },
+
+The expansion is sold on the Cardmarket in two variants: whole box and decks only. But the important thing is that the idExpansion is the "Speed Duel: Streets of Battle City Box".
+I am not sure how to decide automatically which name is the correct one.
+
+
+But the products_singles_3.json contains the list of single products (normally the cards) and they have the expansion id in the idExpansion attribute.
+
+Example:
+        {
+            "idProduct": 727794,
+            "name": "7 Colored Fish",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 5316,
+            "idMetacard": 101783,
+            "dateAdded": "2023-08-15 05:43:48"
+        },
+
+Based on this we can see that this is the card 7 Colored Fish from the Speed Duel: Streets of Battle City Box.
+
+In the price_guide_3.json you will find the prices of the cards.
+
+Example:
+
+        {
+            "idProduct": 727794,
+            "idCategory": 5,
+            "avg": 0.13,
+            "low": 0.02,
+            "trend": 0.12,
+            "avg1": 0.25,
+            "avg7": 0.2,
+            "avg30": 0.16,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+
+Now we can see the prices of the card 7 Colored Fish from the Speed Duel: Streets of Battle City Box.
+
+
+Take another example where one card has multiple variants in the same expansion.
+In this case the cardmarket expansion id 6424 is the Rarity Collection 5.
+But in the json file the different products are listed and the expansion id is only part of their attributes.
+
+Example:    
+        {
+            "idProduct": 863265,
+            "name": "Rarity Collection 5 Booster",
+            "idCategory": 6,
+            "categoryName": "Yugioh Booster",
+            "idExpansion": 6424,
+            "idMetacard": 0,
+            "dateAdded": "2025-12-17 13:52:43"
+        },
+        {
+            "idProduct": 863266,
+            "name": "Rarity Collection 5 Booster Box",
+            "idCategory": 42,
+            "categoryName": "Yugioh Display",
+            "idExpansion": 6424,
+            "idMetacard": 0,
+            "dateAdded": "2025-12-17 13:53:34"
+        },
+        {
+            "idProduct": 863270,
+            "name": "Rarity Collection 5 Case (12 Booster Boxes)",
+            "idCategory": 42,
+            "categoryName": "Yugioh Display",
+            "idExpansion": 6424,
+            "idMetacard": 0,
+            "dateAdded": "2025-12-17 13:56:32"
+        },
+        {
+            "idProduct": 863270,
+            "name": "Rarity Collection 5 Case (12 Booster Boxes)",
+            "idCategory": 42,
+            "categoryName": "Yugioh Display",
+            "idExpansion": 6424,
+            "idMetacard": 0,
+            "dateAdded": "2025-12-17 13:56:32"
+        },
+
+From this expansion take the following card as example, which have mulitiple variants:
+
+        {
+            "idProduct": 880567,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:38:59"
+        },
+        {
+            "idProduct": 880568,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:39:14"
+        },
+        {
+            "idProduct": 880569,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:39:25"
+        },
+        {
+            "idProduct": 880570,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:39:35"
+        },
+        {
+            "idProduct": 880571,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:39:49"
+        },
+        {
+            "idProduct": 880572,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:40:03"
+        },
+        {
+            "idProduct": 880573,
+            "name": "Blue-Eyes Toon Dragon",
+            "idCategory": 5,
+            "categoryName": "Yugioh Single",
+            "idExpansion": 6424,
+            "idMetacard": 102060,
+            "dateAdded": "2026-04-01 11:40:15"
+        },
+
+
+The prices are in the price_guide_3.json file:
+
+
+        {
+            "idProduct": 880567,
+            "idCategory": 5,
+            "avg": 6.75,
+            "low": null,
+            "trend": 1.95,
+            "avg1": 1.95,
+            "avg7": 6.31,
+            "avg30": 6.31,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+        {
+            "idProduct": 880568,
+            "idCategory": 5,
+            "avg": 7.95,
+            "low": null,
+            "trend": 2.95,
+            "avg1": 2.95,
+            "avg7": 7.62,
+            "avg30": 7.62,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+        {
+            "idProduct": 880569,
+            "idCategory": 5,
+            "avg": 9.9,
+            "low": null,
+            "trend": 9.9,
+            "avg1": 9.9,
+            "avg7": 9.9,
+            "avg30": 9.9,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+        {
+            "idProduct": 880570,
+            "idCategory": 5,
+            "avg": 14.95,
+            "low": null,
+            "trend": 14.95,
+            "avg1": 14.95,
+            "avg7": 14.95,
+            "avg30": 14.95,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+        {
+            "idProduct": 880571,
+            "idCategory": 5,
+            "avg": 25.03,
+            "low": 21,
+            "trend": 27.37,
+            "avg1": 27.79,
+            "avg7": 27.73,
+            "avg30": 25.08,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+        {
+            "idProduct": 880572,
+            "idCategory": 5,
+            "avg": 10.95,
+            "low": null,
+            "trend": 10.95,
+            "avg1": 10.95,
+            "avg7": 10.95,
+            "avg30": 10.95,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+        {
+            "idProduct": 880573,
+            "idCategory": 5,
+            "avg": 10.95,
+            "low": null,
+            "trend": 10.95,
+            "avg1": 10.95,
+            "avg7": 10.95,
+            "avg30": 10.95,
+            "avg-foil": null,
+            "low-foil": null,
+            "trend-foil": 0,
+            "avg1-foil": null,
+            "avg7-foil": null,
+            "avg30-foil": null
+        },
+
+
+Because the rarity is not part of the attributes, we have to best guess the rarity of the card based on the prices. 
+
+In the database we have the details of all cards, the rarity as well. 
+
+The logic for finding the correct expansion name and card name is the following.
+
+1) For every yugipedia tcg set a cardmarket expansion id should be found and based on that the cardmarket_expansions table should be filled.
+
+Take as an example the Rarity Collection 5 in the database. It should check, which blocks contain the the "name" Rarity Collection 5 in the products_nonsingles_3.json file.
+This search should be as a like operator in SQL, so the system will find 4 blocks and all of the blocks should contain the idExpansion 6424. 
+Here there should be a validation if every result contains the same idExpansion. If not, an error should be raised and the user should be informed, the process should be terminated.
+
+Now we know which cardmarket idExpansion which yugioh expansion code belongs to.
+
+2) In the database we have all of the yugipedia card printings. Now we know which cardmarked IdExpansion belongs to which yugipedia expension. 
+The file products_singles_3.json contains all of the cards from cardmarket. We can identify the cards by the idExpension and by the card name. 
+However the rarity is still missing which is a needed identification for a card printing. 
+Based on cardmarket catalogs the only available option is to best guess the rarity. 
+The price_guide_3.json file contains the prices of the cards. We should best guess the rarity of the card and parallel we can store the prices as well. 
+
+This is the ordered list of all rarities. This ordered list should also be saved into the database, but maybe it will be changed, so it should be a separate table.
+
+The higher order number means that the rarity is more valuable (price is higher).
+
+1. Common
+2. Normal Rare
+3. Short Print
+4. Super Short Print
+5. Normal Parallel Rare (Parallel Common)
+6. Duel Terminal Normal Parallel Rare
+7. Rare
+8. Duel Terminal Normal Rare Parallel Rare
+9. Duel Terminal Rare Parallel Rare
+10. Super Rare
+11. Holofoil Rare
+12. Super Parallel Rare
+13. Duel Terminal Super Parallel Rare
+14. Starfoil Rare
+15. Mosaic Rare
+16. Shatterfoil Rare
+17. Millennium Rare
+18. Ultra Rare
+19. Ultra Parallel Rare
+20. Duel Terminal Ultra Parallel Rare
+21. Gold Rare
+22. Ultimate Rare
+23. Secret Rare
+24. Ultra Secret Rare
+25. Secret Ultra Rare
+26. Duel Terminal Secret Parallel Rare
+27. Gold Secret Rare
+28. Ghost/Gold Rare
+29. Premium Gold Rare
+30. Platinum Rare
+31. Collector's Rare
+32. Ultra Rare (Pharaoh's Rare)
+33. Ghost Rare
+34. Starlight Rare
+35. Prismatic Collector's Rare
+36. Prismatic Ultimate Rare
+37. Platinum Secret Rare
+38. Extra Secret Rare
+39. 10000 Secret Rare
+40. Prismatic Secret Rare
+41. Quarter Century Secret Rare
+42. Grand Master Rare
+
+
+With rarity codes (if relevant, but best would be solve without them):
+
+1. Common — **C**
+2. Normal Rare — **N**
+3. Short Print — **SP**
+4. Super Short Print — **SSP**
+5. Normal Parallel Rare (Parallel Common) — **NPR** / **PC**
+6. Duel Terminal Normal Parallel Rare (Duel Terminal Parallel Common) — **DNPR** / **DPC**
+7. Rare — **R**
+8. Duel Terminal Normal Rare Parallel Rare — **DNRPR**
+9. Duel Terminal Rare Parallel Rare — **DRPR**
+10. Super Rare — **SR**
+11. Holofoil Rare — **HFR**
+12. Super Parallel Rare — **SPR**
+13. Duel Terminal Super Parallel Rare — **DSPR**
+14. Starfoil Rare — **SFR**
+15. Mosaic Rare — **MSR** (database lists it generically as "Hobby Rare")
+16. Shatterfoil Rare — **SHR** (database name is just "Shatterfoil")
+17. Millennium Rare — **MR**
+18. Ultra Rare — **UR**
+19. Ultra Parallel Rare — **UPR**
+20. Duel Terminal Ultra Parallel Rare — **DUPR**
+21. Gold Rare — **GUR**
+22. Ultimate Rare — **UtR**
+23. Secret Rare — **ScR**
+24. Ultra Secret Rare — **UScR**
+25. Secret Ultra Rare — **ScUR**
+26. Duel Terminal Secret Parallel Rare — **DScPR**
+27. Gold Secret Rare — **GScR**
+28. Ghost/Gold Rare — **GGR** (database itself just labels it Ghost Rare/GR)
+29. Premium Gold Rare — **PGR**
+30. Platinum Rare — **PL**
+31. Collector's Rare — **CR**
+32. Ultra Rare (Pharaoh's Rare) — **UR(PR)**
+33. Ghost Rare — **GR**
+34. Starlight Rare — **SLR**
+35. Prismatic Collector's Rare — **CR** (no separate code exists — it's the Collector's Rare slot with prismatic foil, still filed under CR)
+36. Prismatic Ultimate Rare — **UtR** (same situation — filed under Ultimate Rare's code)
+37. Platinum Secret Rare — **PlScR**
+38. Extra Secret Rare — **EXSE** (Japanese database code) / **EScR** (English shorthand) — note: outside Japan, Konami's database actually labels this one "Platinum Secret Rare" too
+39. 10000 Secret Rare — **10000 SE**
+40. Prismatic Secret Rare — **PScR**
+41. Quarter Century Secret Rare — **QCSR**
+42. Grand Master Rare — **GMR**
+
+
+The pipeline should check the given card printings based on the yugipedia card printings data, based on the rarity it should assign the prices.
+That way if an expension has more than one printig of the given card, based on the available rarities we should be able to assign the prices to the correct card printing.
+If during the process there is a mismatch, an error should be raised and the user should be informed, the process should be terminated.
+What can be a mismatch: there are more card printings in yugipedia catalog than printings/prices in the cardmarket catalog or vice versa.
+

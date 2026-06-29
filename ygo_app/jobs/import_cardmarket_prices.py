@@ -9,7 +9,7 @@ from pathlib import Path
 from ygo_app.cardmarket.export_schema import load_export, validate_import_readiness
 from ygo_app.cardmarket.market_prices import apply_scd_price_update
 from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH
-from ygo_app.cardmarket.r2_storage import download_prices_file
+from ygo_app.cardmarket.r2_storage import download_latest_prices_archive
 from ygo_app.database import SessionLocal
 from ygo_app.import_data import init_db
 from ygo_app.job_logging import run_job_logged
@@ -83,13 +83,19 @@ def _run(argv: list[str] | None) -> int:
     source.add_argument(
         "--from-r2",
         action="store_true",
-        help="Download catalog/cardmarket_prices.json from R2 then import",
+        help="Download latest archives/cardmarket_prices_{ts}.zip from R2 then import",
     )
     parser.add_argument(
         "--download-path",
         type=Path,
         default=CARDMARKET_PRICES_PATH,
-        help="Where to save R2 object when using --from-r2",
+        help="Where to extract cardmarket_prices.json when using --from-r2",
+    )
+    parser.add_argument(
+        "--run-ts",
+        type=str,
+        default=None,
+        help="Import a specific R2 archive by timestamp suffix YYYYMMDD_HHMM",
     )
     parser.add_argument(
         "--source-run-id",
@@ -102,7 +108,7 @@ def _run(argv: list[str] | None) -> int:
     path = args.file
     if args.from_r2:
         log_line("[IMPORT] downloading from R2")
-        path = download_prices_file(args.download_path)
+        path = download_latest_prices_archive(args.download_path, run_ts=args.run_ts)
     assert path is not None
     return run_import(file_path=path, source_run_id=args.source_run_id)
 

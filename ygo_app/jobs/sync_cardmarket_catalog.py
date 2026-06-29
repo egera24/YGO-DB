@@ -31,7 +31,7 @@ from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH, CARDMARKET_RAW_DIR
 from ygo_app.cardmarket.r2_storage import (
     upload_catalog_archive,
     upload_pipeline_report,
-    upload_prices_file,
+    upload_prices_archive,
     upload_run_log,
 )
 from ygo_app.database import SessionLocal
@@ -215,10 +215,11 @@ def run_sync(
 
         if not skip_r2:
             try:
-                upload_prices_file(output_path)
-                log_line("[CATALOG] uploaded latest export to R2")
+                prices_key = upload_prices_archive(output_path, run_ts=ts)
+                report.r2_keys["prices_archive_key"] = prices_key
+                log_line(f"[CATALOG] uploaded prices archive to R2 key={prices_key}")
             except RuntimeError as exc:
-                log_line(f"[CATALOG] R2 export upload skipped: {exc}")
+                log_line(f"[CATALOG] R2 prices archive upload skipped: {exc}")
 
         if not skip_import:
             gate = validate_import_readiness(payload)

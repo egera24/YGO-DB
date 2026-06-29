@@ -1,7 +1,7 @@
 """Cardmarket price export JSON schema (catalog pipeline → Neon import).
 
 File: data/catalog/cardmarket_prices.json (gitignored)
-R2 key: catalog/cardmarket_prices.json (private)
+R2 key: archives/cardmarket_prices_{YYYYMMDD}_{HHMM}.zip (private, ZIP_LZMA)
 
 Schema version 1 fields:
   schema_version, exported_at, source, currency, stats, prices[]

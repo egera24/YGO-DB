@@ -259,7 +259,7 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 | [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → images → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck fallback) | Manual emergency only |
 | [`sync-cardmarket-catalog.yml`](.github/workflows/sync-cardmarket-catalog.yml) | Sync Cardmarket catalog | Weekly Sun 04:00 UTC → **production**; downloads official S3 JSON, archives to R2 bucket `ygo-cardmarket` (`archives/`), matches Yugipedia printings, SCD import. `workflow_dispatch` + `environment` `dev`\|`production` |
-| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `catalog/cardmarket_prices.json` from R2 bucket `ygo-cardmarket` |
+| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `archives/cardmarket_prices_{ts}.zip` from R2 bucket `ygo-cardmarket` |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Both secrets |
 
 - Workflows only appear in the Actions UI when present on the **default branch (`main`)**. Running with branch `develop` uses **code from `develop`** (must include `ygo_app/yugipedia/`).
@@ -325,7 +325,7 @@ python -m ygo_app.jobs.sync_cardmarket_catalog                         # full lo
 python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
 ```
 
-R2 bucket `ygo-cardmarket`: archives `archives/{timestamp}.zip`; latest export `catalog/cardmarket_prices.json`. Prices: SCD Type 2 in `printing_market_prices` (`is_current = true` for UI reads).
+R2 bucket `ygo-cardmarket`: compressed archives under `archives/` (`catalog_archive_{ts}.zip`, `cardmarket_prices_{ts}.zip`, `sync_price_log_{ts}.log.br`, `sync_price_report_{ts}.json.br`). Prices: SCD Type 2 in `printing_market_prices` (`is_current = true` for UI reads).
 
 ### GHA from CLI
 ```powershell

@@ -7,18 +7,23 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from unittest.mock import patch
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from ygo_app.cardmarket.catalog.expansion_map import map_expansions_from_nonsingles
-from ygo_app.cardmarket.catalog.expansion_aliases import nonsingle_matches_alias
+from ygo_app.cardmarket.catalog.expansion_aliases import (
+    EXPANSION_NAME_ALIASES,
+    nonsingle_matches_alias,
+)
 from ygo_app.cardmarket.catalog.normalize import (
     dark_revelation_cardmarket_name,
     legendary_duelists_subtitle_name,
     starter_deck_cardmarket_name,
     structure_deck_cardmarket_name,
 )
-from ygo_app.models import Base, Card, Printing, TcgSet
+from ygo_app.models import Base, Card, CardmarketExpansion, Printing, TcgSet
 
 
 def _sqlite_engine(path: str):
@@ -1256,6 +1261,41 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.assertEqual(mappings["SDWS"].expansion_id, 4572)
         self.assertEqual(skipped, [])
+
+    def test_upsert_deduplicates_shared_expansion_with_autoflush_false(self):
+        """SessionLocal uses autoflush=False; session.get misses pending inserts."""
+        self.session.close()
+        self.Session = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.session = self.Session()
+
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="TST1", name="Shared Expansion Test A", region="TCG"))
+        self.session.add(TcgSet(abbr="TST2", name="Shared Expansion Test B", region="TCG"))
+        self._seed_two_cards_for_set("TST1", card_id_start=3101)
+        self._seed_two_cards_for_set("TST2", card_id_start=3111)
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": "Shared Booster Product Booster",
+                "idExpansion": 1341,
+            },
+        ]
+        alias_patch = {
+            "TST1": ("Shared Booster Product Booster",),
+            "TST2": ("Shared Booster Product Booster",),
+        }
+        with patch.dict(EXPANSION_NAME_ALIASES, alias_patch):
+            mappings, skipped, rejections = map_expansions_from_nonsingles(
+                self.session,
+                nonsingles,
+                upsert=True,
+            )
+        self.assertEqual(mappings["TST1"].expansion_ids, (1341,))
+        self.assertEqual(mappings["TST2"].expansion_ids, (1341,))
+        self.session.commit()
+        rows = self.session.query(CardmarketExpansion).filter_by(expansion_id=1341).all()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].expansion_code, "TST2")
 
 
 if __name__ == "__main__":

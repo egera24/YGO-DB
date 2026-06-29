@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -102,6 +104,8 @@ def map_expansions_from_nonsingles(
     mappings: dict[str, ExpansionMapping] = {}
     errors: list[dict] = []
     skipped: list[dict] = []
+    # session.get() does not see unflushed inserts when autoflush=False (SessionLocal default).
+    pending_expansions: dict[int, CardmarketExpansion] = {}
 
     for tcg_set in tcg_sets:
         if is_championship_prize_set(tcg_set.name):
@@ -229,6 +233,26 @@ def map_expansions_from_nonsingles(
             for exp_id in mapping.expansion_ids:
                 row = session.get(CardmarketExpansion, exp_id)
                 if row is None:
+                    pending_row = pending_expansions.get(exp_id)
+                    if pending_row is not None:
+                        # #region agent log
+                        with open("debug-a7888b.log", "a", encoding="utf-8") as _dbg_f:
+                            _dbg_f.write(
+                                json.dumps(
+                                    {
+                                        "sessionId": "a7888b",
+                                        "hypothesisId": "H1",
+                                        "location": "expansion_map.py:upsert",
+                                        "message": "session.get missed pending expansion",
+                                        "data": {"exp_id": exp_id, "abbr": tcg_set.abbr},
+                                        "timestamp": int(time.time() * 1000),
+                                    }
+                                )
+                                + "\n"
+                            )
+                        # #endregion
+                        row = pending_row
+                if row is None:
                     row = CardmarketExpansion(
                         expansion_id=exp_id,
                         expansion_code=tcg_set.abbr,
@@ -236,6 +260,7 @@ def map_expansions_from_nonsingles(
                         fetched_at=datetime.utcnow(),
                     )
                     session.add(row)
+                    pending_expansions[exp_id] = row
                 else:
                     row.expansion_code = tcg_set.abbr
                     row.expansion_name = tcg_set.name

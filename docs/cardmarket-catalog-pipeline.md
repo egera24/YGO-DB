@@ -5,9 +5,9 @@ Official Cardmarket product catalog and price guide JSON files replace the legac
 ## Flow
 
 1. **Download** — `downloads.s3.cardmarket.com` Yu-Gi-Oh JSON (game id `3`)
-2. **Archive** — zip raw files + manifest → R2 `ygo-cardmarket/archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip`
-3. **Run log** — job log → R2 `ygo-cardmarket/archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` (same UTC suffix as zip)
-4. **Pipeline report** — structured rejections + import gate → R2 `ygo-cardmarket/archives/sync_price_report_{YYYYMMDD}_{HHMM}.json`
+2. **Archive** — zip raw files + manifest → R2 bucket `ygo-cardmarket`, key `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip`
+3. **Run log** — job log → R2 bucket `ygo-cardmarket`, key `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` (same UTC suffix as zip)
+4. **Pipeline report** — structured rejections + import gate → R2 bucket `ygo-cardmarket`, key `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json`
 5. **Map expansions** — `tcg_sets.name` contained in `products_nonsingles` product names → `idExpansion`
 6. **Match printings** — singles by expansion + card name; rarity guessed from price order vs `rarity_price_ranks`
 7. **Import gate** — validate export for duplicate keys and missing required fields before DB write
@@ -38,11 +38,13 @@ python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_p
 
 ## R2 artifacts
 
+Bucket: `ygo-cardmarket` (`S3_CARDMARKET_BUCKET`).
+
 | Key | Content |
 |-----|---------|
-| `ygo-cardmarket/archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw catalog JSON + manifest |
-| `ygo-cardmarket/archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` | Job log for triage |
-| `ygo-cardmarket/archives/sync_price_report_{YYYYMMDD}_{HHMM}.json` | Rejections and import gate |
+| `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw catalog JSON + manifest |
+| `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` | Job log for triage |
+| `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json` | Rejections and import gate |
 | `catalog/cardmarket_prices.json` | Latest matched export |
 
 ## GitHub Actions

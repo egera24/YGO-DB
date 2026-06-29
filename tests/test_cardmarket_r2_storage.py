@@ -16,6 +16,7 @@ from ygo_app.cardmarket.r2_storage import (
 from ygo_app.jobs.sync_cardmarket_catalog import _run_ts_suffix
 
 _RUN_TS = "20260629_1200"
+_CARDMARKET_BUCKET = "ygo-cardmarket"
 
 
 class TestCardmarketR2Storage(unittest.TestCase):
@@ -28,7 +29,10 @@ class TestCardmarketR2Storage(unittest.TestCase):
             tmp_path = Path(tmp)
             for name in ("products_singles.json", "products_nonsingles.json", "price_guide.json"):
                 (tmp_path / name).write_text("[]", encoding="utf-8")
-            with patch("ygo_app.cardmarket.r2_storage.config.S3_BUCKET", "test-bucket"):
+            with patch(
+                "ygo_app.cardmarket.r2_storage.config.S3_CARDMARKET_BUCKET",
+                _CARDMARKET_BUCKET,
+            ):
                 key = upload_catalog_archive(
                     singles_path=tmp_path / "products_singles.json",
                     nonsingles_path=tmp_path / "products_nonsingles.json",
@@ -37,9 +41,10 @@ class TestCardmarketR2Storage(unittest.TestCase):
                     run_ts=_RUN_TS,
                 )
 
-        self.assertEqual(key, f"ygo-cardmarket/archives/catalog_archive_{_RUN_TS}.zip")
+        self.assertEqual(key, f"archives/catalog_archive_{_RUN_TS}.zip")
         mock_s3.upload_file.assert_called_once()
         args = mock_s3.upload_file.call_args
+        self.assertEqual(args[0][1], _CARDMARKET_BUCKET)
         self.assertEqual(args[0][2], key)
 
     @patch("ygo_app.cardmarket.r2_storage.build_s3_client")
@@ -50,12 +55,16 @@ class TestCardmarketR2Storage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "run.log"
             log_path.write_text("[JOB_START]\n", encoding="utf-8")
-            with patch("ygo_app.cardmarket.r2_storage.config.S3_BUCKET", "test-bucket"):
+            with patch(
+                "ygo_app.cardmarket.r2_storage.config.S3_CARDMARKET_BUCKET",
+                _CARDMARKET_BUCKET,
+            ):
                 key = upload_run_log(log_path, run_ts=_RUN_TS)
 
-        self.assertEqual(key, f"ygo-cardmarket/archives/sync_price_log_{_RUN_TS}.log")
+        self.assertEqual(key, f"archives/sync_price_log_{_RUN_TS}.log")
         mock_s3.upload_file.assert_called_once()
         args = mock_s3.upload_file.call_args
+        self.assertEqual(args[0][1], _CARDMARKET_BUCKET)
         self.assertEqual(args[0][2], key)
 
     @patch("ygo_app.cardmarket.r2_storage.build_s3_client")
@@ -66,12 +75,16 @@ class TestCardmarketR2Storage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             report_path = Path(tmp) / "report.json"
             report_path.write_text("{}", encoding="utf-8")
-            with patch("ygo_app.cardmarket.r2_storage.config.S3_BUCKET", "test-bucket"):
+            with patch(
+                "ygo_app.cardmarket.r2_storage.config.S3_CARDMARKET_BUCKET",
+                _CARDMARKET_BUCKET,
+            ):
                 key = upload_pipeline_report(report_path, run_ts=_RUN_TS)
 
-        self.assertEqual(key, f"ygo-cardmarket/archives/sync_price_report_{_RUN_TS}.json")
+        self.assertEqual(key, f"archives/sync_price_report_{_RUN_TS}.json")
         mock_s3.upload_file.assert_called_once()
         args = mock_s3.upload_file.call_args
+        self.assertEqual(args[0][1], _CARDMARKET_BUCKET)
         self.assertEqual(args[0][2], key)
 
 

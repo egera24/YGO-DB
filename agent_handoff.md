@@ -258,8 +258,8 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 |----------|---------|-------|
 | [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → images → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck fallback) | Manual emergency only |
-| [`sync-cardmarket-catalog.yml`](.github/workflows/sync-cardmarket-catalog.yml) | Sync Cardmarket catalog | Weekly Sun 04:00 UTC → **production**; downloads official S3 JSON, archives to R2 `ygo-cardmarket/archives/`, matches Yugipedia printings, SCD import. `workflow_dispatch` + `environment` `dev`\|`production` |
-| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `catalog/cardmarket_prices.json` from R2 |
+| [`sync-cardmarket-catalog.yml`](.github/workflows/sync-cardmarket-catalog.yml) | Sync Cardmarket catalog | Weekly Sun 04:00 UTC → **production**; downloads official S3 JSON, archives to R2 bucket `ygo-cardmarket` (`archives/`), matches Yugipedia printings, SCD import. `workflow_dispatch` + `environment` `dev`\|`production` |
+| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `catalog/cardmarket_prices.json` from R2 bucket `ygo-cardmarket` |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Both secrets |
 
 - Workflows only appear in the Actions UI when present on the **default branch (`main`)**. Running with branch `develop` uses **code from `develop`** (must include `ygo_app/yugipedia/`).
@@ -325,7 +325,7 @@ python -m ygo_app.jobs.sync_cardmarket_catalog                         # full lo
 python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
 ```
 
-R2: archives `ygo-cardmarket/archives/{timestamp}.zip`; latest export `catalog/cardmarket_prices.json`. Prices: SCD Type 2 in `printing_market_prices` (`is_current = true` for UI reads).
+R2 bucket `ygo-cardmarket`: archives `archives/{timestamp}.zip`; latest export `catalog/cardmarket_prices.json`. Prices: SCD Type 2 in `printing_market_prices` (`is_current = true` for UI reads).
 
 ### GHA from CLI
 ```powershell
@@ -355,6 +355,7 @@ git checkout main && git merge develop && git push   # promote app to prod
 | `BREVO_API_KEY` / `EMAIL_FROM` | optional | Brevo API key + verified sender |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | optional | optional bot protection on register |
 | `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | optional in `.env` for local image sync | GHA repo secrets (image mirror; job skips when unset) |
+| `S3_CARDMARKET_BUCKET` | optional in `.env` for local catalog sync | GHA repo secret (`ygo-cardmarket`; catalog sync skips when unset) |
 | `IMAGE_BASE_URL` | optional (import-time URL rewrite) | GHA repo secret (import jobs); **not** needed on Render |
 | `CARDMARKET_HTTP_PROXY` | optional residential proxy for local Cardmarket scrape | not used on Render/GHA |
 

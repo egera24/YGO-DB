@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,25 @@ from ygo_app.cardmarket.paths import (
     R2_CARDMARKET_PRICES_KEY,
 )
 
+logger = logging.getLogger(__name__)
+
+_cardmarket_bucket_warned = False
+
+
+def _cardmarket_bucket() -> str:
+    global _cardmarket_bucket_warned
+    bucket = config.S3_CARDMARKET_BUCKET or config.S3_BUCKET
+    if not bucket:
+        raise RuntimeError(
+            "Missing env var for Cardmarket R2: S3_CARDMARKET_BUCKET (or S3_BUCKET fallback)"
+        )
+    if not config.S3_CARDMARKET_BUCKET and not _cardmarket_bucket_warned:
+        logger.warning(
+            "S3_CARDMARKET_BUCKET not set — using S3_BUCKET for Cardmarket uploads"
+        )
+        _cardmarket_bucket_warned = True
+    return bucket
+
 
 def build_s3_client():
     missing = [
@@ -22,10 +42,13 @@ def build_s3_client():
             ("S3_ENDPOINT_URL", config.S3_ENDPOINT_URL),
             ("S3_ACCESS_KEY_ID", config.S3_ACCESS_KEY_ID),
             ("S3_SECRET_ACCESS_KEY", config.S3_SECRET_ACCESS_KEY),
-            ("S3_BUCKET", config.S3_BUCKET),
         )
         if not value
     ]
+    try:
+        _cardmarket_bucket()
+    except RuntimeError:
+        missing.append("S3_CARDMARKET_BUCKET")
     if missing:
         raise RuntimeError(f"Missing env vars for R2: {', '.join(missing)}")
     import boto3
@@ -48,8 +71,7 @@ def upload_prices_file(
     if not local_path.is_file():
         raise FileNotFoundError(f"Price export not found: {local_path}")
     s3 = build_s3_client()
-    bucket = config.S3_BUCKET
-    assert bucket
+    bucket = _cardmarket_bucket()
 
     if keep_history:
         try:
@@ -79,8 +101,7 @@ def download_prices_file(
     object_key: str = R2_CARDMARKET_PRICES_KEY,
 ) -> Path:
     s3 = build_s3_client()
-    bucket = config.S3_BUCKET
-    assert bucket
+    bucket = _cardmarket_bucket()
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     s3.download_file(bucket, object_key, str(dest_path))
     return dest_path
@@ -107,8 +128,7 @@ def upload_catalog_archive(
 
     object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/catalog_archive_{ts}.zip"
     s3 = build_s3_client()
-    bucket = config.S3_BUCKET
-    assert bucket
+    bucket = _cardmarket_bucket()
     s3.upload_file(
         str(zip_path),
         bucket,
@@ -127,8 +147,7 @@ def upload_run_log(
         raise FileNotFoundError(f"Job log not found: {log_path}")
     object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/sync_price_log_{run_ts}.log"
     s3 = build_s3_client()
-    bucket = config.S3_BUCKET
-    assert bucket
+    bucket = _cardmarket_bucket()
     s3.upload_file(
         str(log_path),
         bucket,
@@ -147,8 +166,7 @@ def upload_pipeline_report(
         raise FileNotFoundError(f"Pipeline report not found: {report_path}")
     object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/sync_price_report_{run_ts}.json"
     s3 = build_s3_client()
-    bucket = config.S3_BUCKET
-    assert bucket
+    bucket = _cardmarket_bucket()
     s3.upload_file(
         str(report_path),
         bucket,

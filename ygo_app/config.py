@@ -124,6 +124,7 @@ S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL") or None
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID") or None
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY") or None
 S3_BUCKET = os.getenv("S3_BUCKET") or None
+S3_CARDMARKET_BUCKET = os.getenv("S3_CARDMARKET_BUCKET") or None
 # Public base URL images are served from (r2.dev subdomain or custom domain).
 IMAGE_BASE_URL = (os.getenv("IMAGE_BASE_URL") or "").strip().rstrip("/") or None
 

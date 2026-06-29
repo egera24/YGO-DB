@@ -8,7 +8,7 @@ CATALOG_DIR = config.DATA_DIR / "catalog"
 CARDMARKET_PRICES_PATH = CATALOG_DIR / "cardmarket_prices.json"
 CARDMARKET_CACHE_DB = config.DATA_DIR / "catalog" / "cardmarket_cache.db"
 R2_CARDMARKET_PRICES_KEY = "catalog/cardmarket_prices.json"
-R2_CARDMARKET_ARCHIVE_PREFIX = "ygo-cardmarket/archives"
+R2_CARDMARKET_ARCHIVE_PREFIX = "archives"
 DEFAULT_CATALOG_PATH = CATALOG_DIR / "yugipedia_all_cards.json"
 
 # Official catalog raw downloads

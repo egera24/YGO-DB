@@ -177,7 +177,9 @@ python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_price
 |---------------|------|
 | `data/catalog/cardmarket_raw/*.json` | Downloaded S3 catalog files |
 | `data/catalog/cardmarket_prices.json` | Matched export (upload to R2) |
-| R2 `ygo-cardmarket/archives/{timestamp}.zip` | Raw JSON archive |
+| R2 `ygo-cardmarket/archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw JSON archive |
+| R2 `ygo-cardmarket/archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` | Job log |
+| R2 `ygo-cardmarket/archives/sync_price_report_{YYYYMMDD}_{HHMM}.json` | Pipeline report |
 | R2 `catalog/cardmarket_prices.json` | Latest export for GHA re-import |
 
 Weekly GHA: **Sync Cardmarket catalog** (Sun 04:00 UTC → production). Manual re-import only: **Import Cardmarket prices**.

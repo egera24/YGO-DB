@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -233,25 +231,7 @@ def map_expansions_from_nonsingles(
             for exp_id in mapping.expansion_ids:
                 row = session.get(CardmarketExpansion, exp_id)
                 if row is None:
-                    pending_row = pending_expansions.get(exp_id)
-                    if pending_row is not None:
-                        # #region agent log
-                        with open("debug-a7888b.log", "a", encoding="utf-8") as _dbg_f:
-                            _dbg_f.write(
-                                json.dumps(
-                                    {
-                                        "sessionId": "a7888b",
-                                        "hypothesisId": "H1",
-                                        "location": "expansion_map.py:upsert",
-                                        "message": "session.get missed pending expansion",
-                                        "data": {"exp_id": exp_id, "abbr": tcg_set.abbr},
-                                        "timestamp": int(time.time() * 1000),
-                                    }
-                                )
-                                + "\n"
-                            )
-                        # #endregion
-                        row = pending_row
+                    row = pending_expansions.get(exp_id)
                 if row is None:
                     row = CardmarketExpansion(
                         expansion_id=exp_id,

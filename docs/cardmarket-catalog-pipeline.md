@@ -5,9 +5,9 @@ Official Cardmarket product catalog and price guide JSON files replace the legac
 ## Flow
 
 1. **Download** — `downloads.s3.cardmarket.com` Yu-Gi-Oh JSON (game id `3`)
-2. **Archive** — zip raw files + manifest → R2 `ygo-cardmarket/archives/{archive_ts}.zip`
-3. **Run log** — job log → R2 `ygo-cardmarket/archives/{archive_ts}.log` (same timestamp as zip)
-4. **Pipeline report** — structured rejections + import gate → R2 `ygo-cardmarket/archives/{archive_ts}_report.json`
+2. **Archive** — zip raw files + manifest → R2 `ygo-cardmarket/archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip`
+3. **Run log** — job log → R2 `ygo-cardmarket/archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` (same UTC suffix as zip)
+4. **Pipeline report** — structured rejections + import gate → R2 `ygo-cardmarket/archives/sync_price_report_{YYYYMMDD}_{HHMM}.json`
 5. **Map expansions** — `tcg_sets.name` contained in `products_nonsingles` product names → `idExpansion`
 6. **Match printings** — singles by expansion + card name; rarity guessed from price order vs `rarity_price_ranks`
 7. **Import gate** — validate export for duplicate keys and missing required fields before DB write
@@ -40,9 +40,9 @@ python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_p
 
 | Key | Content |
 |-----|---------|
-| `ygo-cardmarket/archives/{archive_ts}.zip` | Raw catalog JSON + manifest |
-| `ygo-cardmarket/archives/{archive_ts}.log` | Job log for triage |
-| `ygo-cardmarket/archives/{archive_ts}_report.json` | Rejections and import gate |
+| `ygo-cardmarket/archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw catalog JSON + manifest |
+| `ygo-cardmarket/archives/sync_price_log_{YYYYMMDD}_{HHMM}.log` | Job log for triage |
+| `ygo-cardmarket/archives/sync_price_report_{YYYYMMDD}_{HHMM}.json` | Rejections and import gate |
 | `catalog/cardmarket_prices.json` | Latest matched export |
 
 ## GitHub Actions
@@ -104,7 +104,7 @@ Export JSON is still uploaded to R2 when the gate fails so you can inspect bad r
 
 | Issue | Action |
 |-------|--------|
-| Expansion mapping rejections | Check `{archive_ts}.log` and `_report.json` in R2; adjust `tcg_sets.name` or aliases |
+| Expansion mapping rejections | Check `sync_price_log_{YYYYMMDD}_{HHMM}.log` and `sync_price_report_{YYYYMMDD}_{HHMM}.json` in R2; adjust `tcg_sets.name` or aliases |
 | Printing count mismatch | Yugipedia printings ≠ CM singles for a card — verify catalog freshness |
 | Ambiguous price order | Two CM variants with identical sort keys — manual review in report |
 | Import gate duplicate keys | Bug in export builder — inspect `cardmarket_prices.json` |

@@ -44,10 +44,8 @@ def _utc_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _archive_ts(run_id: str) -> str:
-    if len(run_id) > 10:
-        return run_id.replace(":", "").replace("-", "")[:15]
-    return _utc_run_id()
+def _run_ts_suffix() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
 
 
 def _load_html_fixtures() -> list[str]:
@@ -80,14 +78,14 @@ def _upload_run_artifacts(
 
     if log_path and log_path.is_file():
         try:
-            keys["log_key"] = upload_run_log(log_path, timestamp=archive_ts)
+            keys["log_key"] = upload_run_log(log_path, run_ts=archive_ts)
             log_line(f"[CATALOG] uploaded run log to R2 key={keys['log_key']}")
         except RuntimeError as exc:
             log_line(f"[CATALOG] R2 run log upload skipped: {exc}")
 
     if report_path.is_file():
         try:
-            keys["report_key"] = upload_pipeline_report(report_path, timestamp=archive_ts)
+            keys["report_key"] = upload_pipeline_report(report_path, run_ts=archive_ts)
             log_line(f"[CATALOG] uploaded pipeline report to R2 key={keys['report_key']}")
         except RuntimeError as exc:
             log_line(f"[CATALOG] R2 pipeline report upload skipped: {exc}")
@@ -106,7 +104,7 @@ def run_sync(
     archive_ts: str | None = None,
 ) -> tuple[dict, PipelineReport, int]:
     run_id = source_run_id or os.getenv("GITHUB_RUN_ID") or _utc_run_id()
-    ts = archive_ts or _archive_ts(run_id)
+    ts = archive_ts or _run_ts_suffix()
     report = PipelineReport(run_id=run_id, archive_ts=ts)
     exit_code = 0
 
@@ -137,7 +135,7 @@ def run_sync(
                 nonsingles_path=download.nonsingles_path,
                 price_guide_path=download.price_guide_path,
                 manifest=manifest,
-                timestamp=ts,
+                run_ts=ts,
             )
             log_line(f"[CATALOG] archived to R2 key={archive_key}")
             report.r2_keys["archive_key"] = archive_key
@@ -296,7 +294,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def _run(args: argparse.Namespace) -> int:
     run_id = args.source_run_id or os.getenv("GITHUB_RUN_ID") or _utc_run_id()
-    archive_ts = _archive_ts(run_id)
+    archive_ts = _run_ts_suffix()
 
     try:
         result, report, exit_code = run_sync(

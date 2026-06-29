@@ -92,10 +92,10 @@ def upload_catalog_archive(
     nonsingles_path: Path,
     price_guide_path: Path,
     manifest: dict,
-    timestamp: str | None = None,
+    run_ts: str | None = None,
 ) -> str:
-    ts = timestamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    zip_path = singles_path.parent / f"cardmarket_catalog_{ts}.zip"
+    ts = run_ts or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    zip_path = singles_path.parent / f"catalog_archive_{ts}.zip"
     manifest_path = singles_path.parent / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
@@ -105,7 +105,7 @@ def upload_catalog_archive(
         archive.write(price_guide_path, arcname=price_guide_path.name)
         archive.write(manifest_path, arcname="manifest.json")
 
-    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/{ts}.zip"
+    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/catalog_archive_{ts}.zip"
     s3 = build_s3_client()
     bucket = config.S3_BUCKET
     assert bucket
@@ -121,11 +121,11 @@ def upload_catalog_archive(
 def upload_run_log(
     log_path: Path,
     *,
-    timestamp: str,
+    run_ts: str,
 ) -> str:
     if not log_path.is_file():
         raise FileNotFoundError(f"Job log not found: {log_path}")
-    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/{timestamp}.log"
+    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/sync_price_log_{run_ts}.log"
     s3 = build_s3_client()
     bucket = config.S3_BUCKET
     assert bucket
@@ -141,11 +141,11 @@ def upload_run_log(
 def upload_pipeline_report(
     report_path: Path,
     *,
-    timestamp: str,
+    run_ts: str,
 ) -> str:
     if not report_path.is_file():
         raise FileNotFoundError(f"Pipeline report not found: {report_path}")
-    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/{timestamp}_report.json"
+    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/sync_price_report_{run_ts}.json"
     s3 = build_s3_client()
     bucket = config.S3_BUCKET
     assert bucket

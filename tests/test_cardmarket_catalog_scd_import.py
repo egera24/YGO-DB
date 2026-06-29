@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from ygo_app.cardmarket.export_schema import build_export_payload, save_export
-from ygo_app.cardmarket.market_prices import get_current_market_price
-from ygo_app.jobs.import_cardmarket_prices import import_prices_from_payload
+from ygo_app.cardmarket.market_prices import get_current_market_price, load_all_current_market_prices
+from ygo_app.jobs.import_cardmarket_prices import (
+    compute_import_fingerprint,
+    import_prices_from_payload,
+)
 from ygo_app.models import Base, PrintingMarketPrice
 
 
@@ -82,6 +85,59 @@ class TestCardmarketCatalogScdImport(unittest.TestCase):
         self.assertIsNotNone(rows[0].valid_to)
         self.assertTrue(rows[1].is_current)
         self.assertAlmostEqual(rows[1].low_price, 0.9)
+
+    def test_load_all_current_market_prices(self):
+        import_prices_from_payload(self.session, self._payload())
+        loaded = load_all_current_market_prices(self.session)
+        self.assertEqual(len(loaded), 1)
+        self.assertIn(("ANPR-ENSE1", "SR"), loaded)
+
+    def test_bulk_unchanged_second_import(self):
+        rows = [
+            {
+                "set_code": f"SET-{i:04d}",
+                "rarity_code": "C",
+                "low_price": 0.1 + i * 0.01,
+                "avg_price": 0.2 + i * 0.01,
+                "trend_price": 0.3 + i * 0.01,
+                "discovery_status": "matched",
+            }
+            for i in range(100)
+        ]
+        payload = build_export_payload(rows)
+        first = import_prices_from_payload(self.session, payload)
+        self.assertEqual(first["inserted"], 100)
+        second = import_prices_from_payload(self.session, payload)
+        self.assertEqual(second["unchanged"], 100)
+        count = self.session.scalars(select(PrintingMarketPrice)).all()
+        self.assertEqual(len(count), 100)
+
+    def test_fingerprint_skip_on_unchanged_payload(self):
+        payload = self._payload()
+        fp_path = Path(tempfile.mkdtemp()) / "last_import_fingerprint.json"
+        first = import_prices_from_payload(
+            self.session,
+            payload,
+            fingerprint_path=fp_path,
+            skip_if_unchanged=True,
+        )
+        self.assertEqual(first["inserted"], 1)
+        self.assertTrue(fp_path.is_file())
+
+        second = import_prices_from_payload(
+            self.session,
+            payload,
+            fingerprint_path=fp_path,
+            skip_if_unchanged=True,
+        )
+        self.assertEqual(second.get("skipped"), 1)
+        self.assertEqual(second.get("unchanged", 0), 0)
+
+    def test_fingerprint_changes_when_prices_change(self):
+        fp_path = Path(tempfile.mkdtemp()) / "last_import_fingerprint.json"
+        fp1 = compute_import_fingerprint(self._payload(0.5))
+        fp2 = compute_import_fingerprint(self._payload(0.9))
+        self.assertNotEqual(fp1, fp2)
 
 
 if __name__ == "__main__":

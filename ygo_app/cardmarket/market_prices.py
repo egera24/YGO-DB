@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from ygo_app.models import Printing, PrintingMarketPrice
 
+_PREFETCH_SENTINEL = object()
+
 
 def market_price_or_zero(value: float | None) -> float:
     return float(value) if value is not None else 0.0
@@ -78,6 +80,15 @@ def load_market_prices(
     return {(row.set_code, row.rarity_code): row for row in rows}
 
 
+def load_all_current_market_prices(
+    session: Session,
+) -> dict[tuple[str, str], PrintingMarketPrice]:
+    rows = session.scalars(
+        select(PrintingMarketPrice).where(PrintingMarketPrice.is_current.is_(True))
+    ).all()
+    return {(row.set_code, row.rarity_code): row for row in rows}
+
+
 def attach_market_prices_to_printings(session: Session, printings: list[Printing]) -> None:
     keys = [(p.set_code, p.set_rarity_code) for p in printings]
     prices = load_market_prices(session, keys)
@@ -117,10 +128,12 @@ def apply_scd_price_update(
     discovery_status: str | None = None,
     source_run_id: str | None = None,
     update_prices: bool = False,
+    current: PrintingMarketPrice | None | object = _PREFETCH_SENTINEL,
 ) -> tuple[PrintingMarketPrice | None, str]:
     """Apply SCD Type 2 update. Returns (current_row_or_none, action)."""
     now = datetime.utcnow()
-    current = get_current_market_price(session, set_code, rarity_code)
+    if current is _PREFETCH_SENTINEL:
+        current = get_current_market_price(session, set_code, rarity_code)
 
     if current is None:
         row = PrintingMarketPrice(

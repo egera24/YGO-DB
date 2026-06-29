@@ -235,13 +235,15 @@ def run_sync(
                 if gate.warnings:
                     for warning in gate.warnings:
                         log_line(f"[CATALOG] import_gate warning: {warning}")
+                log_line(f"[CATALOG] import_gate ok rows={len(payload['prices'])}")
                 import_stats = import_prices_from_payload(
                     session,
                     payload,
                     source_run_id=str(run_id),
+                    log_prefix="[CATALOG]",
+                    fingerprint_path=raw_dir / "last_import_fingerprint.json",
+                    skip_if_unchanged=True,
                 )
-                session.commit()
-                log_line(f"[CATALOG] import stats={json.dumps(import_stats)}")
 
         result = {
             "run_id": run_id,

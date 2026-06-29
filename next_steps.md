@@ -2,7 +2,7 @@
 
 Working list of upcoming topics. Companion to [`future_must_have_features.md`](future_must_have_features.md) (long-term roadmap) — items here are nearer-term and get checked off / moved to the changelog in [`agent_handoff.md`](agent_handoff.md) when done.
 
-> **Last updated:** 2026-06-20
+> **Last updated:** 2026-06-30
 
 ---
 
@@ -144,3 +144,192 @@ Or GHA **Import Yugipedia catalog** on `develop` + `environment=dev` first.
 ```powershell
 python -m unittest tests.test_yugipedia_errata tests.test_yugipedia_tips tests.test_yugipedia_supplements tests.test_card_detail_supplements -v
 ```
+
+## 7. "For trade" search filter
+
+**Goal:** Add a third checkbox next to **Owned only** and **Favorites** on the Search tab — filters to cards where the logged-in user has `trade_quantity > 0`.
+
+**Current state:** `trade_quantity` lives on `collection_items` ([`models.py`](ygo_app/models.py)); search already shows trade badges on tiles via `card_summaries_batch()`. No `for_trade_only` filter yet.
+
+**Steps:**
+
+- [ ] HTML: add `<input type="checkbox" id="for-trade-only" /> For trade` in [`index.html`](ygo_app/static/index.html) next to owned/favorites checkboxes.
+- [ ] Frontend: wire `for_trade_only` in `ROUTE_SEARCH_KEYS`, `buildSearchParams()`, `resetSearchFilters()`, `applySearchParams()`, filter chips ([`app.js`](ygo_app/static/js/app.js)).
+- [ ] Backend: add `for_trade_only: bool` query param on `GET /api/cards/search` ([`cards.py`](ygo_app/api/routes/cards.py)).
+- [ ] Filter logic in `search_cards()` ([`services.py`](ygo_app/services.py)) — join `CollectionItem` like `owned_only`, add `CollectionItem.trade_quantity > 0`.
+- [ ] Add `for_trade_only` to `SEARCH_PRESET_PARAM_KEYS` ([`schemas.py`](ygo_app/schemas.py)).
+- [ ] Bump `?v=` on edited static assets in `index.html`.
+
+**Verify:** Check **For trade** → only cards with trade qty appear; combine with Owned only; preset save/load preserves the flag.
+
+---
+
+## 8. Sell price column in folder view
+
+**Goal:** Show the Sell Price column when viewing a specific folder in My Collection (currently hidden).
+
+**Current state:** Data is rendered; CSS hides column 7 when `collection-table--in-folder` is set ([`style.css`](ygo_app/static/css/style.css) ~1335–1338; toggled in `renderCollectionTable()` in [`app.js`](ygo_app/static/js/app.js)).
+
+**Steps:**
+
+- [ ] Remove the `#collection-table.collection-table--in-folder … nth-child(7) { display: none }` rule from [`style.css`](ygo_app/static/css/style.css).
+- [ ] Optionally remove the `collection-table--in-folder` class toggle if it is no longer needed for anything else.
+- [ ] Bump `?v=` on `style.css` in `index.html`.
+
+**Verify:** Open any folder → Sell Price column visible and matches **All** view values.
+
+---
+
+## 9. CSV import — Overwrite vs Append
+
+**Goal:** Let the user choose import mode instead of always replacing the collection.
+
+**Current state:** `import_collection_csv(..., replace=True)` in [`import_data.py`](ygo_app/import_data.py) supports `replace=False`, but the UI always calls `?replace=true` with a replace-only confirm ([`app.js`](ygo_app/static/js/app.js) ~5059).
+
+**Append merge rule (decided):** When a CSV row matches an existing item (`user_id` + `set_code` + `rarity_code`):
+
+| Field | Behavior |
+|-------|----------|
+| `quantity` | Add imported qty to existing |
+| `trade_quantity` | Add imported trade qty to existing |
+| `condition`, `edition`, `language`, `price_bought`, `date_bought`, `notes` | Update only if CSV cell is non-empty |
+| `sell_price` | Do not overwrite from CSV (import already leaves it `None`) |
+| Folder | Merge folder allocation qty if same folder name; else create allocation |
+
+**Steps:**
+
+- [ ] Import UI: modal or two-step confirm — **Overwrite** (current) vs **Append** (merge).
+- [ ] Pass `replace=true|false` to `POST /api/collection/import-csv`.
+- [ ] Implement merge lookup in `_process_row()` before `session.add(item)` ([`import_data.py`](ygo_app/import_data.py)).
+- [ ] Extend import result: `{ imported, merged, rejected_count }` for clearer UI messaging.
+- [ ] Tests: overwrite still wipes; append merges qty; append skips unmatched to rejected CSV.
+- [ ] Bump `?v=` on edited static assets.
+
+**Verify:** Append a CSV with 2 new rows + 3 duplicates → new rows added, duplicates merged, counts shown in alert.
+
+---
+
+## 10. Bulk collection update
+
+**Goal:** Change parameters on multiple collection rows at once.
+
+**Proposed UX:**
+
+1. Checkbox column on collection table (per row + select-all on current page).
+2. Sticky bar when ≥1 selected: *"N selected · Bulk edit · Clear"*.
+3. Bulk edit modal — each field has **Leave unchanged** vs **Set value** (quantity/trade qty also support Add/Subtract).
+4. Fields: quantity, trade quantity, condition, sell price (set / clear override), edition, language, notes (set/append), folder (move / add qty).
+
+**Steps:**
+
+- [ ] HTML: checkbox column header + bulk bar + modal markup in [`index.html`](ygo_app/static/index.html).
+- [ ] Frontend: selection state, modal, `PATCH` call ([`app.js`](ygo_app/static/js/app.js)).
+- [ ] Schema: `BulkCollectionUpdateIn` with optional per-field updates ([`schemas.py`](ygo_app/schemas.py)).
+- [ ] API: `PATCH /api/collection/bulk` ([`collection.py`](ygo_app/api/routes/collection.py)).
+- [ ] Service: `bulk_update_collection_items()` — verify all `item_ids` belong to user; max batch size (e.g. 500); reuse update logic ([`services.py`](ygo_app/services.py)).
+- [ ] Tests: happy path, IDOR (foreign item_id rejected), partial field updates.
+- [ ] Bump `?v=` on edited static assets.
+
+**Verify:** Select 5 cards in a folder → set trade qty to 1 → all five updated; unchanged fields left alone.
+
+---
+
+## 11. Public trade subsite (share link + order requests)
+
+**Goal:** Shareable public page at `/trade/{slug}` listing cards with `trade_quantity > 0`. Visitors can browse, filter, add to cart, and send an order request email to the collection owner via Brevo.
+
+**Access model (decided):** Link always works at a fixed slug per user — no enable/disable toggle. Only items with trade qty > 0 are shown.
+
+### 11.1 Data model & owner settings
+
+- [ ] Alembic migration: add `trade_share_slug` (unique, indexed) to `users` ([`models.py`](ygo_app/models.py)).
+- [ ] Auto-generate slug on registration (unguessable token); allow edit in collection UI with uniqueness check.
+- [ ] Optional: `trade_display_name` for public page title (no email exposed).
+- [ ] Owner UI: **Copy trade link** in collection toolbar; slug editor (`PATCH /api/collection/trade-settings` or similar).
+
+### 11.2 Public routes (no JWT)
+
+| Route | Purpose |
+|-------|---------|
+| `GET /trade/{slug}` | Serve [`trade.html`](ygo_app/static/trade.html) (separate from login-gated SPA) |
+| `GET /api/public/trade/{slug}` | Trade items (sell price, condition, image, name, trade qty) |
+| `GET /api/public/trade/{slug}/filters` | Facets for filter dropdowns |
+| `POST /api/public/trade/{slug}/order-request` | Submit cart + contact info |
+
+Register router in [`main.py`](ygo_app/api/main.py). Invalid slug → 404.
+
+**Public item fields:** `item_id`, card name, set, rarity, condition, `trade_quantity`, resolved sell price, `image_url_small`. Seller: display name only — never `user.email`.
+
+### 11.3 Trade page UI
+
+New files: `trade.html`, `trade.js`, `trade.css` under [`ygo_app/static/`](ygo_app/static/).
+
+- [ ] Toolbar: search, set-code filter, sort (mirror collection sort options where applicable).
+- [ ] View toggle: **List** (table) / **Tiles** (reuse `.card-grid` + `.card-tile`).
+- [ ] Card display: image, name, sell price, total trade qty, condition.
+- [ ] Cart drawer: line qty (max = trade qty), per-line comment, optional offer price (discount).
+- [ ] Contact fields (all optional): name, email, phone, delivery address.
+- [ ] Info banner: visitor chooses which contact fields to share.
+- [ ] GDPR consent checkbox (required) + link to privacy policy.
+- [ ] Cart state in `sessionStorage`; clear on successful submit.
+
+### 11.4 Order email (Brevo)
+
+Extend [`email.py`](ygo_app/email.py) with `send_trade_order_request()`:
+
+- **To:** collection owner's `User.email`
+- **Reply-To:** buyer email if provided
+- Plain-text body: cards, qty, list vs offer price, comments, contact block, timestamp
+
+Reuse existing `BREVO_API_KEY` / `EMAIL_FROM` from [`config.py`](ygo_app/config.py).
+
+### 11.5 Security
+
+- [ ] Rate-limit `order-request` per IP (e.g. 5/hour) — [`rate_limit.py`](ygo_app/rate_limit.py).
+- [ ] Cloudflare Turnstile on submit (reuse verify logic from auth).
+- [ ] Server validates each `item_id` belongs to slug owner; `requested_qty <= trade_quantity`.
+- [ ] Strip HTML from comments/contact; max field lengths; no PII in server logs.
+- [ ] No server-side storage of buyer PII (email-only delivery reduces GDPR scope).
+
+**Verify:** Copy link → open in incognito → filter/sort/tile view → add to cart → submit → owner receives Brevo email with correct lines and offer prices.
+
+---
+
+## 12. GDPR & legal (main app + trade subsite)
+
+**Goal:** Basic compliance artifacts on both the authenticated app and the public trade page.
+
+**Current state:** No privacy policy, imprint, footer links, or account deletion API.
+
+### 12.1 Static legal pages
+
+Serve at `/legal/*` (or `static/legal/`):
+
+| Page | Purpose |
+|------|---------|
+| **Privacy Policy** | Data collected, legal basis, retention, Brevo as processor, user rights |
+| **Imprint / Legal notice** | Operator name, address, contact (EU / DE Telemediengesetz) |
+| **Terms of use** (optional) | Account rules, trade list disclaimer, liability |
+
+**Details needed from you before final text:**
+
+- Legal entity name, postal address, privacy contact email
+- Country of operation (jurisdiction wording)
+- Optional: VAT ID, trade register number
+- Language: English, Hungarian, or bilingual
+
+Ship with `{{PLACEHOLDER}}` tokens if details are not ready.
+
+### 12.2 UI integration
+
+- [ ] Footer on trade subsite: Privacy · Imprint · Contact (`mailto:`).
+- [ ] Footer on main app (auth landing + logged-in shell).
+- [ ] Lightweight storage notice (localStorage JWT on main app; sessionStorage cart on trade — essential only, no marketing cookies).
+- [ ] Order form consent checkbox (trade subsite) — required before submit.
+
+### 12.3 Account-holder rights (main app)
+
+- [ ] Document in privacy policy: collection CSV export = data export.
+- [ ] `DELETE /api/auth/account` (confirm password) — cascade delete per existing FK `ondelete=CASCADE`.
+
+**Verify:** Footer links work on `/` and `/trade/{slug}`; account deletion removes user + collection; order submit blocked without consent checkbox.

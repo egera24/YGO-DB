@@ -115,6 +115,31 @@ jobs:
               cat data/catalog/cardmarket_raw/sync_summary.json
               echo '```'
             fi
+            if [[ -f data/catalog/cardmarket_raw/pipeline_report.json ]]; then
+              echo ""
+              echo "### Rejection counts"
+              python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("data/catalog/cardmarket_raw/pipeline_report.json")
+          if p.is_file():
+              r = json.loads(p.read_text(encoding="utf-8"))
+              rej = r.get("rejections") or []
+              exp = sum(1 for x in rej if x.get("phase") == "expansion_map")
+              prt = sum(1 for x in rej if x.get("phase") == "printing_match")
+              print(f"- expansion_map: {exp}")
+              print(f"- printing_match: {prt}")
+              print(f"- skipped_sets: {len(r.get('skipped_sets') or [])}")
+              ig = r.get("import_gate")
+              if ig is not None:
+                  print(f"- import_gate_ok: {ig.get('ok')}")
+              r2 = r.get("r2_keys") or {}
+              if r2.get("log_key"):
+                  print(f"- R2 log: `{r2['log_key']}`")
+              if r2.get("report_key"):
+                  print(f"- R2 report: `{r2['report_key']}`")
+          PY
+            fi
             if [[ -f data/catalog/cardmarket_sync.log ]]; then
               echo ""
               echo "### Last log lines"

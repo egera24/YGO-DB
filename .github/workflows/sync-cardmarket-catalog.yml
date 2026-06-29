@@ -1,0 +1,125 @@
+name: Sync Cardmarket catalog
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - production
+        default: dev
+      skip_import:
+        description: Match and export only (no DB import)
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  sync-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ github.event_name == 'schedule' && 'production' || github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve database URL
+        id: db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+          ENV_INPUT: ${{ github.event_name == 'schedule' && 'production' || github.event.inputs.environment }}
+        run: |
+          if [[ "$ENV_INPUT" == "production" ]]; then
+            echo "url=${DATABASE_URL}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${DATABASE_URL_DEV}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check R2 secrets
+        id: r2
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          if [[ -n "$S3_BUCKET" ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::S3_BUCKET not set — raw archive and export upload will be skipped"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alembic upgrade
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+        run: alembic upgrade head
+
+      - name: Sync Cardmarket catalog
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+          S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -o pipefail
+          mkdir -p data/catalog/cardmarket_raw
+          FLAGS=""
+          if [[ "${{ github.event.inputs.skip_import }}" == "true" ]]; then
+            FLAGS="--skip-import"
+          fi
+          if [[ "${{ steps.r2.outputs.ok }}" != "true" ]]; then
+            FLAGS="$FLAGS --skip-r2"
+          fi
+          echo "=== Sync Cardmarket catalog ==="
+          echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python -m ygo_app.jobs.sync_cardmarket_catalog $FLAGS 2>&1 | tee data/catalog/cardmarket_sync.log
+
+      - name: Upload sync log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-sync-log-${{ github.run_id }}
+          path: data/catalog/cardmarket_sync.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Sync Cardmarket catalog"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Environment | ${{ github.event_name == 'schedule' && 'production' || github.event.inputs.environment }} |"
+            echo "| Source | Cardmarket S3 JSON |"
+            if [[ -f data/catalog/cardmarket_raw/sync_summary.json ]]; then
+              echo ""
+              echo "### Summary"
+              echo '```json'
+              cat data/catalog/cardmarket_raw/sync_summary.json
+              echo '```'
+            fi
+            if [[ -f data/catalog/cardmarket_sync.log ]]; then
+              echo ""
+              echo "### Last log lines"
+              echo '```'
+              tail -30 data/catalog/cardmarket_sync.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

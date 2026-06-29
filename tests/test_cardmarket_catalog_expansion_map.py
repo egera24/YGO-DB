@@ -13,7 +13,12 @@ from sqlalchemy.orm import sessionmaker
 from ygo_app.cardmarket.catalog.errors import ExpansionMappingError
 from ygo_app.cardmarket.catalog.expansion_map import map_expansions_from_nonsingles
 from ygo_app.cardmarket.catalog.expansion_aliases import nonsingle_matches_alias
-from ygo_app.cardmarket.catalog.normalize import structure_deck_cardmarket_name
+from ygo_app.cardmarket.catalog.normalize import (
+    dark_revelation_cardmarket_name,
+    legendary_duelists_subtitle_name,
+    starter_deck_cardmarket_name,
+    structure_deck_cardmarket_name,
+)
 from ygo_app.models import Base, Card, Printing, TcgSet
 
 
@@ -260,6 +265,42 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         self.assertNotIn("2023", mappings)
         self.assertEqual(len(skipped), 1)
         self.assertEqual(skipped[0]["reason"], "championship_prize_cards")
+
+    def test_skips_participation_yugipedia_set(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(
+                abbr="DL2",
+                name="Duelist League Series 2 participation cards",
+                region="TCG",
+            )
+        )
+        self._seed_two_cards_for_set("DL2", card_id_start=701)
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, self.nonsingles, upsert=False
+        )
+        self.assertNotIn("DL2", mappings)
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["abbr"], "DL2")
+        self.assertEqual(skipped[0]["reason"], "promotional_or_participation_cards")
+
+    def test_skips_promotional_yugipedia_set(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(
+                abbr="DOD",
+                name="Yu-Gi-Oh! The Dawn of Destiny promotional cards",
+                region="TCG",
+            )
+        )
+        self._seed_two_cards_for_set("DOD", card_id_start=801)
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, self.nonsingles, upsert=False
+        )
+        self.assertNotIn("DOD", mappings)
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["abbr"], "DOD")
+        self.assertEqual(skipped[0]["reason"], "promotional_or_participation_cards")
 
     def test_maps_advent_calendar_via_normalized_name(self):
         self._clear_default_sets()
@@ -567,7 +608,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LOB"].expansion_id, 1001)
 
-    def test_long_bracket_text_is_not_excluded(self):
+    def test_long_bracket_text_25th_anniversary_is_excluded(self):
         self._clear_default_sets()
         self.session.add(TcgSet(abbr="LOB", name="Legend of Blue Eyes White Dragon", region="TCG"))
         self._seed_two_cards_for_set("LOB", card_id_start=971)
@@ -582,8 +623,9 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2002,
             },
         ]
-        with self.assertRaises(ExpansionMappingError):
-            map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        self.assertEqual(mappings["LOB"].expansion_id, 1001)
+        self.assertEqual(mappings["LOB"].expansion_ids, (1001,))
 
     def test_condition_marker_product_is_excluded(self):
         self._clear_default_sets()
@@ -607,6 +649,58 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         ]
         mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["TP4"].expansion_id, 1100)
+
+    def test_stp5_alias_matches_colon_style_cardmarket_name(self):
+        alias = "Speed Duel: Tournament Pack 5 Booster"
+        self.assertTrue(
+            nonsingle_matches_alias("Speed Duel: Tournament Pack 5 Booster", alias)
+        )
+        self.assertFalse(
+            nonsingle_matches_alias("Speed Duel: Tournament Pack 50 Booster", alias)
+        )
+
+    def test_stp5_maps_via_colon_style_alias(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="STP5", name="Speed Duel Tournament Pack 5", region="TCG")
+        )
+        self._seed_two_cards_for_set("STP5", card_id_start=1301)
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": "Speed Duel: Tournament Pack 5 Booster",
+                "idExpansion": 5247,
+            },
+            {
+                "idProduct": 2,
+                "name": "Speed Duel Tournament Pack 4 Booster",
+                "idExpansion": 5085,
+            },
+            {"idProduct": 3, "name": "Tournament Pack 5 Booster", "idExpansion": 1082},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        self.assertEqual(mappings["STP5"].expansion_id, 5247)
+
+    def test_stp6_maps_via_colon_style_alias(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="STP6", name="Speed Duel Tournament Pack 6", region="TCG")
+        )
+        self._seed_two_cards_for_set("STP6", card_id_start=1401)
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": "Speed Duel: Tournament Pack 6 Booster",
+                "idExpansion": 5397,
+            },
+            {
+                "idProduct": 2,
+                "name": "Speed Duel Tournament Pack 5 Booster",
+                "idExpansion": 5247,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        self.assertEqual(mappings["STP6"].expansion_id, 5397)
 
     def test_tn23_resolves_to_tin_expansion_with_priced_singles(self):
         self._clear_default_sets()
@@ -670,7 +764,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             price_rows=prices,
             upsert=False,
         )
-        self.assertIn(mappings["TINX"].expansion_id, {6001, 6002})
+        self.assertEqual(mappings["TINX"].expansion_ids, (6001, 6002))
 
     def test_raises_on_conflicting_prices_for_shared_card(self):
         self._clear_default_sets()
@@ -705,6 +799,462 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 upsert=False,
             )
         self.assertTrue(any(e["abbr"] == "TINX" for e in ctx.exception.details))
+
+    def test_excludes_sacred_beasts_of_chaos_products(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="SDSB", name="Structure Deck: Sacred Beasts", region="TCG")
+        )
+        self._seed_two_cards_for_set("SDSB", card_id_start=1401)
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": "Structure Deck: Sacred Beasts",
+                "idExpansion": 3133,
+            },
+            {
+                "idProduct": 2,
+                "name": "Structure Deck: Sacred Beasts of Chaos",
+                "idExpansion": 4557,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["SDSB"].expansion_ids, (3133,))
+
+    def test_excludes_promotional_participation_expansion(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="LOB", name="Legend of Blue Eyes White Dragon", region="TCG"))
+        self._seed_two_cards_for_set("LOB", card_id_start=1501)
+        nonsingles = [
+            {"idProduct": 1, "name": "Legend of Blue Eyes White Dragon Booster", "idExpansion": 1001},
+            {
+                "idProduct": 2,
+                "name": "Shonen Jump promotional cards Booster",
+                "idExpansion": 2002,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        self.assertEqual(mappings["LOB"].expansion_ids, (1001,))
+
+    def test_op01_number_boundary(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="OP01", name="OTS Tournament Pack 1", region="TCG")
+        )
+        self._seed_two_cards_for_set("OP01", card_id_start=1601)
+        nonsingles = [
+            {"idProduct": 1, "name": "OTS Tournament Pack 1 Booster", "idExpansion": 1699},
+            {"idProduct": 2, "name": "OTS Tournament Pack 10 Booster", "idExpansion": 2454},
+            {"idProduct": 3, "name": "OTS Tournament Pack 11 Booster", "idExpansion": 2542},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["OP01"].expansion_ids, (1699,))
+
+    def test_ledu_parent_does_not_match_subseries(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="LEDU", name="Legendary Duelists", region="TCG"))
+        self._seed_two_cards_for_set("LEDU", card_id_start=1701)
+        nonsingles = [
+            {"idProduct": 1, "name": "Legendary Duelists Booster", "idExpansion": 1817},
+            {
+                "idProduct": 2,
+                "name": "Legendary Duelists: Ancient Millennium Booster",
+                "idExpansion": 2048,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["LEDU"].expansion_ids, (1817,))
+
+    def test_mago_does_not_match_mged(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="MAGO", name="Maximum Gold", region="TCG"))
+        self._seed_two_cards_for_set("MAGO", card_id_start=1801)
+        nonsingles = [
+            {"idProduct": 1, "name": "Maximum Gold Booster", "idExpansion": 3339},
+            {"idProduct": 2, "name": "Maximum Gold: El Dorado Booster", "idExpansion": 4371},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["MAGO"].expansion_ids, (3339,))
+
+    def test_dark_revelation_volume_alias(self):
+        self.assertEqual(
+            dark_revelation_cardmarket_name("Dark Revelation Volume 4"),
+            "Dark Revelation 4",
+        )
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="DR04", name="Dark Revelation Volume 4", region="TCG")
+        )
+        self._seed_two_cards_for_set("DR04", card_id_start=1901)
+        nonsingles = [
+            {"idProduct": 1, "name": "Dark Revelation 4 Booster", "idExpansion": 1143},
+            {"idProduct": 2, "name": "Dark Revelation 3 Booster", "idExpansion": 1142},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["DR04"].expansion_ids, (1143,))
+
+    def test_5ds_starter_deck_aliases(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(
+                abbr="5DS1",
+                name="Starter Deck: Yu-Gi-Oh! 5D's",
+                region="TCG",
+            )
+        )
+        self.session.add(
+            TcgSet(
+                abbr="5DS2",
+                name="Starter Deck: Yu-Gi-Oh! 5D's 2009",
+                region="TCG",
+            )
+        )
+        self._seed_two_cards_for_set("5DS1", card_id_start=2001)
+        self._seed_two_cards_for_set("5DS2", card_id_start=2010)
+        nonsingles = [
+            {"idProduct": 1, "name": "5D's Starter Deck 2008", "idExpansion": 1173},
+            {"idProduct": 2, "name": "5D's Starter Deck 2009", "idExpansion": 1172},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["5DS1"].expansion_ids, (1173,))
+        self.assertEqual(mappings["5DS2"].expansion_ids, (1172,))
+
+    def test_drlg_series_aliases(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="DRLG", name="Dragons of Legend", region="TCG"))
+        self.session.add(TcgSet(abbr="DRL2", name="Dragons of Legend 2", region="TCG"))
+        self._seed_two_cards_for_set("DRLG", card_id_start=2101)
+        self._seed_two_cards_for_set("DRL2", card_id_start=2110)
+        nonsingles = [
+            {"idProduct": 1, "name": "Dragons of Legend Booster", "idExpansion": 1479},
+            {"idProduct": 2, "name": "Dragons of Legend 2 Booster", "idExpansion": 1656},
+            {"idProduct": 3, "name": "Dragons of Legend: Unleashed Booster", "idExpansion": 1713},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["DRLG"].expansion_ids, (1479,))
+        self.assertEqual(mappings["DRL2"].expansion_ids, (1656,))
+
+    def test_duad_curly_apostrophe(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="DUAD", name="Duelist's Advance", region="TCG"))
+        self._seed_two_cards_for_set("DUAD", card_id_start=2201)
+        nonsingles = [
+            {"idProduct": 1, "name": "Duelist\u2019s Advance Booster", "idExpansion": 6083},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["DUAD"].expansion_ids, (6083,))
+
+    def test_legendary_duelists_subtitle_strip(self):
+        self.assertEqual(
+            legendary_duelists_subtitle_name(
+                "Legendary Duelists: Duels From the Deep"
+            ),
+            "Duels From the Deep",
+        )
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(
+                abbr="LED9",
+                name="Legendary Duelists: Duels From the Deep",
+                region="TCG",
+            )
+        )
+        self._seed_two_cards_for_set("LED9", card_id_start=2301)
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": "Duels From the Deep Booster",
+                "idExpansion": 4471,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["LED9"].expansion_ids, (4471,))
+
+    def test_merges_lc05_expansions(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="LC05", name="Legendary Collection 5D's", region="TCG")
+        )
+        self._seed_named_cards_for_set(
+            "LC05",
+            ["Stardust Dragon", "Black Rose Dragon"],
+            card_id_start=2401,
+        )
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": "Legendary Collection 5D's: Mega Pack Booster",
+                "idExpansion": 1507,
+            },
+            {
+                "idProduct": 2,
+                "name": "Legendary Collection 5D's: Promo Box",
+                "idExpansion": 1508,
+            },
+        ]
+        singles = [
+            {"idProduct": 8001, "name": "Stardust Dragon", "idCategory": 5, "idExpansion": 1507},
+            {"idProduct": 8002, "name": "Black Rose Dragon", "idCategory": 5, "idExpansion": 1508},
+        ]
+        prices = [
+            {"idProduct": 8001, "trend": 1.0, "avg": 1.0, "low": 0.5},
+            {"idProduct": 8002, "trend": 2.0, "avg": 2.0, "low": 1.0},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session,
+            nonsingles,
+            singles=singles,
+            price_rows=prices,
+            upsert=False,
+        )
+        self.assertEqual(mappings["LC05"].expansion_ids, (1507, 1508))
+
+    def test_merges_disjoint_tin_expansions(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="CT11", name="2014 Mega-Tins", region="TCG"))
+        self._seed_named_cards_for_set(
+            "CT11",
+            ["Bujintei Susanowo", "Brotherhood of the Fire Fist - Tiger King"],
+            card_id_start=2501,
+        )
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": '2014 Mega-Tins: ""Bujintei Susanowo"" Tin',
+                "idExpansion": 1497,
+            },
+            {
+                "idProduct": 2,
+                "name": "2014 Mega-Tins Mega-Pack Booster",
+                "idExpansion": 1498,
+            },
+        ]
+        singles = [
+            {
+                "idProduct": 9001,
+                "name": "Bujintei Susanowo",
+                "idCategory": 5,
+                "idExpansion": 1497,
+            },
+            {
+                "idProduct": 9002,
+                "name": "Brotherhood of the Fire Fist - Tiger King",
+                "idCategory": 5,
+                "idExpansion": 1498,
+            },
+        ]
+        prices = [
+            {"idProduct": 9001, "trend": 1.0, "avg": 1.0, "low": 0.5},
+            {"idProduct": 9002, "trend": 2.0, "avg": 2.0, "low": 1.0},
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session,
+            nonsingles,
+            singles=singles,
+            price_rows=prices,
+            upsert=False,
+        )
+        self.assertEqual(mappings["CT11"].expansion_ids, (1497, 1498))
+
+    def test_merges_tin_expansions_with_overlapping_card_price_conflict(self):
+        self._clear_default_sets()
+        self.session.add(TcgSet(abbr="CT11", name="2014 Mega-Tins", region="TCG"))
+        mega_pack_cards = [
+            "Bujintei Susanowo",
+            "Brotherhood of the Fire Fist - Tiger King",
+            "Number 101: Silent Honor ARK",
+            "Castell, the Skyblaster Musketeer",
+            "Gagaga Cowboy",
+        ]
+        self._seed_named_cards_for_set("CT11", mega_pack_cards, card_id_start=2601)
+        nonsingles = [
+            {
+                "idProduct": 1,
+                "name": '2014 Mega-Tins: ""Bujintei Susanowo"" Tin',
+                "idExpansion": 1497,
+            },
+            {
+                "idProduct": 2,
+                "name": "2014 Mega-Tins Mega-Pack Booster",
+                "idExpansion": 1498,
+            },
+        ]
+        singles = [
+            {
+                "idProduct": 9101,
+                "name": "Bujintei Susanowo",
+                "idCategory": 5,
+                "idExpansion": 1497,
+            },
+            {
+                "idProduct": 9102,
+                "name": "Bujintei Susanowo",
+                "idCategory": 5,
+                "idExpansion": 1498,
+            },
+        ]
+        prices = [
+            {"idProduct": 9101, "trend": 1.0, "avg": 1.0, "low": 0.5},
+            {"idProduct": 9102, "trend": 5.0, "avg": 5.0, "low": 4.0},
+        ]
+        product_id = 9200
+        for card_name in mega_pack_cards[1:]:
+            singles.append(
+                {
+                    "idProduct": product_id,
+                    "name": card_name,
+                    "idCategory": 5,
+                    "idExpansion": 1498,
+                }
+            )
+            prices.append(
+                {"idProduct": product_id, "trend": 2.0, "avg": 2.0, "low": 1.0}
+            )
+            product_id += 1
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session,
+            nonsingles,
+            singles=singles,
+            price_rows=prices,
+            upsert=False,
+        )
+        self.assertEqual(mappings["CT11"].expansion_ids, (1497, 1498))
+        counts = mappings["CT11"].expansion_match_counts
+        self.assertIsNotNone(counts)
+        self.assertGreater(counts[1498], counts[1497])
+
+    def test_starter_deck_name_helper(self):
+        self.assertEqual(
+            starter_deck_cardmarket_name("Starter Deck: Yu-Gi-Oh! 5D's"),
+            "5D's Starter Deck",
+        )
+        self.assertEqual(
+            starter_deck_cardmarket_name("Starter Deck: Joey"),
+            "Joey Starter Deck",
+        )
+
+    def test_non_sealed_does_not_exclude_expansion(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="SDJ", name="Starter Deck: Joey", region="TCG")
+        )
+        self._seed_two_cards_for_set("SDJ", card_id_start=3001)
+        nonsingles = [
+            {
+                "idProduct": 248161,
+                "name": "Starter Deck: Joey",
+                "idExpansion": 1018,
+            },
+            {
+                "idProduct": 883373,
+                "name": "Starter Deck: Joey (non-sealed)",
+                "idExpansion": 1018,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["SDJ"].expansion_id, 1018)
+        self.assertEqual(skipped, [])
+
+    def test_starter_deck_aliases_avoid_evolution_cross_match(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="SDK", name="Starter Deck: Kaiba", region="TCG")
+        )
+        self._seed_two_cards_for_set("SDK", card_id_start=3011)
+        nonsingles = [
+            {
+                "idProduct": 254276,
+                "name": "Starter Deck: Kaiba",
+                "idExpansion": 1055,
+            },
+            {
+                "idProduct": 254279,
+                "name": "Starter Deck: Kaiba Evolution",
+                "idExpansion": 1081,
+            },
+            {
+                "idProduct": 265406,
+                "name": "Starter Deck: Kaiba Reloaded",
+                "idExpansion": 1467,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["SDK"].expansion_id, 1055)
+        self.assertEqual(skipped, [])
+
+    def test_lc06_maps_base_expansion_only(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="LC06", name="Legendary Collection Kaiba", region="TCG")
+        )
+        self._seed_two_cards_for_set("LC06", card_id_start=3021)
+        nonsingles = [
+            {
+                "idProduct": 315136,
+                "name": "Legendary Collection Kaiba Mega Pack Booster",
+                "idExpansion": 2066,
+            },
+            {
+                "idProduct": 315137,
+                "name": "Legendary Collection Kaiba",
+                "idExpansion": 2067,
+            },
+            {
+                "idProduct": 841649,
+                "name": "Legendary Collection Kaiba (2025 Reprint)",
+                "idExpansion": 2067,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["LC06"].expansion_id, 2067)
+        self.assertEqual(skipped, [])
+
+    def test_sdws_structure_deck_r_alias(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(
+                abbr="SDWS",
+                name="Warriors' Strike Structure Deck",
+                region="TCG",
+            )
+        )
+        self._seed_two_cards_for_set("SDWS", card_id_start=3031)
+        nonsingles = [
+            {
+                "idProduct": 607066,
+                "name": "Structure Deck R: Warriors' Strike",
+                "idExpansion": 4572,
+            },
+        ]
+        mappings, skipped = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["SDWS"].expansion_id, 4572)
+        self.assertEqual(skipped, [])
 
 
 if __name__ == "__main__":

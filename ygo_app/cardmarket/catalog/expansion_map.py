@@ -9,19 +9,20 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ygo_app.cardmarket.catalog.errors import ExpansionMappingError
-from ygo_app.cardmarket.catalog.expansion_conflict import resolve_conflicting_expansion_ids
+from ygo_app.cardmarket.catalog.expansion_conflict import resolve_or_merge_expansion_ids
 from ygo_app.cardmarket.catalog.expansion_aliases import (
     expansion_aliases_for_abbr,
     nonsingle_matches_alias,
 )
 from ygo_app.cardmarket.catalog.normalize import (
+    alternate_matching_names,
     excluded_nonsingle_expansion_ids,
     expansion_name_contains,
     is_championship_prize_set,
     is_collectible_tin_set,
     is_non_tcg_nonsingle_product,
+    is_promotional_or_participation_set,
     product_line_matches_yugipedia_set,
-    structure_deck_cardmarket_name,
 )
 from ygo_app.models import CardmarketExpansion, Printing, TcgSet
 
@@ -30,8 +31,13 @@ from ygo_app.models import CardmarketExpansion, Printing, TcgSet
 class ExpansionMapping:
     abbr: str
     set_name: str
-    expansion_id: int
+    expansion_ids: tuple[int, ...]
     matched_product_names: list[str]
+    expansion_match_counts: dict[int, int] | None = None
+
+    @property
+    def expansion_id(self) -> int:
+        return self.expansion_ids[0]
 
 
 def _is_eligible_nonsingle(row: dict, excluded_exp_ids: set[int]) -> bool:
@@ -118,6 +124,16 @@ def map_expansions_from_nonsingles(
             )
             continue
 
+        if is_promotional_or_participation_set(tcg_set.name):
+            skipped.append(
+                {
+                    "abbr": tcg_set.abbr,
+                    "set_name": tcg_set.name,
+                    "reason": "promotional_or_participation_cards",
+                }
+            )
+            continue
+
         card_count = session.scalar(
             select(func.count(func.distinct(Printing.card_id))).where(
                 Printing.set_code.like(f"{tcg_set.abbr}-%")
@@ -139,11 +155,12 @@ def map_expansions_from_nonsingles(
         else:
             hits = _nonsingle_hits(tcg_nonsingles, tcg_set)
             if not hits:
-                alternate = structure_deck_cardmarket_name(tcg_set.name)
-                if alternate:
+                for alternate in alternate_matching_names(tcg_set.name):
                     hits = _nonsingle_hits(
                         tcg_nonsingles, tcg_set, matching_name=alternate
                     )
+                    if hits:
+                        break
         expansion_ids = sorted({int(row["idExpansion"]) for row in hits if row.get("idExpansion") is not None})
 
         if len(expansion_ids) == 0:
@@ -157,11 +174,13 @@ def map_expansions_from_nonsingles(
             )
             continue
 
+        expansion_match_counts: dict[int, int] | None = None
+
         if len(expansion_ids) > 1:
             matched_names = [str(row.get("name") or "") for row in hits]
             if singles is not None and price_rows is not None:
                 try:
-                    resolved_id = resolve_conflicting_expansion_ids(
+                    expansion_ids, expansion_match_counts = resolve_or_merge_expansion_ids(
                         session,
                         abbr=tcg_set.abbr,
                         set_name=tcg_set.name,
@@ -170,6 +189,7 @@ def map_expansions_from_nonsingles(
                         price_rows=price_rows,
                         matched_names=matched_names,
                     )
+                    expansion_ids = list(expansion_ids)
                 except ExpansionMappingError as exc:
                     if exc.details:
                         errors.extend(exc.details)
@@ -184,7 +204,6 @@ def map_expansions_from_nonsingles(
                             }
                         )
                     continue
-                expansion_ids = [resolved_id]
             else:
                 errors.append(
                     {
@@ -200,25 +219,27 @@ def map_expansions_from_nonsingles(
         mapping = ExpansionMapping(
             abbr=tcg_set.abbr,
             set_name=tcg_set.name,
-            expansion_id=expansion_ids[0],
+            expansion_ids=tuple(expansion_ids),
             matched_product_names=[str(row.get("name") or "") for row in hits],
+            expansion_match_counts=expansion_match_counts,
         )
         mappings[tcg_set.abbr] = mapping
 
         if upsert:
-            row = session.get(CardmarketExpansion, mapping.expansion_id)
-            if row is None:
-                row = CardmarketExpansion(
-                    expansion_id=mapping.expansion_id,
-                    expansion_code=tcg_set.abbr,
-                    expansion_name=tcg_set.name,
-                    fetched_at=datetime.utcnow(),
-                )
-                session.add(row)
-            else:
-                row.expansion_code = tcg_set.abbr
-                row.expansion_name = tcg_set.name
-                row.fetched_at = datetime.utcnow()
+            for exp_id in mapping.expansion_ids:
+                row = session.get(CardmarketExpansion, exp_id)
+                if row is None:
+                    row = CardmarketExpansion(
+                        expansion_id=exp_id,
+                        expansion_code=tcg_set.abbr,
+                        expansion_name=tcg_set.name,
+                        fetched_at=datetime.utcnow(),
+                    )
+                    session.add(row)
+                else:
+                    row.expansion_code = tcg_set.abbr
+                    row.expansion_name = tcg_set.name
+                    row.fetched_at = datetime.utcnow()
 
     if errors:
         raise ExpansionMappingError(

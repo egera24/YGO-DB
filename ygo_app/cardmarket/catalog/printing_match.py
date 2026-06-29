@@ -56,6 +56,33 @@ def _cm_product_url(id_product: int, name: str) -> str:
     return f"https://www.cardmarket.com/en/YuGiOh/Products/Singles/{slug}/{id_product}"
 
 
+def _dedupe_cm_matches_by_expansion_preference(
+    cm_matches: list[dict],
+    *,
+    expansion_match_counts: dict[int, int] | None,
+) -> list[dict]:
+    if not expansion_match_counts or len(cm_matches) <= 1:
+        return cm_matches
+
+    by_expansion: dict[int, list[dict]] = defaultdict(list)
+    for row in cm_matches:
+        exp_id = row.get("idExpansion")
+        if exp_id is None:
+            continue
+        by_expansion[int(exp_id)].append(row)
+
+    if len(by_expansion) <= 1:
+        return cm_matches
+
+    best = max(expansion_match_counts.get(exp_id, 0) for exp_id in by_expansion)
+    preferred = [
+        exp_id for exp_id in by_expansion if expansion_match_counts.get(exp_id, 0) == best
+    ]
+    if len(preferred) == 1:
+        return by_expansion[preferred[0]]
+    return cm_matches
+
+
 def match_printings_to_catalog(
     session: Session,
     *,
@@ -79,7 +106,9 @@ def match_printings_to_catalog(
     stats = {"matched": 0, "cards_processed": 0, "expansions": len(expansion_mappings)}
 
     for abbr, mapping in expansion_mappings.items():
-        cm_rows = singles_by_expansion.get(mapping.expansion_id, [])
+        cm_rows: list[dict] = []
+        for exp_id in mapping.expansion_ids:
+            cm_rows.extend(singles_by_expansion.get(exp_id, []))
         cm_by_card_name: dict[str, list[dict]] = defaultdict(list)
         for row in cm_rows:
             cm_by_card_name[normalize_card_name(str(row.get("name") or ""))].append(row)
@@ -100,6 +129,10 @@ def match_printings_to_catalog(
             stats["cards_processed"] += 1
             card: Card = card_printings[0].card
             cm_matches = cm_by_card_name.get(normalize_card_name(card.name), [])
+            cm_matches = _dedupe_cm_matches_by_expansion_preference(
+                cm_matches,
+                expansion_match_counts=mapping.expansion_match_counts,
+            )
 
             yg_refs = [
                 YugipediaPrintingRef(

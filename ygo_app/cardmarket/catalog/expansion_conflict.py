@@ -109,7 +109,34 @@ def _shared_card_names(card_maps: dict[int, dict[str, dict]]) -> set[str]:
     return shared
 
 
-def resolve_conflicting_expansion_ids(
+def _unique_dominant_expansion(
+    candidates: list[int], match_counts: dict[int, int]
+) -> int | None:
+    best = max(match_counts[c] for c in candidates)
+    dominants = [c for c in candidates if match_counts[c] == best]
+    if len(dominants) == 1:
+        return dominants[0]
+    return None
+
+
+def _shared_card_has_price_conflict(
+    card_norm: str,
+    candidates: list[int],
+    card_maps: dict[int, dict[str, dict]],
+) -> bool:
+    priced = [
+        card_maps[exp_id][card_norm]
+        for exp_id in candidates
+        if card_norm in card_maps[exp_id]
+    ]
+    for i, price_a in enumerate(priced):
+        for price_b in priced[i + 1 :]:
+            if not _price_fields_compatible(price_a, price_b):
+                return True
+    return False
+
+
+def resolve_or_merge_expansion_ids(
     session: Session,
     *,
     abbr: str,
@@ -118,7 +145,7 @@ def resolve_conflicting_expansion_ids(
     singles: list[dict],
     price_rows: list[dict],
     matched_names: list[str],
-) -> int:
+) -> tuple[tuple[int, ...], dict[int, int]]:
     price_index = _build_price_index(price_rows)
     singles_by_exp = _singles_by_expansion(singles)
     yugipedia_names = _yugipedia_card_names(session, abbr)
@@ -145,7 +172,8 @@ def resolve_conflicting_expansion_ids(
         )
 
     if len(candidates) == 1:
-        return candidates[0]
+        exp_id = candidates[0]
+        return (exp_id,), {exp_id: match_counts[exp_id]}
 
     card_maps = {
         exp_id: _expansion_card_price_map(exp_id, singles_by_exp, price_index)
@@ -153,23 +181,48 @@ def resolve_conflicting_expansion_ids(
     }
     shared = _shared_card_names(card_maps)
     if shared:
+        dominant = _unique_dominant_expansion(candidates, match_counts)
         for card_norm in shared:
-            priced = [card_maps[exp_id][card_norm] for exp_id in candidates if card_norm in card_maps[exp_id]]
-            for i, price_a in enumerate(priced):
-                for price_b in priced[i + 1 :]:
-                    if not _price_fields_compatible(price_a, price_b):
-                        raise ExpansionMappingError(
-                            f"Failed to map TCG set {abbr} to Cardmarket expansions",
-                            details=[
-                                {
-                                    "abbr": abbr,
-                                    "set_name": set_name,
-                                    "reason": "conflicting_idExpansion",
-                                    "expansion_ids": candidate_ids,
-                                    "matched_names": matched_names[:10],
-                                    "card_name": card_norm,
-                                }
-                            ],
-                        )
+            if not _shared_card_has_price_conflict(card_norm, candidates, card_maps):
+                continue
+            if dominant is None or card_norm not in card_maps[dominant]:
+                raise ExpansionMappingError(
+                    f"Failed to map TCG set {abbr} to Cardmarket expansions",
+                    details=[
+                        {
+                            "abbr": abbr,
+                            "set_name": set_name,
+                            "reason": "conflicting_idExpansion",
+                            "expansion_ids": candidate_ids,
+                            "matched_names": matched_names[:10],
+                            "card_name": card_norm,
+                        }
+                    ],
+                )
 
-    return _pick_best_expansion(candidates, match_counts)
+    resolved = tuple(sorted(candidates))
+    return resolved, {exp_id: match_counts[exp_id] for exp_id in resolved}
+
+
+def resolve_conflicting_expansion_ids(
+    session: Session,
+    *,
+    abbr: str,
+    set_name: str,
+    candidate_ids: list[int],
+    singles: list[dict],
+    price_rows: list[dict],
+    matched_names: list[str],
+) -> int:
+    merged, match_counts = resolve_or_merge_expansion_ids(
+        session,
+        abbr=abbr,
+        set_name=set_name,
+        candidate_ids=candidate_ids,
+        singles=singles,
+        price_rows=price_rows,
+        matched_names=matched_names,
+    )
+    if len(merged) > 1:
+        return _pick_best_expansion(list(merged), match_counts)
+    return merged[0]

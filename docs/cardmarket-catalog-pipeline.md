@@ -40,22 +40,25 @@ For each `tcg_sets` row with `region = 'TCG'`:
 
 - **Skip** sets whose name contains **Championship** and **prize card(s)** — not mapped, not fatal
 - **Skip** **Collectible Tins** sets entirely — not mapped, not fatal
+- **Skip** sets whose name contains **promotional** or **participation** — not mapped, not fatal
 - **Skip** sets with **fewer than 2** Yugipedia cards (0 or 1 distinct `card_id` in `printings`) — not mapped, not fatal
-- **Ignore** nonsingle products whose name contains `Rush Duel`, a **1–4 letter alphabetic regional code in parentheses** (e.g. `(MIP)`, `(LDD)`), `Booster SP`, `Gold Series 2013`, `Gold Series 2014`, `OCG`, `Japan`, `Deck Build Pack`, `Korean`, or condition markers (`(non-sealed)`, `(BI`, `(MI`, `(DI`, `(DD`), and exclude their entire `idExpansion` if any product in that expansion matches
+- **Ignore** nonsingle products whose name contains `Rush Duel`, a **1–4 letter alphabetic regional code in parentheses** (e.g. `(MIP)`, `(LDD)`), `Booster SP`, `Gold Series 2013`, `Gold Series 2014`, `OCG`, `Japan`, `Deck Build Pack`, `Korean`, `25th Anniversary Edition`, `Sacred Beasts of Chaos`, `promotional`, `participation`, or condition markers (`(non-sealed)`, `(BI`, `(MI`, `(DI`, `(DD`); skip matching products with those markers, and exclude their entire `idExpansion` when the marker is regional/condition (`(BI`–`(DD`) or another expansion-level rule — `(non-sealed)` is row-only and does not poison the expansion
 - Drop nonsingle hits when the product name contains **Speed Duel**, **OTS**, or **Structure Deck** but the Yugipedia set name does not
-- Normalize Yugipedia set name before matching: Advent Calendar `(YYYY)` → `Advent Calendar YYYY`; strip leading `Yu-Gi-Oh!` and trailing `prize card` / `prize cards`
-- For listed abbrs (Gold Series, Hidden Arsenal, Legendary Collection), use **manual Cardmarket name aliases** in [`expansion_aliases.py`](../ygo_app/cardmarket/catalog/expansion_aliases.py) instead of generic set-name containment
-- Find remaining nonsingle products whose `name` contains the normalized set name (case-insensitive)
-- If no match and the Yugipedia set name contains **Structure Deck**, retry using **`Structure Deck: {Title}`** when Yugipedia uses **`{Title} Structure Deck`**
-- All matches must share the same `idExpansion`, or be resolved using singles + price guide:
+- Normalize Yugipedia set name before matching: Advent Calendar `(YYYY)` → `Advent Calendar YYYY`; strip leading `Yu-Gi-Oh!` and trailing `prize card` / `prize cards`; apply Unicode NFKC (e.g. curly apostrophes)
+- For listed abbrs (Gold Series, Hidden Arsenal, Legendary Collection, classic Starter Decks, Starter Deck 5D's, Dragons of Legend, Legendary Duelists base set, **STP5/STP6**, **SDWS**), use **manual Cardmarket name aliases** in [`expansion_aliases.py`](../ygo_app/cardmarket/catalog/expansion_aliases.py) instead of generic set-name containment (STP5/STP6: Cardmarket uses `Speed Duel: Tournament Pack N` instead of `Speed Duel Tournament Pack N`)
+- Find remaining nonsingle products whose `name` contains the normalized set name (case-insensitive), with:
+  - **Digit boundary** — when the set name ends in a digit, the product must not continue with another digit (e.g. `OTS Tournament Pack 1` ≠ `OTS Tournament Pack 10`)
+  - **Colon subtitle guard** — when the set name has no `:`, reject products where the match is immediately followed by `:` and a subtitle (e.g. `Legendary Duelists` ≠ `Legendary Duelists: Ancient Millennium`)
+- If no match, retry with alternate needles: **Structure Deck: {Title}**, **Dark Revelation N** (from `Volume N`), **{subtitle}** (from `Legendary Duelists: {subtitle}`), **{Title} Starter Deck** (from `Starter Deck: …`)
+- All matches must share the same `idExpansion`, or be **merged** using singles + price guide when multiple expansions belong to one Yugipedia set:
   - Drop candidate expansions with no priced Yugipedia card matches in CM singles
-  - If multiple remain and card names do not overlap → pick expansion with most Yugipedia card matches (tie → lowest `idExpansion`)
-  - If card names overlap → require compatible prices (`trend`, `avg`, `low`; equal or complementary nulls); conflicting non-null values → **fatal error**
+  - If card names overlap across candidates → require compatible prices (`trend`, `avg`, `low`; equal or complementary nulls); conflicting non-null values → **fatal error** unless one expansion has strictly more priced Yugipedia card matches (dominant expansion keeps the price at printing-match time)
+  - If validation passes → keep **all** remaining candidate `idExpansion` values (printing match unions singles across them)
 - Zero matches or unresolved conflicts → **fatal error** (job fails)
 
 ### Card + rarity
 
-Per expansion, group Yugipedia `printings` by card. Match Cardmarket singles (`idCategory = 5`) by `idExpansion` + normalized card name.
+Per Yugipedia set, group `printings` by card. Match Cardmarket singles (`idCategory = 5`) by any mapped `idExpansion` + normalized card name.
 
 - Count of CM products must equal count of Yugipedia printings for that card in the set
 - Sort CM by `trend`, then `avg`, then `idProduct` ascending

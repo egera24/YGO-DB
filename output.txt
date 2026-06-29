@@ -1,2 +1,197 @@
-2026-06-29 14:04:35 [CATALOG] run_id=20260629T120435Z
-2026-06-29 14:04:38 [CATALOG] downloaded singles=85597 nonsingles=2372 prices=87947
+2026-06-29 16:55:26 [CATALOG] run_id=20260629T145526Z
+2026-06-29 16:55:28 [CATALOG] downloaded singles=85597 nonsingles=2372 prices=87947
+2026-06-29 16:57:55 [CATALOG] FAILED: Failed to map 30 TCG set(s) to Cardmarket expansions
+2026-06-29 16:57:55 [
+  {
+    "abbr": "BATT",
+    "set_name": "Battle Pack Tournament Prize Cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "BPT",
+    "set_name": "Booster Pack Collectors Tins 2002",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "BPW2",
+    "set_name": "War of the Giants: Round 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DEM2",
+    "set_name": "Demo Deck 2015",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DEM3",
+    "set_name": "Demo Deck 2016",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DEM5",
+    "set_name": "Speed Duel Demo Deck",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DP09",
+    "set_name": "Duelist Pack: Yusei 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DP10",
+    "set_name": "Duelist Pack: Yusei 3",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DPCT",
+    "set_name": "Duelist Pack Collection Tin 2008",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT01",
+    "set_name": "Duel Terminal 1",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT02",
+    "set_name": "Duel Terminal 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT03",
+    "set_name": "Duel Terminal 3",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT04",
+    "set_name": "Duel Terminal 4",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT05",
+    "set_name": "Duel Terminal 5a",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT06",
+    "set_name": "Duel Terminal 6a",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT07",
+    "set_name": "Duel Terminal 7a",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DTP1",
+    "set_name": "Duel Terminal - Preview Wave 1",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "EVSD",
+    "set_name": "Event Pack Speed Duel",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "JUMP",
+    "set_name": "Shonen Jump May 2006 subscription bonus",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "LART",
+    "set_name": "The Lost Art Promotion",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "MOV",
+    "set_name": "Movie Pack",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1260,
+      1711
+    ],
+    "matched_names": [
+      "3D Bonds Beyond Time Movie Pack Booster",
+      "The Dark Side of Dimensions Movie Pack Booster",
+      "The Dark Side of Dimensions Movie Pack Booster Box",
+      "The Dark Side of Dimensions Movie Pack Booster Box (18 Booster)",
+      "The Dark Side of Dimensions Movie Pack Gold Booster",
+      "The Dark Side of Dimensions Movie Pack Silver Booster"
+    ]
+  },
+  {
+    "abbr": "MP14",
+    "set_name": "2014 Mega-Tin Mega Pack",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "NKC1",
+    "set_name": "Nike collaboration cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PGL2",
+    "set_name": "Premium Gold: Return of the Bling",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDY",
+    "set_name": "Starter Deck: Yugi",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TP1",
+    "set_name": "Tournament Pack: 1st Season",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TP2",
+    "set_name": "Tournament Pack: 2nd Season",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TP3",
+    "set_name": "Tournament Pack: 3rd Season",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TU01",
+    "set_name": "Turbo Pack: Booster One",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "UBP1",
+    "set_name": "Yu-Gi-Oh! GX Ultimate Beginner's Pack",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  }
+]
+[JOB_END] elapsed=2m 29s exit=1

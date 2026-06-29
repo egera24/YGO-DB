@@ -30,16 +30,34 @@ EXPANSION_NAME_ALIASES: dict[str, tuple[str, ...]] = {
         "Legendary Collection 5D's: Mega Pack Booster",
         "Legendary Collection 5D's: Promo Box",
     ),
-    "LC06": (
-        "Legendary Collection Kaiba",
-        "Legendary Collection Kaiba Mega Pack Booster",
-        "Legendary Collection Kaiba (2025 Reprint)",
-    ),
+    "LC06": ("Legendary Collection Kaiba",),
     "LC5D": ("Legendary Collection 5D's: Mega Pack Booster",),
     "LCGX": ("Legendary Collection 2: Mega Pack Booster",),
     "LCJW": ("Legendary Collection 4: Mega Pack Booster",),
     "LCYW": ("Legendary Collection 3: Mega Pack Booster",),
     "LCKC": ("Legendary Collection Kaiba Mega Pack Booster",),
+    # Starter Deck
+    "5DS1": ("5D's Starter Deck 2008",),
+    "5DS2": ("5D's Starter Deck 2009",),
+    "SDJ": ("Starter Deck: Joey",),
+    "SDK": ("Starter Deck: Kaiba",),
+    "SDP": ("Starter Deck: Pegasus",),
+    "SDY": ("Starter Deck: Yugi",),
+    "SKE": ("Starter Deck: Kaiba Evolution",),
+    "SYE": ("Starter Deck: Yugi Evolution",),
+    "YSKR": ("Starter Deck: Kaiba Reloaded",),
+    "YSYR": ("Starter Deck: Yugi Reloaded",),
+    "SDWS": ("Structure Deck R: Warriors' Strike",),
+    # Dragons of Legend
+    "DRLG": ("Dragons of Legend",),
+    "DRL2": ("Dragons of Legend 2",),
+    "DRL3": ("Dragons of Legend: Unleashed",),
+    "DLCS": ("Dragons of Legend: The Complete Series",),
+    # Legendary Duelists (base set)
+    "LEDU": ("Legendary Duelists",),
+    # Speed Duel Tournament Pack (colon-style Cardmarket naming)
+    "STP5": ("Speed Duel: Tournament Pack 5 Booster",),
+    "STP6": ("Speed Duel: Tournament Pack 6 Booster",),
 }
 
 

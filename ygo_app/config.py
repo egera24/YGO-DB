@@ -25,6 +25,13 @@ YGO_API_URL = os.getenv(
     "YGO_API_URL", "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 )
 
+# S3-compatible storage (Cloudflare R2; card images + Cardmarket catalog).
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL") or None
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID") or None
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY") or None
+S3_BUCKET = os.getenv("S3_BUCKET") or None
+S3_CARDMARKET_BUCKET = os.getenv("S3_CARDMARKET_BUCKET") or None
+
 SEARCH_DEFAULT_LIMIT = int(
     os.getenv("SEARCH_DEFAULT_LIMIT", "200" if IS_PRODUCTION else "1000")
 )

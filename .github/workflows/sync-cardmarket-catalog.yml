@@ -53,12 +53,12 @@ jobs:
       - name: Check R2 secrets
         id: r2
         env:
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_CARDMARKET_BUCKET: ${{ secrets.S3_CARDMARKET_BUCKET }}
         run: |
-          if [[ -n "$S3_BUCKET" ]]; then
+          if [[ -n "$S3_CARDMARKET_BUCKET" ]]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::S3_BUCKET not set — raw archive and export upload will be skipped"
+            echo "::warning::S3_CARDMARKET_BUCKET not set — raw archive and export upload will be skipped"
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -73,7 +73,7 @@ jobs:
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_CARDMARKET_BUCKET: ${{ secrets.S3_CARDMARKET_BUCKET }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -o pipefail

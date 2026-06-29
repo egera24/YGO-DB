@@ -1,5 +1,23 @@
 const API = "/api";
 
+// #region agent log
+function agentDebugLog(location, message, data = {}, hypothesisId = "") {
+  fetch("http://127.0.0.1:7367/ingest/7f5f8718-6e23-436a-8207-46a7d2058bd3", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "906c06" },
+    body: JSON.stringify({
+      sessionId: "906c06",
+      runId: "pre-fix",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+}
+// #endregion
+
 const IMG_PLACEHOLDER =
   "data:image/svg+xml," +
   encodeURIComponent(
@@ -2919,6 +2937,19 @@ function renderModalPrintingsList(printings, selectedKey) {
   if (!listEl) return;
 
   const hasAnyPrices = printings.some(printingHasMarketPrices);
+  // #region agent log
+  agentDebugLog(
+    "app.js:renderModalPrintingsList",
+    "render printings list",
+    {
+      printingsCount: printings.length,
+      hasAnyPrices,
+      selectedKey,
+      firstSetCode: printings[0]?.set_code ?? null,
+    },
+    "C"
+  );
+  // #endregion
   listEl.className = `printings-list printings-list--grid${
     hasAnyPrices ? " printings-list--has-prices" : ""
   }`;
@@ -2968,6 +2999,18 @@ function renderModalPrintingsList(printings, selectedKey) {
     .join("");
 
   listEl.innerHTML = printings.length ? header + rows : "";
+  // #region agent log
+  agentDebugLog(
+    "app.js:renderModalPrintingsList",
+    "printings DOM updated",
+    {
+      printingsCount: printings.length,
+      innerHtmlLength: listEl.innerHTML.length,
+      childCount: listEl.children.length,
+    },
+    "D"
+  );
+  // #endregion
 }
 
 function renderModalCard(card) {
@@ -3032,6 +3075,20 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
     const card = await api(`/cards/${cardId}`);
     if (state.currentCardId !== cardId) return;
 
+    // #region agent log
+    agentDebugLog(
+      "app.js:openCardModal",
+      "card detail API success",
+      {
+        cardId,
+        printingsCount: (card.printings || []).length,
+        hasDesc: Boolean(card.desc),
+        errataCount: (card.errata || []).length,
+      },
+      "B"
+    );
+    // #endregion
+
     state.currentCard = card;
     renderModalCard(card);
     setModalImage(card.image_url || card.image_url_small || null, card.name, imageToken);
@@ -3039,6 +3096,20 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
     updateRouteDocumentTitle();
   } catch (err) {
     if (state.currentCardId !== cardId) return;
+    // #region agent log
+    agentDebugLog(
+      "app.js:openCardModal",
+      "card detail API failed",
+      {
+        cardId,
+        errorMessage: err?.message || "",
+        errorStatus: err?.status ?? null,
+        errorCode: err?.code ?? null,
+        hadSeed: Boolean(seed),
+      },
+      "A"
+    );
+    // #endregion
     resetModalSupplements();
     $("#modal-desc").textContent = err.message || "Failed to load card details.";
     $("#modal-desc").classList.add("modal-load-error");

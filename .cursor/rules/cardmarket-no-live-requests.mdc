@@ -1,63 +1,42 @@
 ---
-description: Never fetch Cardmarket live; use user-in-the-loop workflow for HTML/data
+description: Cardmarket — no live cardmarket.com requests; catalog S3 OK in GHA/user sync job
 alwaysApply: true
 ---
 
-# Cardmarket — no live requests from agents
+# Cardmarket — no live HTML requests from agents
 
-Cardmarket returns HTTP 403/429 to automated traffic. Scraping is **user-local only** — see `docs/LOCAL_DEV.md`, `docs/cloudflare/README.md`, and `agent_handoff.md`. Agents must not consume the user's rate-limit budget.
+`cardmarket.com` returns HTTP 403/429 to automated traffic. The **legacy web scraper is archived** — use the **official S3 catalog pipeline** instead. See `docs/cardmarket-catalog-pipeline.md` and `agent_handoff.md`.
 
 ## Do not
 
 - Fetch `cardmarket.com` (or subdomains) via curl, `requests`, `cloudscraper`, `curl_cffi`, Playwright, or ad-hoc debug scripts
-- Run `cardmarket/*_scraper.py` or `python -m ygo_app.jobs.scrape_cardmarket_*` to test or verify behavior
-- Trigger CI or background jobs that scrape Cardmarket
+- Run archived scrape jobs (`python -m ygo_app.jobs.scrape_cardmarket_*`) — they print a deprecation message
+- Trigger CI that scrapes Cardmarket HTML
 
 ## Allowed
 
-- Read local artifacts (`data/catalog/cardmarket_*.json`, saved HTML, console logs)
-- Edit parsers/scrapers against static HTML fixtures
-- Run unit tests with mocks (e.g. `tests/test_cardmarket_parsing.py`)
+- Read local artifacts (`data/catalog/cardmarket_*.json`, `data/catalog/cardmarket_raw/`, saved HTML in `DO NOT DELETE/`)
+- Run unit tests with fixtures (`tests/test_cardmarket_catalog_*.py`, `tests/fixtures/cardmarket/`)
+- User or GHA runs `python -m ygo_app.jobs.sync_cardmarket_catalog` (downloads from `downloads.s3.cardmarket.com` only)
 
 ## Required workflow when Cardmarket data is needed
 
-1. **Explain** — state what you need to learn and the immediate next step.
-2. **Ask the user** — give numbered steps to obtain it (browser DevTools, save HTML, run a local job with `--limit 1`, paste console output).
-3. **Continue** — resume only after the user provides the artifact; analyze locally. Do not re-fetch.
-
-### User extraction guides
-
-- **HTML snippet**: open URL in browser → F12 → Elements → Copy outerHTML → paste or save to `cardmarket/debug_samples/`
-- **Full page**: Save as "Webpage, HTML only" → share file or relevant section
-- **Scraper output**: user runs `python -m ygo_app.jobs.scrape_cardmarket_card_list --limit 1` and shares log or output path
-- **Network evidence**: DevTools → Network → status code + response headers (not cookies)
+1. **Explain** — state what you need and the next step.
+2. **Ask the user** — for HTML fixtures, saved JSON, or to run `sync_cardmarket_catalog --skip-import --skip-r2` locally and share logs.
+3. **Continue** — analyze local artifacts only; do not fetch `cardmarket.com`.
 
 ### What to ask for
 
 | Task | Ask user for |
 |------|--------------|
-| Parser/HTML change | Saved search-results HTML (list + gallery if unsure) |
-| Scraper failure | Console output, `cardmarket_rejected_expansions.json`, or one failing page |
-| Rate-limit / 403 | Whether they recently scraped; wait per `docs/cloudflare/README.md` and `docs/LOCAL_DEV.md` — do not probe live |
-| Price pipeline | Existing `data/catalog/cardmarket_prices.json` or R2 export |
+| URL discovery / HTML change | Saved Data page HTML (`DO NOT DELETE/cardmarket_*_html_code.html`) |
+| Matching failure | GHA log or `data/catalog/cardmarket_raw/sync_summary.json` |
+| Price pipeline | `data/catalog/cardmarket_prices.json` or R2 export |
 
-### Recommend (do not run) local scrape pipeline
+### Recommend (do not run) catalog sync
 
 ```powershell
-python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login   # one-time
-python -m ygo_app.jobs.scrape_cardmarket_expansions --polite
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --resume
+python -m ygo_app.jobs.sync_cardmarket_catalog --skip-import --skip-r2
 ```
 
-Use `--limit N` for small test runs.
-
-### Examples
-
-```
-BAD:  py -c "import cloudscraper; ... cardmarket.com ..."
-GOOD: "Open this URL in your browser, save the HTML, and share the file."
-
-BAD:  Running cardmarket_card_list_scraper.py to verify a parser fix
-GOOD: "Save list-view HTML to cardmarket/debug_samples/abpf-list.html; I'll update the parser."
-```
+Weekly GHA: **Sync Cardmarket catalog** (S3 download — safe from datacenter IPs).

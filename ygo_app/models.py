@@ -6,10 +6,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -289,13 +291,34 @@ class DeckCard(Base):
     card: Mapped["Card"] = relationship(back_populates="deck_entries")
 
 
+class RarityPriceRank(Base):
+    """Ordered rarity tiers for price-based Cardmarket catalog matching."""
+
+    __tablename__ = "rarity_price_ranks"
+
+    sort_order: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    rarity_code: Mapped[str | None] = mapped_column(String(32))
+
+
 class PrintingMarketPrice(Base):
-    """Cardmarket LOW/AVG/TREND keyed by set code + rarity (survives catalog re-import)."""
+    """Cardmarket LOW/AVG/TREND keyed by set code + rarity (SCD Type 2)."""
 
     __tablename__ = "printing_market_prices"
+    __table_args__ = (
+        Index(
+            "ix_printing_market_prices_current_key",
+            "set_code",
+            "rarity_code",
+            unique=True,
+            postgresql_where=text("is_current = true"),
+            sqlite_where=text("is_current = 1"),
+        ),
+    )
 
-    set_code: Mapped[str] = mapped_column(String(32), primary_key=True)
-    rarity_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    set_code: Mapped[str] = mapped_column(String(32), index=True)
+    rarity_code: Mapped[str] = mapped_column(String(64), index=True)
     cardmarket_product_id: Mapped[int | None] = mapped_column(Integer)
     cardmarket_url: Mapped[str | None] = mapped_column(String(512))
     low_price: Mapped[float | None] = mapped_column(Float)
@@ -303,7 +326,10 @@ class PrintingMarketPrice(Base):
     trend_price: Mapped[float | None] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(8), default="EUR")
     discovery_status: Mapped[str | None] = mapped_column(String(16))
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    valid_from: Mapped[datetime] = mapped_column(DateTime)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    source_run_id: Mapped[str | None] = mapped_column(String(64))
 
 
 class CardmarketExpansion(Base):

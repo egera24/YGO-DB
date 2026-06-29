@@ -6,6 +6,7 @@ import csv
 import io
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -108,6 +109,8 @@ class TestExportCollectionCsv(unittest.TestCase):
                 low_price=0.05,
                 avg_price=0.26,
                 trend_price=0.32,
+                valid_from=datetime.utcnow(),
+                is_current=True,
             )
         )
         session.commit()

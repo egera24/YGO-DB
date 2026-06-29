@@ -1,0 +1,1031 @@
+2026-06-29 02:03:09 [CATALOG] run_id=20260629T000309Z
+2026-06-29 02:03:11 [CATALOG] downloaded singles=85588 nonsingles=2372 prices=87947
+2026-06-29 02:05:55 [CATALOG] FAILED: Failed to map 130 TCG set(s) to Cardmarket expansions
+2026-06-29 02:05:55 [
+  {
+    "abbr": "5DS1",
+    "set_name": "Starter Deck: Yu-Gi-Oh! 5D's",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "5DS2",
+    "set_name": "Starter Deck: Yu-Gi-Oh! 5D's 2009",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "BATT",
+    "set_name": "Battle Pack Tournament Prize Cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "BPT",
+    "set_name": "Booster Pack Collectors Tins 2002",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "BPW2",
+    "set_name": "War of the Giants: Round 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "CMC",
+    "set_name": "Yu-Gi-Oh! Capsule Monster Coliseum promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "CT11",
+    "set_name": "2014 Mega-Tins",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1497,
+      1498
+    ],
+    "matched_names": [
+      "2014 Mega-Tins: \"\"Brotherhood of the Fire Fist - Tiger King\"\" Tin",
+      "2014 Mega-Tins: \"\"Bujintei Susanowo\"\" Tin",
+      "2014 Mega-Tins Mega-Pack Booster"
+    ],
+    "card_name": "bujintei susanowo"
+  },
+  {
+    "abbr": "DBT",
+    "set_name": "Yu-Gi-Oh! Destiny Board Traveler promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DCR",
+    "set_name": "Dark Crisis",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1023,
+      5343
+    ],
+    "matched_names": [
+      "Dark Crisis Booster",
+      "Dark Crisis Booster Box",
+      "Dark Crisis (Legendary Collection: 25th Anniversary Edition) Booster"
+    ],
+    "card_name": "altar for tribute"
+  },
+  {
+    "abbr": "DDS",
+    "set_name": "Yu-Gi-Oh! Dark Duel Stories promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DEM2",
+    "set_name": "Demo Deck 2015",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DEM3",
+    "set_name": "Demo Deck 2016",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DEM5",
+    "set_name": "Speed Duel Demo Deck",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL09",
+    "set_name": "Duelist League 2010 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL1",
+    "set_name": "Duelist League Series 1 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL11",
+    "set_name": "Duelist League 2 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL12",
+    "set_name": "Duelist League 3 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL13",
+    "set_name": "Duelist League 13 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL14",
+    "set_name": "Duelist League 14 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL15",
+    "set_name": "Duelist League 15 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL16",
+    "set_name": "Duelist League 16 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL17",
+    "set_name": "Duelist League 17 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL18",
+    "set_name": "Duelist League 18 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DL2",
+    "set_name": "Duelist League Series 2 participation cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DOD",
+    "set_name": "Yu-Gi-Oh! The Dawn of Destiny promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DOR",
+    "set_name": "Yu-Gi-Oh! The Duelists of the Roses promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DP09",
+    "set_name": "Duelist Pack: Yusei 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DP10",
+    "set_name": "Duelist Pack: Yusei 3",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DPCT",
+    "set_name": "Duelist Pack Collection Tin 2008",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DR04",
+    "set_name": "Dark Revelation Volume 4",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DR1",
+    "set_name": "Dark Revelation Volume 1",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DR2",
+    "set_name": "Dark Revelation Volume 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DR3",
+    "set_name": "Dark Revelation Volume 3",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DREV",
+    "set_name": "Duelist Revolution Sneak Peek Participation Card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DRLG",
+    "set_name": "Dragons of Legend",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1479,
+      1656,
+      1713,
+      3234
+    ],
+    "matched_names": [
+      "Dragons of Legend Booster",
+      "Dragons of Legend Booster Box",
+      "Dragons of Legend 2 Booster",
+      "Dragons of Legend 2 Booster Box",
+      "Dragons of Legend: Unleashed Booster",
+      "Dragons of Legend: Unleashed Booster Box",
+      "Dragons of Legend: Unleashed Booster Box (18 Booster)",
+      "Dragons of Legend 2 Booster Box (18 Booster)",
+      "Dragons of Legend Booster Box (18 Booster)",
+      "Dragons of Legend: The Complete Series"
+    ],
+    "card_name": "kuribandit"
+  },
+  {
+    "abbr": "DT01",
+    "set_name": "Duel Terminal 1",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT02",
+    "set_name": "Duel Terminal 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT03",
+    "set_name": "Duel Terminal 3",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT04",
+    "set_name": "Duel Terminal 4",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT05",
+    "set_name": "Duel Terminal 5a",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT06",
+    "set_name": "Duel Terminal 6a",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DT07",
+    "set_name": "Duel Terminal 7a",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DTP1",
+    "set_name": "Duel Terminal - Preview Wave 1",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "DUAD",
+    "set_name": "Duelist's Advance",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "EDS",
+    "set_name": "Yu-Gi-Oh! The Eternal Duelist Soul promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "EP1",
+    "set_name": "Kids' WB! Duel of Destiny promotional card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "EVSD",
+    "set_name": "Event Pack Speed Duel",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "FMR",
+    "set_name": "Yu-Gi-Oh! Forbidden Memories Premium Edition promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "GX02",
+    "set_name": "Yu-Gi-Oh! GX Tag Force promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "GX03",
+    "set_name": "Yu-Gi-Oh! GX Spirit Caller promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "GX04",
+    "set_name": "Yu-Gi-Oh! GX Tag Force 2 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "GX05",
+    "set_name": "Yu-Gi-Oh! GX Tag Force Evolution promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "GX06",
+    "set_name": "Yu-Gi-Oh! GX Tag Force 3 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "GX1",
+    "set_name": "Yu-Gi-Oh! GX Duel Academy promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL03",
+    "set_name": "Hobby League 3 participation card A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL04",
+    "set_name": "Hobby League 4 participation card A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL05",
+    "set_name": "Hobby League 5 participation card A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL06",
+    "set_name": "Hobby League 6 participation card A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL07",
+    "set_name": "Hobby League 7 participation card A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL1",
+    "set_name": "Hobby League 1 participation cards A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "HL2",
+    "set_name": "Hobby League 2 participation card A",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "IOC",
+    "set_name": "Invasion of Chaos",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1028,
+      5235,
+      5344
+    ],
+    "matched_names": [
+      "Invasion of Chaos Booster",
+      "Invasion of Chaos: Special Edition",
+      "Invasion of Chaos Booster Box",
+      "Invasion of Chaos 25th Anniversary Edition Case (12 Booster Boxes)",
+      "Invasion of Chaos 25th Anniversary Edition Booster Box",
+      "Invasion of Chaos 25th Anniversary Edition Booster",
+      "Invasion of Chaos (Legendary Collection: 25th Anniversary Edition) Booster"
+    ],
+    "card_name": "d d designator"
+  },
+  {
+    "abbr": "JMP",
+    "set_name": "Shonen Jump Vol. 1, Issue 1 promotional card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "JMPS",
+    "set_name": "WSJ Jump Pack Spring 2017 promotional card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "JUMP",
+    "set_name": "Shonen Jump May 2006 subscription bonus",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "LART",
+    "set_name": "The Lost Art Promotion",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "LC05",
+    "set_name": "Legendary Collection 5D's",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1507,
+      1508
+    ],
+    "matched_names": [
+      "Legendary Collection 5D's: Mega Pack Booster",
+      "Legendary Collection 5D's: Promo Box"
+    ],
+    "card_name": "black rose dragon"
+  },
+  {
+    "abbr": "LC06",
+    "set_name": "Legendary Collection Kaiba",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      2066,
+      2067
+    ],
+    "matched_names": [
+      "Legendary Collection Kaiba Mega Pack Booster",
+      "Legendary Collection Kaiba",
+      "Legendary Collection Kaiba (2025 Reprint)"
+    ],
+    "card_name": "the king of d"
+  },
+  {
+    "abbr": "LEDU",
+    "set_name": "Legendary Duelists",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1817,
+      2048,
+      2354,
+      2406,
+      2669,
+      2849,
+      3123,
+      3334,
+      3535,
+      4222,
+      4470,
+      4471,
+      5338
+    ],
+    "matched_names": [
+      "Legendary Duelists Booster Box",
+      "Legendary Duelists Booster",
+      "Legendary Duelists: Ancient Millennium Booster Box",
+      "Legendary Duelists: Ancient Millennium Booster",
+      "Legendary Duelists: White Dragon Abyss Booster Box",
+      "Legendary Duelists: White Dragon Abyss Booster",
+      "Legendary Duelists: Sisters of the Rose Booster Box",
+      "Legendary Duelists: Sisters of the Rose Booster",
+      "Legendary Duelists: Immortal Destiny Booster Box",
+      "Legendary Duelists: Immortal Destiny Booster"
+    ],
+    "card_name": "amazoness onslaught"
+  },
+  {
+    "abbr": "LOB",
+    "set_name": "Legend of Blue Eyes White Dragon",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1064,
+      5339
+    ],
+    "matched_names": [
+      "Legend of Blue Eyes White Dragon Booster",
+      "Legend of Blue Eyes White Dragon Booster Box",
+      "Legend of Blue Eyes White Dragon (Legendary Collection: 25th Anniversary Edition) Booster"
+    ],
+    "card_name": "giant soldier of stone"
+  },
+  {
+    "abbr": "LOD2",
+    "set_name": "Yu-Gi-Oh! Legacy of the Duelist: Link Evolution promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "MAGO",
+    "set_name": "Maximum Gold",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      3339,
+      4371
+    ],
+    "matched_names": [
+      "Maximum Gold Booster Box",
+      "Maximum Gold Booster",
+      "Maximum Gold Single Booster",
+      "Maximum Gold: El Dorado Case (4 Booster Boxes)",
+      "Maximum Gold: El Dorado Booster Box",
+      "Maximum Gold: El Dorado Box",
+      "Maximum Gold: El Dorado Booster"
+    ],
+    "card_name": "dark magician"
+  },
+  {
+    "abbr": "MDP2",
+    "set_name": "McDonald's Promotional Cards 2",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "MOV",
+    "set_name": "Movie Pack",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1260,
+      1711
+    ],
+    "matched_names": [
+      "3D Bonds Beyond Time Movie Pack Booster",
+      "The Dark Side of Dimensions Movie Pack Booster",
+      "The Dark Side of Dimensions Movie Pack Booster Box",
+      "The Dark Side of Dimensions Movie Pack: Gold Edition",
+      "The Dark Side of Dimensions Movie Pack: Special Edition",
+      "The Dark Side of Dimensions Movie Pack: Secret Edition",
+      "The Dark Side of Dimensions Movie Pack Booster Box (18 Booster)",
+      "The Dark Side of Dimensions Movie Pack Gold Booster",
+      "The Dark Side of Dimensions Movie Pack Silver Booster"
+    ]
+  },
+  {
+    "abbr": "MP1",
+    "set_name": "McDonald's Promotional Cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "MP14",
+    "set_name": "2014 Mega-Tin Mega Pack",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "MRD",
+    "set_name": "Metal Raiders",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1016,
+      5235,
+      5340
+    ],
+    "matched_names": [
+      "Metal Raiders Booster",
+      "Metal Raiders Booster Box",
+      "Metal Raiders 25th Anniversary Edition Case (12 Booster Boxes)",
+      "Metal Raiders 25th Anniversary Edition Booster Box",
+      "Metal Raiders 25th Anniversary Edition Booster",
+      "Metal Raiders (Legendary Collection: 25th Anniversary Edition) Booster"
+    ],
+    "card_name": "witch of the black forest"
+  },
+  {
+    "abbr": "NKC1",
+    "set_name": "Nike collaboration cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "NTR",
+    "set_name": "Yu-Gi-Oh! Nightmare Troubadour promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "OP01",
+    "set_name": "OTS Tournament Pack 1",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1699,
+      2454,
+      2542,
+      2951,
+      3329,
+      3505,
+      3728,
+      4325,
+      4391,
+      4428,
+      5019
+    ],
+    "matched_names": [
+      "OTS Tournament Pack 1 Booster",
+      "OTS Tournament Pack 10 Booster",
+      "OTS Tournament Pack 11 Booster",
+      "OTS Tournament Pack 12 Booster",
+      "OTS Tournament Pack 13 Booster",
+      "OTS Tournament Pack 14 Booster",
+      "OTS Tournament Pack 15 Booster",
+      "OTS Tournament Pack 16 Booster",
+      "OTS Tournament Pack 17 Booster",
+      "OTS Tournament Pack 18 Booster"
+    ],
+    "card_name": "cyber dragon nova"
+  },
+  {
+    "abbr": "OPTP",
+    "set_name": "Trials of the Pharaoh - Speed Duel GX: Duel Academy Box promotional card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PCJ",
+    "set_name": "Yu-Gi-Oh! Power of Chaos: Joey the Passion promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PCK",
+    "set_name": "Yu-Gi-Oh! Power of Chaos: Kaiba the Revenge promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PCY",
+    "set_name": "Yu-Gi-Oh! Power of Chaos: Yugi the Destiny promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PGL2",
+    "set_name": "Premium Gold: Return of the Bling",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PP01",
+    "set_name": "Premium Pack",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1087,
+      1145,
+      4521,
+      4541,
+      4561,
+      4589,
+      4630,
+      4650,
+      4673,
+      4693,
+      4712,
+      4729,
+      4749,
+      4762,
+      4783,
+      4819,
+      4832,
+      4850,
+      4869,
+      4878,
+      4883,
+      4912,
+      4922,
+      4927,
+      5222,
+      5568,
+      5701,
+      6021,
+      6530
+    ],
+    "matched_names": [
+      "Premium Pack 2 Booster",
+      "Premium Pack 1 Booster",
+      "Premium Pack 1 Booster Box",
+      "Premium Pack 2 Booster Box",
+      "Premium Pack 2022 Booster Box",
+      "Premium Pack 2022 Booster",
+      "Premium Pack 2021 Booster Box",
+      "Premium Pack 2021 Booster",
+      "Premium Pack 2020 Booster Box",
+      "Premium Pack 2020 Booster"
+    ],
+    "card_name": "gemini imps"
+  },
+  {
+    "abbr": "PT02",
+    "set_name": "Pharaoh Tour 2006 Stop participation card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PT03",
+    "set_name": "Pharaoh Tour 2007 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "PT1",
+    "set_name": "Pharaoh Tour 2005 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "ROD",
+    "set_name": "Yu-Gi-Oh! Reshef of Destruction promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDD",
+    "set_name": "Yu-Gi-Oh! Worldwide Edition: Stairway to the Destined Duel promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDJ",
+    "set_name": "Starter Deck: Joey",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDK",
+    "set_name": "Starter Deck: Kaiba",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDP",
+    "set_name": "Starter Deck: Pegasus",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDSA",
+    "set_name": "Structure Deck: Sacred Beasts",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      3133,
+      4557
+    ],
+    "matched_names": [
+      "Structure Deck: Sacred Beasts",
+      "Structure Deck: Sacred Beasts of Chaos",
+      "Structure Deck: Sacred Beasts of Chaos Sacred Beasts Unleashed Booster"
+    ],
+    "card_name": "hyper blaze"
+  },
+  {
+    "abbr": "SDWS",
+    "set_name": "Warriors' Strike Structure Deck",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SDY",
+    "set_name": "Starter Deck: Yugi",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SKE",
+    "set_name": "Starter Deck: Kaiba Evolution",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SP02",
+    "set_name": "Power of the Duelist Sneak Peek Participation Card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SP1",
+    "set_name": "Flaming Eternity Sneak Peek Participation Card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SP2",
+    "set_name": "Shadow of Infinity Sneak Peek Participation Card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SRL",
+    "set_name": "Spell Ruler",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1250,
+      5235,
+      5341
+    ],
+    "matched_names": [
+      "Spell Ruler Booster",
+      "Spell Ruler Booster Box",
+      "Spell Ruler 25th Anniversary Edition Case (12 Booster Boxes)",
+      "Spell Ruler 25th Anniversary Edition Booster Box",
+      "Spell Ruler 25th Anniversary Edition Booster",
+      "Spell Ruler (Legendary Collection: 25th Anniversary Edition) Booster"
+    ],
+    "card_name": "weather report"
+  },
+  {
+    "abbr": "STP5",
+    "set_name": "Speed Duel Tournament Pack 5",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "STP6",
+    "set_name": "Speed Duel Tournament Pack 6",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "SYE",
+    "set_name": "Starter Deck: Yugi Evolution",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TF04",
+    "set_name": "Yu-Gi-Oh! 5D's Tag Force 4 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TF05",
+    "set_name": "Yu-Gi-Oh! 5D's Tag Force 5 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TFK",
+    "set_name": "Yu-Gi-Oh! The Falsebound Kingdom promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TP1",
+    "set_name": "Tournament Pack: 1st Season",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TP2",
+    "set_name": "Tournament Pack: 2nd Season",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TP3",
+    "set_name": "Tournament Pack: 3rd Season",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TSC",
+    "set_name": "Yu-Gi-Oh! The Sacred Cards promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "TU01",
+    "set_name": "Turbo Pack: Booster One",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "UBP1",
+    "set_name": "Yu-Gi-Oh! GX Ultimate Beginner's Pack",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WB01",
+    "set_name": "Yu-Gi-Oh! 5D's Wheelie Breakers promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC07",
+    "set_name": "Yu-Gi-Oh! World Championship 2007 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC08",
+    "set_name": "Yu-Gi-Oh! World Championship 2008 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC09",
+    "set_name": "Yu-Gi-Oh! 5D's World Championship 2009: Stardust Accelerator promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC10",
+    "set_name": "Yu-Gi-Oh! 5D's World Championship 2010: Reverse of Arcadia promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC11",
+    "set_name": "Yu-Gi-Oh! 5D's World Championship 2011: Over the Nexus promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC4",
+    "set_name": "Yu-Gi-Oh! World Championship Tournament 2004 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC5",
+    "set_name": "Yu-Gi-Oh! 7 Trials to Glory: World Championship Tournament 2005 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "WC6",
+    "set_name": "Yu-Gi-Oh! Ultimate Masters: World Championship Tournament 2006 promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "YAP1",
+    "set_name": "Anniversary Pack",
+    "reason": "conflicting_idExpansion",
+    "expansion_ids": [
+      1171,
+      4647,
+      4652
+    ],
+    "matched_names": [
+      "Anniversary Pack",
+      "20th Anniversary Pack 2nd Wave Booster Box",
+      "20th Anniversary Pack 2nd Wave Booster",
+      "20th Anniversary Pack 1st Wave Booster Box",
+      "20th Anniversary Pack 1st Wave Booster"
+    ],
+    "card_name": "jinzo"
+  },
+  {
+    "abbr": "YDB1",
+    "set_name": "Yu-Gi-Oh! GX Card Almanac promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "YDT1",
+    "set_name": "Yu-Gi-Oh! 5D's Duel Transer promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "YR01",
+    "set_name": "Yu-Gi-Oh! R Volume 1 promotional card",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "YSKR",
+    "set_name": "Starter Deck: Kaiba Reloaded",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "YSYR",
+    "set_name": "Starter Deck: Yugi Reloaded",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  },
+  {
+    "abbr": "ZDC1",
+    "set_name": "Yu-Gi-Oh! ZEXAL World Duel Carnival promotional cards",
+    "reason": "no_nonsingle_match",
+    "expansion_ids": []
+  }
+]
+[JOB_END] elapsed=2m 45s exit=1

@@ -1,4 +1,4 @@
-"""Cardmarket price export JSON schema (local scrape → Neon import).
+"""Cardmarket price export JSON schema (catalog pipeline → Neon import).
 
 File: data/catalog/cardmarket_prices.json (gitignored)
 R2 key: catalog/cardmarket_prices.json (private)
@@ -19,7 +19,7 @@ from typing import Any
 from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH
 
 SCHEMA_VERSION = 1
-SOURCE_LABEL = "cardmarket-scrape"
+SOURCE_LABEL = "cardmarket-catalog"
 DEFAULT_CURRENCY = "EUR"
 
 REQUIRED_TOP_KEYS = frozenset(

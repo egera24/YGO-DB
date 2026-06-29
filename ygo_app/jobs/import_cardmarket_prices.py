@@ -1,4 +1,4 @@
-"""Import Cardmarket price export JSON into Neon/SQLite printing_market_prices."""
+"""Import Cardmarket catalog price export JSON into SCD Type 2 printing_market_prices."""
 
 from __future__ import annotations
 
@@ -7,67 +7,57 @@ import sys
 from pathlib import Path
 
 from ygo_app.cardmarket.export_schema import load_export
-from ygo_app.cardmarket.market_prices import upsert_market_price
-from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH, DEFAULT_CATALOG_PATH
+from ygo_app.cardmarket.market_prices import apply_scd_price_update
+from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH
 from ygo_app.cardmarket.r2_storage import download_prices_file
-from ygo_app.cardmarket.catalog_source import load_catalog_printings
-from ygo_app.cardmarket.containment_matching import match_printings_to_cardmarket
-from ygo_app.cardmarket.incremental import raise_on_conflicts
-from ygo_app.cardmarket.paths import CARDMARKET_CARD_DETAILS_PATH
-from ygo_app.cardmarket.artifact_io import load_json_list
 from ygo_app.database import SessionLocal
 from ygo_app.import_data import init_db
-from ygo_app.models import PrintingMarketPrice
 from ygo_app.job_logging import run_job_logged
 from ygo_app.yugipedia.scrape_progress import log_line
 
 
-def import_prices_from_payload(session, payload: dict) -> dict[str, int]:
-    stats = {"inserted": 0, "updated": 0}
+def import_prices_from_payload(
+    session,
+    payload: dict,
+    *,
+    source_run_id: str | None = None,
+) -> dict[str, int]:
+    stats = {"inserted": 0, "updated": 0, "unchanged": 0, "metadata_updated": 0}
     for item in payload["prices"]:
-        set_code = item["set_code"]
-        rarity_code = item["rarity_code"]
-        existed = (
-            session.get(PrintingMarketPrice, {"set_code": set_code, "rarity_code": rarity_code})
-            is not None
-        )
         has_prices = any(
             item.get(k) is not None for k in ("low_price", "avg_price", "trend_price")
         )
-        upsert_market_price(
+        _row, action = apply_scd_price_update(
             session,
-            set_code=set_code,
-            rarity_code=rarity_code,
+            set_code=item["set_code"],
+            rarity_code=item["rarity_code"],
             cardmarket_product_id=item.get("cardmarket_product_id"),
             cardmarket_url=item.get("cardmarket_url"),
             low_price=item.get("low_price"),
             avg_price=item.get("avg_price"),
             trend_price=item.get("trend_price"),
             discovery_status=item.get("discovery_status"),
+            source_run_id=source_run_id,
             update_prices=has_prices,
         )
-        if existed:
-            stats["updated"] += 1
-        else:
-            stats["inserted"] += 1
+        stats[action] = stats.get(action, 0) + 1
     session.commit()
     return stats
 
 
-def run_import(*, file_path: Path, strict: bool = True) -> int:
+def run_import(
+    *,
+    file_path: Path,
+    source_run_id: str | None = None,
+) -> int:
     payload = load_export(file_path)
-    if strict and CARDMARKET_CARD_DETAILS_PATH.is_file() and DEFAULT_CATALOG_PATH.is_file():
-        catalog = load_catalog_printings(None, catalog_path=DEFAULT_CATALOG_PATH)
-        details = load_json_list(CARDMARKET_CARD_DETAILS_PATH)
-        _matches, conflicts = match_printings_to_cardmarket(catalog, details)
-        if conflicts:
-            raise_on_conflicts(conflicts)
     init_db()
     session = SessionLocal()
     try:
-        stats = import_prices_from_payload(session, payload)
+        stats = import_prices_from_payload(session, payload, source_run_id=source_run_id)
         log_line(
-            f"[IMPORT] inserted={stats['inserted']} updated={stats['updated']} "
+            f"[IMPORT] inserted={stats.get('inserted', 0)} updated={stats.get('updated', 0)} "
+            f"unchanged={stats.get('unchanged', 0)} metadata={stats.get('metadata_updated', 0)} "
             f"total_rows={len(payload['prices'])} exported_at={payload.get('exported_at')}"
         )
         return 0
@@ -91,9 +81,10 @@ def _run(argv: list[str] | None) -> int:
         help="Where to save R2 object when using --from-r2",
     )
     parser.add_argument(
-        "--no-strict",
-        action="store_true",
-        help="Skip Yugipedia→Cardmarket ambiguity check before import",
+        "--source-run-id",
+        type=str,
+        default=None,
+        help="Optional batch id stored on new SCD rows",
     )
     args = parser.parse_args(argv)
 
@@ -102,7 +93,7 @@ def _run(argv: list[str] | None) -> int:
         log_line("[IMPORT] downloading from R2")
         path = download_prices_file(args.download_path)
     assert path is not None
-    return run_import(file_path=path, strict=not args.no_strict)
+    return run_import(file_path=path, source_run_id=args.source_run_id)
 
 
 def main(argv: list[str] | None = None) -> int:

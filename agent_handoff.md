@@ -258,7 +258,8 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 |----------|---------|-------|
 | [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → images → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck fallback) | Manual emergency only |
-| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — downloads `catalog/cardmarket_prices.json` from R2, upserts `printing_market_prices`. Scrape runs **locally** (Cardmarket blocks datacenter IPs). `workflow_dispatch` + `environment` `dev`\|`production` |
+| [`sync-cardmarket-catalog.yml`](.github/workflows/sync-cardmarket-catalog.yml) | Sync Cardmarket catalog | Weekly Sun 04:00 UTC → **production**; downloads official S3 JSON, archives to R2 `ygo-cardmarket/archives/`, matches Yugipedia printings, SCD import. `workflow_dispatch` + `environment` `dev`\|`production` |
+| [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `catalog/cardmarket_prices.json` from R2 |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Both secrets |
 
 - Workflows only appear in the Actions UI when present on the **default branch (`main`)**. Running with branch `develop` uses **code from `develop`** (must include `ygo_app/yugipedia/`).
@@ -314,48 +315,23 @@ python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
 python -m ygo_app.jobs.import_catalog
 ```
 
-### Cardmarket prices (local scrape → R2 → GHA import)
+### Cardmarket prices (official catalog → R2 → Neon)
 
-Cardmarket blocks cloud/datacenter IPs (HTTP 403/429 / Cloudflare Error 1015). **Scrape only on your PC** in four steps; import via R2 + GHA or direct local import. Rate-limit reference: [`docs/cloudflare/README.md`](docs/cloudflare/README.md); browser scraper behavior: [`docs/cloudflare/cardmarket-scraper-behavior.md`](docs/cloudflare/cardmarket-scraper-behavior.md).
-
-Default HTTP backend is **`curl_cffi`** (Chrome TLS impersonation) when installed; falls back to `cloudscraper`. Optional `CARDMARKET_HTTP_PROXY` in `.env` for a residential proxy (`http://user:pass@host:port`). Use **`--polite`** for recommended browser pacing (~0.05 discovery RPS).
-
-One-time Playwright setup (for `--backend playwright` when rate-limited): `pip install -r requirements.txt` then `python -m playwright install chromium`.
+Cardmarket bulk JSON is on S3 (no Cloudflare). Legacy web scraper: `archive/legacy_cardmarket_scrape/`. Full guide: [`docs/cardmarket-catalog-pipeline.md`](docs/cardmarket-catalog-pipeline.md).
 
 ```powershell
-# 1. Scrape Cardmarket (full TCG catalog; step 4 needs yugipedia_all_cards.json)
-python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login   # one-time Cloudflare
-python -m ygo_app.jobs.scrape_cardmarket_expansions --polite
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --full
-python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --resume
-python -m ygo_app.jobs.export_cardmarket_prices
-
-# Dev test: --limit 5 on jobs 2–3, --limit 500 on export
-python -m ygo_app.jobs.scrape_cardmarket_card_list --polite --limit 5
-python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --limit 5
-python -m ygo_app.jobs.export_cardmarket_prices --limit 500
-
-# After IP ban: wait, then resume with --polite --resume (or lower --discovery-rps if still rate-limited)
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume
-
-# 2a. Upload to R2 (S3_* in .env), then GHA "Import Cardmarket prices"
-python -m ygo_app.jobs.upload_cardmarket_prices
-
-# 2b. Dev shortcut — import directly (DATABASE_URL = Neon dev)
-python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
-
-# Incremental update (after initial full scrape — new expansions / ID migrations only)
-python -m ygo_app.jobs.scrape_cardmarket_incremental --polite
-python -m ygo_app.jobs.upload_cardmarket_prices
+python -m ygo_app.jobs.sync_cardmarket_catalog --skip-import --skip-r2   # dry run
+python -m ygo_app.jobs.sync_cardmarket_catalog                         # full local sync
 python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_prices.json
 ```
 
-Artifacts under `data/catalog/`: `cardmarket_scrape_state.json` (single resume file), dated `expansion_list_YYYYMMDD.json` / `card_list_YYYYMMDD.json`, `card_details.json`, sidecars (`cardmarket_empty_expansions.json`, `cardmarket_rejected_expansions.json`), export `cardmarket_prices.json`. Resume: edit `last_completed_seq` in scrape state, then `--resume`. R2 key: `catalog/cardmarket_prices.json` (private).
+R2: archives `ygo-cardmarket/archives/{timestamp}.zip`; latest export `catalog/cardmarket_prices.json`. Prices: SCD Type 2 in `printing_market_prices` (`is_current = true` for UI reads).
 
 ### GHA from CLI
 ```powershell
 gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev
 gh workflow run "Import Yugipedia catalog" --ref develop -f environment=dev -f test_mode=true -f card_limit=500
+gh workflow run "Sync Cardmarket catalog" --ref develop -f environment=dev
 gh workflow run "Import Cardmarket prices" --ref develop -f environment=dev
 ```
 > Test on dev without touching prod: **Run workflow** (not Re-run) → branch `develop` → `environment=dev`. After a test run, do a full import to restore ~14k cards on dev.
@@ -499,15 +475,12 @@ ygo_app/
     import_catalog_yugipedia.py
     import_catalog.py          # YGOProDeck API fallback
     sync_card_images.py        # mirror card art to S3-compatible bucket (R2)
-    scrape_cardmarket_expansions.py   # job 1: expansion list
-    scrape_cardmarket_card_list.py    # job 2: product lists
-    scrape_cardmarket_card_details.py # job 3: detail prices
-    scrape_cardmarket_incremental.py  # incremental orchestrator (new expansions)
-    export_cardmarket_prices.py       # job 4: Yugipedia join → JSON
-    scrape_cardmarket_prices.py       # deprecated (migration message)
-    import_cardmarket_prices.py   # JSON or R2 → printing_market_prices
-    upload_cardmarket_prices.py   # JSON → R2
-  cardmarket/                  # scrape, export schema, R2 handoff, matching
+    sync_cardmarket_catalog.py      # official S3 catalog → match → SCD import
+    import_cardmarket_prices.py     # JSON or R2 → printing_market_prices (SCD)
+    upload_cardmarket_prices.py     # JSON → R2
+    scrape_cardmarket_*.py          # deprecated stubs → use sync_cardmarket_catalog
+  cardmarket/                  # catalog pipeline, export schema, R2, market_prices
+    catalog/                   # download, expansion_map, rarity_guess, printing_match
   image_mirror.py              # mirrored image keys/URLs + manifest + import rewrite
   import_data.py               # catalog replace + import_collection_csv (CollectionImportResult)
   collection_export.py         # DragonShield CSV export

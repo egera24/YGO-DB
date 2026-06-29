@@ -154,118 +154,33 @@ This does **not** match Render behavior (different DB engine, search limits, and
 
 See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [DEPLOY_FREE.md](DEPLOY_FREE.md) for Render and GitHub Actions setup.
 
-## Cardmarket prices (local scrape)
+## Cardmarket prices (official catalog)
 
-Cardmarket returns HTTP 403/429 and Cloudflare **Error 1015** from aggressive scraping. See **[docs/cloudflare/README.md](cloudflare/README.md)** for rate-limit theory and **[docs/cloudflare/cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md)** for how the browser scraper actually behaves (console output, pagination, profile pool).
+Cardmarket publishes Yu-Gi-Oh product catalog and price guide JSON on S3. The app downloads these files (no HTML scraping), matches Yugipedia printings, and imports prices as SCD Type 2 history.
 
-Scrape on your machine in **four steps**, then import to Neon.
+**Full guide:** [cardmarket-catalog-pipeline.md](cardmarket-catalog-pipeline.md)
 
-**Prerequisites:**
-- `data/catalog/yugipedia_all_cards.json` (for step 4 export only)
-- Optional one-time Cloudflare cookies via `--cf-login` on job 1
-
-**Recommended (polite browser mode):** after `pip install -r requirements.txt`:
+Legacy web scraper (archived): [archive/legacy_cardmarket_scrape](../archive/legacy_cardmarket_scrape/)
 
 ```powershell
-python -m playwright install chromium
-```
+# Dry run: download + match + export (no DB, no R2)
+python -m ygo_app.jobs.sync_cardmarket_catalog --skip-import --skip-r2
 
-```powershell
-# Step 1 — expansion list (one-time CF login when needed)
-python -m ygo_app.jobs.scrape_cardmarket_expansions --cf-login
-python -m ygo_app.jobs.scrape_cardmarket_expansions --polite
+# Full local sync (DATABASE_URL + optional S3_* for R2)
+python -m ygo_app.jobs.sync_cardmarket_catalog
 
-# Step 2 — all TCG card list rows (resumable)
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_list --polite --resume --limit 5   # dev test
-
-# Step 3 — detail pages / prices (resumable)
-python -m ygo_app.jobs.scrape_cardmarket_card_details --polite --resume
-python -m ygo_app.jobs.scrape_cardmarket_card_details --browser --headed --polite --resume
-
-# Step 4 — join with Yugipedia catalog → cardmarket_prices.json
-python -m ygo_app.jobs.export_cardmarket_prices
-
-# Promote via R2 + GHA, or import directly to Neon dev
-python -m ygo_app.jobs.upload_cardmarket_prices
+# Import export JSON only
 python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
 ```
 
-### Incremental update (after full scrape)
+| File / R2 key | Role |
+|---------------|------|
+| `data/catalog/cardmarket_raw/*.json` | Downloaded S3 catalog files |
+| `data/catalog/cardmarket_prices.json` | Matched export (upload to R2) |
+| R2 `ygo-cardmarket/archives/{timestamp}.zip` | Raw JSON archive |
+| R2 `catalog/cardmarket_prices.json` | Latest export for GHA re-import |
 
-**Full walkthrough:** [cardmarket-incremental-scrape.md](cardmarket-incremental-scrape.md) (e.g. July full catalog → October new expansions only).
+Weekly GHA: **Sync Cardmarket catalog** (Sun 04:00 UTC → production). Manual re-import only: **Import Cardmarket prices**.
 
-Once you have a complete `cardmarket_expansion_list.json`, `cardmarket_card_list.json`, and `cardmarket_card_details.json`, use the orchestrator to scrape **only new expansions** (and expansions whose Cardmarket `expansion_id` changed):
+Requires `S3_*` in `.env` for R2 upload (same bucket as image mirror).
 
-```powershell
-python -m ygo_app.jobs.scrape_cardmarket_incremental --polite
-python -m ygo_app.jobs.upload_cardmarket_prices
-python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
-```
-
-This diffs the live expansion dropdown against your stored list, scrapes card lists and detail prices for new/migrated IDs only, merges into existing JSON, validates that no Yugipedia printing maps to multiple Cardmarket products, and writes a full `cardmarket_prices.json`.
-
-**Conflict troubleshooting:** if validation fails, inspect `data/catalog/cardmarket_incremental_conflicts.json` (typed entries: `duplicate_card_id`, `duplicate_printing_key`, `duplicate_match_key`, `ambiguous_migration`). Fix data or resolve the Cardmarket-side ambiguity before re-running. A run report is written to `cardmarket_incremental_report.json`.
-
-Individual jobs also accept `--incremental` (mutually exclusive with `--resume`) for manual step-by-step runs; the orchestrator is recommended.
-
-**`--polite`** sets browser backend, 1 worker, and conservative RPS (~0.05 discovery / ~0.2 price). Browser mode adds a **2–8 s** randomized delay after each successful page fetch. Checkpoints save every **5** expansions (job 2) or **5** cards (job 3). Override with `--rps` / `--discovery-rps` or `.env` (`CARDMARKET_DISCOVERY_RPS`, `CARDMARKET_PRICE_RPS`, `CARDMARKET_WORKERS`).
-
-### Console output and request budget
-
-Each Cardmarket pipeline job (`scrape_cardmarket_*`, `export_cardmarket_prices`, `upload_cardmarket_prices`, `import_cardmarket_prices`) also writes a log file under **`data/logs/`**. Each line is prefixed with a local timestamp on **both the console and the file**; **`[JOB_END] elapsed=… exit=…`** prints to the terminal when the job finishes (and is in the file too). File names look like `scrape_cardmarket_card_list_20260624_143052.log` (module name + local start time). See [cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md#job-log-files).
-
-Each expansion may require **multiple page fetches** (`site=1`, `site=2`, …). The job prints **one line per expansion** when done, but **`[FETCH] OK` once per page**. A run of 3 expansions can easily be 9+ navigations.
-
-| Log prefix | Meaning |
-|------------|---------|
-| `[FETCH] OK` | One successful page navigation (shows `idExpansion`, `site`, `mode`, …) |
-| `[CARD_LIST] expansion … success, N cards` | Expansion complete (all pages) |
-| `[WARN] browser fetch failed` | Failed fetch; same compact URL label as `[FETCH] OK` |
-
-Full guide: **[docs/cloudflare/cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md)**.
-
-### After HTTP 429 or Error 1015 (IP ban)
-
-The scraper **saves a checkpoint and exits** when `Retry-After >= 600` seconds (instead of sleeping for an hour).
-
-1. Wait until the ban expires (often 1 hour; check https://www.cardmarket.com in your **normal browser**, not scrape Chrome).
-2. Reset burned profiles if needed: delete or edit `data/catalog/cardmarket_profile_state.json`.
-3. Resume slower (or use a different egress IP once cardmarket.com loads in your normal browser):
-
-```powershell
-python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --resume --discovery-rps 0.05
-```
-
-### Changing IP
-
-Cloudflare counters are usually keyed by **source IP**. If your home connection stays banned, waiting often takes ~1 hour. A **different egress IP** (e.g. mobile hotspot) is a verified way to scrape again once Cloudflare allows that address — still use `--polite` and low `--discovery-rps`.
-
-### Chrome profile pool (optional)
-
-`--browser-profiles` uses isolated Chrome user-data dirs under `data/catalog/cardmarket_profiles/`. This is for **cookie/session isolation**, not IP-ban bypass. The scraper **no longer rotates profiles on warmup HTTP 429** (that amplified bans by launching multiple Chromes on the same IP). State: `data/catalog/cardmarket_profile_state.json`.
-
-### Why profile rotation did not help (IP bans)
-
-Cloudflare rate limits often count by **source IP**, not browser profile. Rotating `--browser-profiles` on the same connection does not reset an IP-level ban. Profiles only help when a specific cookie/session is flagged, not when your IP is blocked. See [cardmarket-scraper-behavior.md](cloudflare/cardmarket-scraper-behavior.md).
-
-Job 3 `--fast` (20 workers / 8 rps) requires `--i-accept-rate-limit-risk` and is not recommended.
-
-| File | Role |
-|------|------|
-| `data/catalog/cardmarket_expansion_list.json` | Job 1 output |
-| `data/catalog/cardmarket_card_list.json` | Job 2 output |
-| `data/catalog/cardmarket_card_details.json` | Job 3 output |
-| `data/catalog/cardmarket_prices.json` | Job 4 export (upload to R2) |
-| `data/catalog/cardmarket_incremental_report.json` | Incremental orchestrator run summary |
-| `data/catalog/cardmarket_incremental_conflicts.json` | Validation failures (incremental mode) |
-| `data/catalog/cardmarket_*_checkpoint.json` | Resume state for jobs 2–3 (enriched with expansion/card names when saved) |
-| Status | `python -m ygo_app.jobs.cardmarket_catalog_status` — resolve checkpoints to names without manual JSON lookup; add `--strict` to exit non-zero when job-2 expansion coverage has gaps |
-| Repair (local) | `python -m ygo_app.jobs.repair_cardmarket_catalog --purge-orphans` — drop non-TCG card rows without scraping |
-| Gap scrape | `python -m ygo_app.jobs.scrape_cardmarket_card_list --browser --headed --polite --only-gaps` — scrape only expansions missing from cards/empty/rejected |
-| `data/catalog/cardmarket_profile_state.json` | Active/burned browser profiles (cookie/session pool) |
-| `data/catalog/cardmarket_profiles/{name}/` | Per-profile Chrome user-data + `browser_state.json` |
-| `ygo_app/cardmarket/expansion_seed.json` | Auto-regenerated after job 2 |
-| R2 `catalog/cardmarket_prices.json` | Private handoff for GHA import |
-
-Requires `S3_*` in `.env` for upload (same as image mirror). GHA import uses repo secrets.

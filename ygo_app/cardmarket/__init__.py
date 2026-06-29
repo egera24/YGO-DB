@@ -1,1 +1,1 @@
-"""Cardmarket.com scraper for printing market prices."""
+"""Cardmarket catalog pipeline for printing market prices."""

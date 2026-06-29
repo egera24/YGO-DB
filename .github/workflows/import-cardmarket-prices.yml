@@ -43,24 +43,12 @@ jobs:
             echo "url=${DATABASE_URL_DEV}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check R2 secrets
-        id: r2
-        env:
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
-        run: |
-          if [[ -n "$S3_BUCKET" ]]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::S3_BUCKET secret not set — upload cardmarket_prices.json from local first"
-            exit 1
-          fi
-
       - name: Alembic upgrade
         env:
           DATABASE_URL: ${{ steps.db.outputs.url }}
         run: alembic upgrade head
 
-      - name: Import Cardmarket prices from R2
+      - name: Import-only from R2 export
         env:
           DATABASE_URL: ${{ steps.db.outputs.url }}
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
@@ -70,32 +58,17 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p data/catalog
-          echo "=== Import Cardmarket prices from R2 ==="
-          echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "Environment: ${{ github.event.inputs.environment }}"
           python -m ygo_app.jobs.import_cardmarket_prices --from-r2 2>&1 | tee data/catalog/cardmarket_import.log
-
-      - name: Upload import log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cardmarket-import-log-${{ github.event.inputs.environment }}
-          path: data/catalog/cardmarket_import.log
-          retention-days: 14
-          if-no-files-found: ignore
 
       - name: Write job summary
         if: always()
         run: |
           {
-            echo "## Import Cardmarket prices"
+            echo "## Import Cardmarket prices (R2 export only)"
             echo ""
-            echo "| Field | Value |"
-            echo "|-------|-------|"
-            echo "| Environment | ${{ github.event.inputs.environment }} |"
-            echo "| Source | R2 \`catalog/cardmarket_prices.json\` |"
+            echo "For full catalog sync (download + match + archive), use **Sync Cardmarket catalog** workflow."
+            echo ""
             if [[ -f data/catalog/cardmarket_import.log ]]; then
-              echo ""
               echo "### Last log lines"
               echo '```'
               tail -20 data/catalog/cardmarket_import.log

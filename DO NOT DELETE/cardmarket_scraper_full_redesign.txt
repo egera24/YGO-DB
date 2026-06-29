@@ -21,13 +21,16 @@ Your Cardmarket Team"
 
 
 
-This is the url of the files: https://www.cardmarket.com/en/YuGiOh/Data
+This is the url of the catalog files: https://www.cardmarket.com/en/YuGiOh/Data
 
 Inside the above url you will find the following links:
 https://www.cardmarket.com/en/YuGiOh/Data/Price-Guide
 https://www.cardmarket.com/en/YuGiOh/Data/Product-List
 
-There you should search for the files which are for "Yugioh". 
+There you should search for the files which are for "Yugioh". I have saved the htm codes into the folder C:\Python Projects\YGO App Cursor\DO NOT DELETE.
+
+
+The current direct links:
 
 Product catalog:
 https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json
@@ -37,7 +40,12 @@ Price guide:
 https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json
 
 
-products_nonsingles_3.json: Contains the list of non-single products. It is a little bit tricky.
+I need a GHA workflow which downloads the product catalogs and price guides, process them to retrieve the actual prices, and the raw files should be zipped with a timestamp and uploaded to the cloudflare r2 storage to have it archived (I have created this folder for it: ygo-cardmarket, the public developement url: https://pub-655ecd9542f8496fa24614ba634b739b.r2.dev). The workflow should rune very once a week.
+
+The prices of the cards should be saved in the database as SCD Type 2 table.
+
+
+products_nonsingles_3.json: Contains the list of non-single products. It is a little bit tricky, i will explain through examples.
 
 The cardmarket expansion id 5316 is the Speed Duel: Streets of Battle City Box.
 But in the json file the different products are listed and the expansion id is only part of their attributes.
@@ -63,10 +71,12 @@ Example:
         },
 
 The expansion is sold on the Cardmarket in two variants: whole box and decks only. But the important thing is that the idExpansion is the "Speed Duel: Streets of Battle City Box".
-I am not sure how to decide automatically which name is the correct one.
+It does not matter which is the relevant for us, because only the the expansion id (idExpansion) is needed. We have all of the expansion names in the database from yugipedia, so the process should be able to compare:
 
+"Speed Duel: Streets of Battle City Box" and "Speed Duel: Streets of Battle City Decks Only (4 Card Packs)" both of them contains the one relevant expansion name in our database: "Speed Duel: Streets of Battle City".
+So during a comparison in the cardmarket product catalog there should be two results, but both of them have the same idExpansion, which means the idExpansion of the "Speed Duel: Streets of Battle City" is the 5316 on cardmarket.
 
-But the products_singles_3.json contains the list of single products (normally the cards) and they have the expansion id in the idExpansion attribute.
+The products_singles_3.json contains the list of single products (normally the cards) and they have the expansion id in the idExpansion attribute.
 
 Example:
         {
@@ -331,7 +341,7 @@ The prices are in the price_guide_3.json file:
         },
 
 
-Because the rarity is not part of the attributes, we have to best guess the rarity of the card based on the prices. 
+Because the rarity is not part of the attributes, we have to best guess the rarity of the card based on the prices and parallel we should assign the prices to the cards in the database as well.
 
 In the database we have the details of all cards, the rarity as well. 
 
@@ -449,4 +459,5 @@ The pipeline should check the given card printings based on the yugipedia card p
 That way if an expension has more than one printig of the given card, based on the available rarities we should be able to assign the prices to the correct card printing.
 If during the process there is a mismatch, an error should be raised and the user should be informed, the process should be terminated.
 What can be a mismatch: there are more card printings in yugipedia catalog than printings/prices in the cardmarket catalog or vice versa.
+
 

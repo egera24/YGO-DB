@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from ygo_app.cardmarket.export_schema import SCHEMA_VERSION, build_export_payload, load_export, save_export
+from ygo_app.cardmarket.market_prices import get_current_market_price
 from ygo_app.jobs.import_cardmarket_prices import import_prices_from_payload
 from ygo_app.models import Base, Card, Printing, PrintingMarketPrice
 from ygo_app.services import get_card_detail
@@ -92,7 +93,7 @@ class TestImportCardmarketPrices(unittest.TestCase):
         self.assertEqual(stats["inserted"], 1)
         self.assertEqual(stats["updated"], 0)
 
-        row = self.session.get(PrintingMarketPrice, {"set_code": "ANPR-ENSE1", "rarity_code": "SR"})
+        row = get_current_market_price(self.session, "ANPR-ENSE1", "SR")
         self.assertIsNotNone(row)
         self.assertAlmostEqual(row.low_price, 0.5)
         self.assertAlmostEqual(row.trend_price, 1.2)
@@ -105,7 +106,8 @@ class TestImportCardmarketPrices(unittest.TestCase):
         save_export(self.export_path, payload)
         stats = import_prices_from_payload(self.session, load_export(self.export_path))
         self.assertEqual(stats["updated"], 1)
-        row = self.session.get(PrintingMarketPrice, {"set_code": "ANPR-ENSE1", "rarity_code": "SR"})
+        row = get_current_market_price(self.session, "ANPR-ENSE1", "SR")
+        assert row is not None
         self.assertAlmostEqual(row.low_price, 0.9)
 
     def test_get_card_detail_shows_imported_prices(self):

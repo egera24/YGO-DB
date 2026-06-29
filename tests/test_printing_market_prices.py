@@ -10,8 +10,12 @@ from unittest.mock import patch
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.cardmarket.constants import DISCOVERY_MATCHED
-from ygo_app.cardmarket.market_prices import attach_market_prices_to_printings, load_market_prices, upsert_market_price
+from ygo_app.cardmarket.market_prices import (
+    attach_market_prices_to_printings,
+    get_current_market_price,
+    load_market_prices,
+    upsert_market_price,
+)
 from ygo_app.import_data import import_cards_entries
 from ygo_app.models import Base, Card, Printing, PrintingMarketPrice
 from ygo_app.services import get_card_detail
@@ -62,8 +66,10 @@ class TestPrintingMarketPrices(unittest.TestCase):
                 avg_price=0.75,
                 trend_price=1.2,
                 currency="EUR",
-                discovery_status=DISCOVERY_MATCHED,
-                updated_at=datetime.utcnow(),
+                discovery_status="matched",
+                valid_from=datetime.utcnow(),
+                valid_to=None,
+                is_current=True,
             )
         )
         self.session.commit()
@@ -129,7 +135,8 @@ class TestPrintingMarketPrices(unittest.TestCase):
             update_prices=True,
         )
         self.session.commit()
-        row = self.session.get(PrintingMarketPrice, {"set_code": "ANPR-ENSE1", "rarity_code": "SR"})
+        row = get_current_market_price(self.session, "ANPR-ENSE1", "SR")
+        assert row is not None
         self.assertAlmostEqual(row.low_price, 0.6)
 
 

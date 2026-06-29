@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -59,6 +60,8 @@ class TestCollectionSellPrice(unittest.TestCase):
                 set_code="LOB-001",
                 rarity_code="(UR)",
                 trend_price=12.5,
+                valid_from=datetime.utcnow(),
+                is_current=True,
             )
         )
         session.commit()

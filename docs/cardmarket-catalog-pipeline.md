@@ -84,9 +84,11 @@ For each `tcg_sets` row with `region = 'TCG'`:
 
 Per Yugipedia set, group `printings` by card. Match Cardmarket singles (`idCategory = 5`) by any mapped `idExpansion` + normalized card name.
 
-- Count of CM products must equal count of Yugipedia printings for that card in the set
+- **Regional variants** — Yugipedia printings that share the same card, rarity, and collector number but differ only by regional prefix (e.g. `LOD-078` and `LOD-EN078`) are collapsed to one **representative** slot before counting. The representative prefers the `-EN` form. After price pairing, the matched Cardmarket product's prices are **broadcast** to every variant in that slot. Cardmarket does not distinguish these regional codes; one CM single covers all.
+- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with fuller price data (keeps multi-rarity products that each have `avg`).
+- Count of CM products must equal count of **representative slots** (after regional collapse) for that card in the set
 - Sort CM by `trend`, then `avg`, then `idProduct` ascending
-- Sort Yugipedia printings by `rarity_price_ranks.sort_order`
+- Sort representative slots by `rarity_price_ranks.sort_order`
 - Pair 1:1; tied CM prices → **reject card** (logged; other cards in the set still export)
 
 ## Import gate

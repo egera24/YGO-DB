@@ -15,6 +15,7 @@ from ygo_app.cardmarket.catalog.rarity_guess import (
     YugipediaPrintingRef,
     assign_rarities_by_price,
 )
+from ygo_app.cardmarket.catalog.regional_variants import group_regional_variant_refs
 from ygo_app.cardmarket.export_schema import row_from_db
 from ygo_app.models import Card, Printing, RarityPriceRank
 
@@ -55,6 +56,52 @@ def _rarity_sort_order(
 def _cm_product_url(id_product: int, name: str) -> str:
     slug = name.replace(" ", "-")
     return f"https://www.cardmarket.com/en/YuGiOh/Products/Singles/{slug}/{id_product}"
+
+
+def _price_completeness(price: dict) -> int:
+    return sum(1 for key in ("trend", "avg", "low") if price.get(key) is not None)
+
+
+def _dedupe_cm_duplicate_listings(
+    cm_matches: list[dict],
+    price_index: dict[int, dict],
+) -> list[dict]:
+    """Drop sparse re-listings that share a Cardmarket idMetacard with a fuller price row."""
+    by_metacard: dict[int, list[dict]] = defaultdict(list)
+    no_metacard: list[dict] = []
+
+    for row in cm_matches:
+        metacard_id = int(row.get("idMetacard") or 0)
+        if metacard_id == 0:
+            no_metacard.append(row)
+            continue
+        by_metacard[metacard_id].append(row)
+
+    result = list(no_metacard)
+    for rows in by_metacard.values():
+        if len(rows) == 1:
+            result.append(rows[0])
+            continue
+
+        with_avg = [
+            row
+            for row in rows
+            if price_index.get(int(row["idProduct"]), {}).get("avg") is not None
+        ]
+        if with_avg:
+            result.extend(with_avg)
+            continue
+
+        best = max(
+            rows,
+            key=lambda row: (
+                _price_completeness(price_index.get(int(row["idProduct"]), {})),
+                -int(row["idProduct"]),
+            ),
+        )
+        result.append(best)
+
+    return result
 
 
 def _dedupe_cm_matches_by_expansion_preference(
@@ -140,6 +187,7 @@ def match_printings_to_catalog(
                 cm_matches,
                 expansion_match_counts=mapping.expansion_match_counts,
             )
+            cm_matches = _dedupe_cm_duplicate_listings(cm_matches, price_index)
 
             yg_refs = [
                 YugipediaPrintingRef(
@@ -173,12 +221,18 @@ def match_printings_to_catalog(
                     )
                 )
 
+            regional_groups = group_regional_variant_refs(yg_refs)
+            representatives = [rep for rep, _ in regional_groups]
+            variants_by_rep = {
+                (rep.set_code, rep.rarity_code): variants for rep, variants in regional_groups
+            }
+
             try:
                 pairs = assign_rarities_by_price(
                     set_code=abbr,
                     card_name=card.name,
                     cm_products=cm_priced,
-                    yugipedia_printings=yg_refs,
+                    yugipedia_printings=representatives,
                 )
             except PrintingCountMismatchError as exc:
                 stats["rejected_cards"] += 1
@@ -206,18 +260,25 @@ def match_printings_to_catalog(
                 continue
 
             for yg_ref, cm_product in pairs:
-                export_rows.append(
-                    row_from_db(
-                        set_code=yg_ref.set_code,
-                        rarity_code=yg_ref.rarity_code,
-                        cardmarket_product_id=cm_product.id_product,
-                        cardmarket_url=_cm_product_url(cm_product.id_product, cm_product.name),
-                        low_price=cm_product.low,
-                        avg_price=cm_product.avg,
-                        trend_price=cm_product.trend,
-                        discovery_status="matched",
-                    )
+                variants = variants_by_rep.get(
+                    (yg_ref.set_code, yg_ref.rarity_code),
+                    [yg_ref],
                 )
-                stats["matched"] += 1
+                for variant in variants:
+                    export_rows.append(
+                        row_from_db(
+                            set_code=variant.set_code,
+                            rarity_code=variant.rarity_code,
+                            cardmarket_product_id=cm_product.id_product,
+                            cardmarket_url=_cm_product_url(
+                                cm_product.id_product, cm_product.name
+                            ),
+                            low_price=cm_product.low,
+                            avg_price=cm_product.avg,
+                            trend_price=cm_product.trend,
+                            discovery_status="matched",
+                        )
+                    )
+                    stats["matched"] += 1
 
     return export_rows, stats, rejections

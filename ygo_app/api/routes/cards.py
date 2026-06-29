@@ -1,7 +1,3 @@
-import json
-import time
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,27 +22,6 @@ from ygo_app.yugipedia.card_detail_extras import card_errata_for_api, card_tips_
 from ygo_app.yugipedia.images import resolve_display_image_url_small
 
 router = APIRouter(prefix="/cards", tags=["cards"])
-
-_DEBUG_LOG_PATH = Path(__file__).resolve().parents[3] / "debug-906c06.log"
-
-
-def _agent_debug_log(location: str, message: str, data: dict, hypothesis_id: str) -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "906c06",
-            "runId": "pre-fix",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, default=str) + "\n")
-    except OSError:
-        pass
-    # #endregion
 
 
 def _printing_out(p: Printing) -> PrintingOut:
@@ -232,22 +207,6 @@ def _build_card_detail(db: Session, card_id: int, user: User) -> CardDetail:
     extra = _summary_extra_from_card(card)
     printings = sorted(card.printings, key=lambda p: p.set_code)
     tags = getattr(card, "_user_tags", [])
-    priced_count = sum(
-        1
-        for p in printings
-        if any(getattr(p, field, None) is not None for field in ("low_price", "avg_price", "trend_price"))
-    )
-    _agent_debug_log(
-        "cards.py:_build_card_detail",
-        "built card detail",
-        {
-            "card_id": card_id,
-            "printings_count": len(printings),
-            "priced_printings_count": priced_count,
-            "user_id": user.id,
-        },
-        "B",
-    )
 
     summary = _card_summary(card, extra)
     return CardDetail(

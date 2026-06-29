@@ -10,7 +10,13 @@ from pathlib import Path
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.cardmarket.export_schema import SCHEMA_VERSION, build_export_payload, load_export, save_export
+from ygo_app.cardmarket.export_schema import (
+    SCHEMA_VERSION,
+    build_export_payload,
+    load_export,
+    save_export,
+    validate_import_readiness,
+)
 from ygo_app.cardmarket.market_prices import get_current_market_price
 from ygo_app.jobs.import_cardmarket_prices import import_prices_from_payload
 from ygo_app.models import Base, Card, Printing, PrintingMarketPrice
@@ -122,6 +128,61 @@ class TestImportCardmarketPrices(unittest.TestCase):
         self.export_path.write_text(json.dumps({"schema_version": 99, "prices": []}), encoding="utf-8")
         with self.assertRaises(Exception):
             load_export(self.export_path)
+
+    def test_import_gate_rejects_duplicate_keys(self):
+        payload = self._write_fixture(
+            extra_rows=[
+                {
+                    "set_code": "ANPR-ENSE1",
+                    "rarity_code": "SR",
+                    "discovery_status": "matched",
+                }
+            ]
+        )
+        gate = validate_import_readiness(payload)
+        self.assertFalse(gate.ok)
+        self.assertEqual(len(gate.duplicates), 1)
+
+    def test_import_gate_rejects_missing_required(self):
+        payload = build_export_payload(
+            [
+                {
+                    "set_code": "ANPR-ENSE1",
+                    "rarity_code": "SR",
+                    "low_price": 0.5,
+                }
+            ]
+        )
+        gate = validate_import_readiness(payload)
+        self.assertFalse(gate.ok)
+        self.assertTrue(gate.missing_required)
+
+    def test_import_gate_allows_null_prices(self):
+        payload = build_export_payload(
+            [
+                {
+                    "set_code": "ANPR-ENSE1",
+                    "rarity_code": "SR",
+                    "discovery_status": "matched",
+                }
+            ]
+        )
+        gate = validate_import_readiness(payload)
+        self.assertTrue(gate.ok)
+
+    def test_run_import_fails_on_duplicate_keys(self):
+        payload = self._write_fixture(
+            extra_rows=[
+                {
+                    "set_code": "ANPR-ENSE1",
+                    "rarity_code": "SR",
+                    "discovery_status": "matched",
+                }
+            ]
+        )
+        from ygo_app.jobs.import_cardmarket_prices import run_import
+
+        self.assertEqual(run_import(file_path=self.export_path), 1)
 
 
 if __name__ == "__main__":

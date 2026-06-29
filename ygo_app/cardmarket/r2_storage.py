@@ -116,3 +116,43 @@ def upload_catalog_archive(
         ExtraArgs={"ContentType": "application/zip"},
     )
     return object_key
+
+
+def upload_run_log(
+    log_path: Path,
+    *,
+    timestamp: str,
+) -> str:
+    if not log_path.is_file():
+        raise FileNotFoundError(f"Job log not found: {log_path}")
+    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/{timestamp}.log"
+    s3 = build_s3_client()
+    bucket = config.S3_BUCKET
+    assert bucket
+    s3.upload_file(
+        str(log_path),
+        bucket,
+        object_key,
+        ExtraArgs={"ContentType": "text/plain; charset=utf-8"},
+    )
+    return object_key
+
+
+def upload_pipeline_report(
+    report_path: Path,
+    *,
+    timestamp: str,
+) -> str:
+    if not report_path.is_file():
+        raise FileNotFoundError(f"Pipeline report not found: {report_path}")
+    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/{timestamp}_report.json"
+    s3 = build_s3_client()
+    bucket = config.S3_BUCKET
+    assert bucket
+    s3.upload_file(
+        str(report_path),
+        bucket,
+        object_key,
+        ExtraArgs={"ContentType": "application/json"},
+    )
+    return object_key

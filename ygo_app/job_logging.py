@@ -101,6 +101,11 @@ def write_log_line(line: str) -> None:
             _log_file.flush()
 
 
+def get_active_log_path() -> Path | None:
+    """Return the path of the active job log file, if any."""
+    return _log_path
+
+
 def close_job_log(*, exit_code: int | None = None) -> None:
     """Write job footer and close the log file."""
     global _log_file, _log_path, _start_monotonic

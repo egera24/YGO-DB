@@ -10,7 +10,6 @@ from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.cardmarket.catalog.errors import ExpansionMappingError
 from ygo_app.cardmarket.catalog.expansion_map import map_expansions_from_nonsingles
 from ygo_app.cardmarket.catalog.expansion_aliases import nonsingle_matches_alias
 from ygo_app.cardmarket.catalog.normalize import (
@@ -114,20 +113,22 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         self.session.delete(self.session.get(TcgSet, "CONF"))
         self._seed_two_cards_for_set("SBSC", card_id_start=101)
         self._seed_two_cards_for_set("RA05", card_id_start=201)
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertEqual(mappings["SBSC"].expansion_id, 5316)
         self.assertEqual(mappings["RA05"].expansion_id, 6424)
         self.assertEqual(skipped, [])
 
-    def test_raises_on_conflicting_id_expansion(self):
+    def test_rejects_conflicting_id_expansion(self):
         self.session.delete(self.session.get(TcgSet, "SBSC"))
         self.session.delete(self.session.get(TcgSet, "RA05"))
         self._seed_two_cards_for_set("CONF", card_id_start=301)
-        with self.assertRaises(ExpansionMappingError) as ctx:
-            map_expansions_from_nonsingles(self.session, self.nonsingles, upsert=False)
-        self.assertTrue(any(e["abbr"] == "CONF" for e in ctx.exception.details))
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
+            self.session, self.nonsingles, upsert=False
+        )
+        self.assertEqual(mappings, {})
+        self.assertTrue(any(e["abbr"] == "CONF" for e in rejections))
 
     def test_ocg_nonsingle_products_are_ignored(self):
         self._clear_default_sets()
@@ -163,7 +164,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4738,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["ABYR"].expansion_id, 1419)
@@ -198,7 +199,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4787,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["ABPF"].expansion_id, 1187)
@@ -222,7 +223,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 1368,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertNotIn("2011", mappings)
@@ -241,7 +242,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.session.commit()
 
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("25YC", mappings)
@@ -259,7 +260,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.session.commit()
 
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("2023", mappings)
@@ -276,7 +277,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             )
         )
         self._seed_two_cards_for_set("DL2", card_id_start=701)
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("DL2", mappings)
@@ -294,7 +295,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             )
         )
         self._seed_two_cards_for_set("DOD", card_id_start=801)
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("DOD", mappings)
@@ -321,7 +322,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2664,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["AC19"].expansion_id, 2664)
@@ -355,7 +356,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 1188,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["SDMM"].expansion_id, 1188)
@@ -380,7 +381,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 5001,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["SDSB"].expansion_id, 5001)
@@ -398,7 +399,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4658,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["DESO"].expansion_id, 1738)
 
     def test_gold_series_2013_2014_expansion_is_excluded(self):
@@ -410,7 +411,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 2, "name": "Gold Series 2013 Booster", "idExpansion": 4710},
             {"idProduct": 3, "name": "Gold Series 2014 Booster Box", "idExpansion": 4727},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["GLD1"].expansion_id, 1141)
 
     def test_gld1_maps_via_alias_only(self):
@@ -422,7 +423,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 2, "name": "Gold Series 2 Booster", "idExpansion": 1163},
             {"idProduct": 3, "name": "Gold Series 3 Booster", "idExpansion": 1204},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["GLD1"].expansion_id, 1141)
 
     def test_ha01_does_not_match_hidden_arsenal_2(self):
@@ -435,7 +436,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Hidden Arsenal Booster", "idExpansion": 1177},
             {"idProduct": 2, "name": "Hidden Arsenal 2 Booster", "idExpansion": 1201},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["HA01"].expansion_id, 1177)
 
     def test_ha05_maps_via_alias(self):
@@ -447,7 +448,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         nonsingles = [
             {"idProduct": 1, "name": "Hidden Arsenal 5 Booster", "idExpansion": 1284},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["HA05"].expansion_id, 1284)
 
     def test_lc02_maps_via_alias(self):
@@ -464,7 +465,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Legendary Collection 2", "idExpansion": 1335},
             {"idProduct": 2, "name": "Legendary Collection 3", "idExpansion": 1336},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LC02"].expansion_id, 1335)
 
     def test_pevo_excludes_structure_deck_product(self):
@@ -479,7 +480,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4649,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["PEVO"].expansion_id, 1768)
 
     def test_skips_collectible_tin_set(self):
@@ -493,7 +494,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.session.commit()
 
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("CT09", mappings)
@@ -522,7 +523,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.session.commit()
 
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("2020", mappings)
@@ -541,7 +542,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.session.commit()
 
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, self.nonsingles, upsert=False
         )
         self.assertNotIn("ABPF-TK", mappings)
@@ -557,7 +558,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Amazing Defenders Booster", "idExpansion": 5400},
             {"idProduct": 2, "name": "Deck Build Pack: Amazing Defenders Booster", "idExpansion": 5401},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["AMDE"].expansion_id, 5400)
 
     def test_korean_expansion_is_excluded(self):
@@ -568,7 +569,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Legend of Blue Eyes White Dragon Booster", "idExpansion": 1001},
             {"idProduct": 2, "name": "Legend of Blue Eyes White Dragon (Korean) Booster", "idExpansion": 2002},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LOB"].expansion_id, 1001)
 
     def test_rush_duel_expansion_is_excluded(self):
@@ -585,7 +586,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 3002,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["ANN5"].expansion_id, 3001)
 
     def test_short_regional_bracket_code_is_excluded(self):
@@ -605,7 +606,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2002,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LOB"].expansion_id, 1001)
 
     def test_long_bracket_text_25th_anniversary_is_excluded(self):
@@ -623,7 +624,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2002,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LOB"].expansion_id, 1001)
         self.assertEqual(mappings["LOB"].expansion_ids, (1001,))
 
@@ -635,7 +636,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Legend of Blue Eyes White Dragon Booster", "idExpansion": 1001},
             {"idProduct": 2, "name": "Legend of Blue Eyes White Dragon Booster (MI", "idExpansion": 2002},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LOB"].expansion_id, 1001)
 
     def test_tp4_excludes_ots_and_speed_duel_products(self):
@@ -647,7 +648,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 2, "name": "Tournament Pack 4 Booster", "idExpansion": 1100},
             {"idProduct": 3, "name": "Speed Duel Tournament Pack 4 Booster", "idExpansion": 5085},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["TP4"].expansion_id, 1100)
 
     def test_stp5_alias_matches_colon_style_cardmarket_name(self):
@@ -678,7 +679,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             },
             {"idProduct": 3, "name": "Tournament Pack 5 Booster", "idExpansion": 1082},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["STP5"].expansion_id, 5247)
 
     def test_stp6_maps_via_colon_style_alias(self):
@@ -699,7 +700,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 5247,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["STP6"].expansion_id, 5397)
 
     def test_tn23_resolves_to_tin_expansion_with_priced_singles(self):
@@ -724,7 +725,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 5001, "trend": 1.0, "avg": 1.0, "low": 0.5},
             {"idProduct": 5002, "trend": 2.0, "avg": 2.0, "low": 1.0},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session,
             nonsingles,
             singles=singles,
@@ -757,7 +758,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 60003, "trend": 0.5, "avg": 0.5, "low": None},
             {"idProduct": 60004, "trend": 0.5, "avg": 0.5, "low": None},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session,
             nonsingles,
             singles=singles,
@@ -790,15 +791,15 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 70003, "trend": 0.5, "avg": 0.5, "low": None},
             {"idProduct": 70004, "trend": 0.5, "avg": 0.5, "low": None},
         ]
-        with self.assertRaises(ExpansionMappingError) as ctx:
-            map_expansions_from_nonsingles(
-                self.session,
-                nonsingles,
-                singles=singles,
-                price_rows=prices,
-                upsert=False,
-            )
-        self.assertTrue(any(e["abbr"] == "TINX" for e in ctx.exception.details))
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
+            self.session,
+            nonsingles,
+            singles=singles,
+            price_rows=prices,
+            upsert=False,
+        )
+        self.assertNotIn("TINX", mappings)
+        self.assertTrue(any(e["abbr"] == "TINX" for e in rejections))
 
     def test_excludes_sacred_beasts_of_chaos_products(self):
         self._clear_default_sets()
@@ -818,7 +819,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4557,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["SDSB"].expansion_ids, (3133,))
@@ -835,7 +836,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2002,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
+        mappings, skipped, rejections = map_expansions_from_nonsingles(self.session, nonsingles, upsert=False)
         self.assertEqual(mappings["LOB"].expansion_ids, (1001,))
 
     def test_op01_number_boundary(self):
@@ -849,7 +850,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 2, "name": "OTS Tournament Pack 10 Booster", "idExpansion": 2454},
             {"idProduct": 3, "name": "OTS Tournament Pack 11 Booster", "idExpansion": 2542},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["OP01"].expansion_ids, (1699,))
@@ -866,7 +867,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2048,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["LEDU"].expansion_ids, (1817,))
@@ -879,7 +880,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Maximum Gold Booster", "idExpansion": 3339},
             {"idProduct": 2, "name": "Maximum Gold: El Dorado Booster", "idExpansion": 4371},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["MAGO"].expansion_ids, (3339,))
@@ -898,7 +899,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "Dark Revelation 4 Booster", "idExpansion": 1143},
             {"idProduct": 2, "name": "Dark Revelation 3 Booster", "idExpansion": 1142},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["DR04"].expansion_ids, (1143,))
@@ -925,7 +926,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 1, "name": "5D's Starter Deck 2008", "idExpansion": 1173},
             {"idProduct": 2, "name": "5D's Starter Deck 2009", "idExpansion": 1172},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["5DS1"].expansion_ids, (1173,))
@@ -942,7 +943,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 2, "name": "Dragons of Legend 2 Booster", "idExpansion": 1656},
             {"idProduct": 3, "name": "Dragons of Legend: Unleashed Booster", "idExpansion": 1713},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["DRLG"].expansion_ids, (1479,))
@@ -955,7 +956,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         nonsingles = [
             {"idProduct": 1, "name": "Duelist\u2019s Advance Booster", "idExpansion": 6083},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["DUAD"].expansion_ids, (6083,))
@@ -983,7 +984,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4471,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["LED9"].expansion_ids, (4471,))
@@ -1018,7 +1019,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 8001, "trend": 1.0, "avg": 1.0, "low": 0.5},
             {"idProduct": 8002, "trend": 2.0, "avg": 2.0, "low": 1.0},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session,
             nonsingles,
             singles=singles,
@@ -1065,7 +1066,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {"idProduct": 9001, "trend": 1.0, "avg": 1.0, "low": 0.5},
             {"idProduct": 9002, "trend": 2.0, "avg": 2.0, "low": 1.0},
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session,
             nonsingles,
             singles=singles,
@@ -1129,7 +1130,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 {"idProduct": product_id, "trend": 2.0, "avg": 2.0, "low": 1.0}
             )
             product_id += 1
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session,
             nonsingles,
             singles=singles,
@@ -1169,7 +1170,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 1018,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["SDJ"].expansion_id, 1018)
@@ -1198,7 +1199,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 1467,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["SDK"].expansion_id, 1055)
@@ -1227,7 +1228,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 2067,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["LC06"].expansion_id, 2067)
@@ -1250,7 +1251,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
                 "idExpansion": 4572,
             },
         ]
-        mappings, skipped = map_expansions_from_nonsingles(
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
             self.session, nonsingles, upsert=False
         )
         self.assertEqual(mappings["SDWS"].expansion_id, 4572)

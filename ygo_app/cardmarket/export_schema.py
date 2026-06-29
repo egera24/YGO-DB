@@ -12,6 +12,7 @@ Schema version 1 fields:
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,58 @@ REQUIRED_PRICE_KEYS = frozenset({"set_code", "rarity_code", "discovery_status"})
 
 class CardmarketExportError(ValueError):
     pass
+
+
+@dataclass
+class ImportGateResult:
+    ok: bool
+    duplicates: list[dict[str, Any]]
+    missing_required: list[dict[str, Any]]
+    warnings: list[str]
+
+
+def validate_import_readiness(payload: dict[str, Any]) -> ImportGateResult:
+    """Pre-import DQ gate: block on duplicate keys or missing required fields."""
+    warnings: list[str] = []
+    try:
+        validate_export_payload(payload)
+    except CardmarketExportError as exc:
+        return ImportGateResult(
+            ok=False,
+            duplicates=[],
+            missing_required=[{"message": str(exc)}],
+            warnings=warnings,
+        )
+
+    prices = payload["prices"]
+    if not prices:
+        warnings.append("export contains zero price rows")
+
+    missing_required: list[dict[str, Any]] = []
+    for i, item in enumerate(prices):
+        for key in REQUIRED_PRICE_KEYS:
+            value = item.get(key)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                missing_required.append({"index": i, "key": key, "set_code": item.get("set_code")})
+
+    key_to_indices: dict[tuple[str, str], list[int]] = {}
+    for i, item in enumerate(prices):
+        pk = (str(item["set_code"]), str(item["rarity_code"]))
+        key_to_indices.setdefault(pk, []).append(i)
+
+    duplicates = [
+        {"set_code": pk[0], "rarity_code": pk[1], "indices": indices}
+        for pk, indices in key_to_indices.items()
+        if len(indices) > 1
+    ]
+
+    ok = not duplicates and not missing_required
+    return ImportGateResult(
+        ok=ok,
+        duplicates=duplicates,
+        missing_required=missing_required,
+        warnings=warnings,
+    )
 
 
 def _utc_now_iso() -> str:

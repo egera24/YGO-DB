@@ -91,7 +91,7 @@ def map_expansions_from_nonsingles(
     singles: list[dict] | None = None,
     price_rows: list[dict] | None = None,
     upsert: bool = True,
-) -> tuple[dict[str, ExpansionMapping], list[dict]]:
+) -> tuple[dict[str, ExpansionMapping], list[dict], list[dict]]:
     tcg_sets = session.scalars(
         select(TcgSet).where(TcgSet.region == "TCG").order_by(TcgSet.abbr)
     ).all()
@@ -241,10 +241,4 @@ def map_expansions_from_nonsingles(
                     row.expansion_name = tcg_set.name
                     row.fetched_at = datetime.utcnow()
 
-    if errors:
-        raise ExpansionMappingError(
-            f"Failed to map {len(errors)} TCG set(s) to Cardmarket expansions",
-            details=errors,
-        )
-
-    return mappings, skipped
+    return mappings, skipped, errors

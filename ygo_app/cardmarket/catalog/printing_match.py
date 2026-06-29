@@ -7,6 +7,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from ygo_app.cardmarket.catalog.errors import AmbiguousPriceOrderError, PrintingCountMismatchError
 from ygo_app.cardmarket.catalog.expansion_map import ExpansionMapping
 from ygo_app.cardmarket.catalog.normalize import normalize_card_name
 from ygo_app.cardmarket.catalog.rarity_guess import (
@@ -89,7 +90,7 @@ def match_printings_to_catalog(
     singles: list[dict],
     price_rows: list[dict],
     expansion_mappings: dict[str, ExpansionMapping],
-) -> tuple[list[dict], dict[str, int]]:
+) -> tuple[list[dict], dict[str, int], list[dict]]:
     price_index = _build_price_index(price_rows)
     rank_index = _build_rarity_rank_index(session)
 
@@ -103,7 +104,13 @@ def match_printings_to_catalog(
         singles_by_expansion[int(exp_id)].append(row)
 
     export_rows: list[dict] = []
-    stats = {"matched": 0, "cards_processed": 0, "expansions": len(expansion_mappings)}
+    rejections: list[dict] = []
+    stats = {
+        "matched": 0,
+        "cards_processed": 0,
+        "rejected_cards": 0,
+        "expansions": len(expansion_mappings),
+    }
 
     for abbr, mapping in expansion_mappings.items():
         cm_rows: list[dict] = []
@@ -166,12 +173,37 @@ def match_printings_to_catalog(
                     )
                 )
 
-            pairs = assign_rarities_by_price(
-                set_code=abbr,
-                card_name=card.name,
-                cm_products=cm_priced,
-                yugipedia_printings=yg_refs,
-            )
+            try:
+                pairs = assign_rarities_by_price(
+                    set_code=abbr,
+                    card_name=card.name,
+                    cm_products=cm_priced,
+                    yugipedia_printings=yg_refs,
+                )
+            except PrintingCountMismatchError as exc:
+                stats["rejected_cards"] += 1
+                rejections.append(
+                    {
+                        "reason": "count_mismatch",
+                        "abbr": abbr,
+                        "set_code": exc.set_code or abbr,
+                        "card_name": exc.card_name or card.name,
+                        "yugipedia_count": exc.yugipedia_count,
+                        "cardmarket_count": exc.cardmarket_count,
+                    }
+                )
+                continue
+            except AmbiguousPriceOrderError as exc:
+                stats["rejected_cards"] += 1
+                rejections.append(
+                    {
+                        "reason": "ambiguous_price_order",
+                        "abbr": abbr,
+                        "set_code": exc.set_code or abbr,
+                        "card_name": exc.card_name or card.name,
+                    }
+                )
+                continue
 
             for yg_ref, cm_product in pairs:
                 export_rows.append(
@@ -188,4 +220,4 @@ def match_printings_to_catalog(
                 )
                 stats["matched"] += 1
 
-    return export_rows, stats
+    return export_rows, stats, rejections

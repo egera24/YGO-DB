@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ygo_app.cardmarket.export_schema import load_export
+from ygo_app.cardmarket.export_schema import load_export, validate_import_readiness
 from ygo_app.cardmarket.market_prices import apply_scd_price_update
 from ygo_app.cardmarket.paths import CARDMARKET_PRICES_PATH
 from ygo_app.cardmarket.r2_storage import download_prices_file
@@ -51,6 +51,17 @@ def run_import(
     source_run_id: str | None = None,
 ) -> int:
     payload = load_export(file_path)
+    gate = validate_import_readiness(payload)
+    if not gate.ok:
+        log_line("[IMPORT] import_gate FAILED")
+        if gate.duplicates:
+            log_line(f"duplicates={gate.duplicates}")
+        if gate.missing_required:
+            log_line(f"missing_required={gate.missing_required}")
+        return 1
+    for warning in gate.warnings:
+        log_line(f"[IMPORT] import_gate warning: {warning}")
+
     init_db()
     session = SessionLocal()
     try:

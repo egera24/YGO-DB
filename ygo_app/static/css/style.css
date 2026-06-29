@@ -1090,6 +1090,10 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+.search-pagination--bottom {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
 .search-page-info {
   color: var(--muted);
   font-size: 0.9rem;

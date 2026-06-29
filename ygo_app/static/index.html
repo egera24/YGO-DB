@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=72" />
+  <link rel="stylesheet" href="/static/css/style.css?v=73" />
 </head>
 <body>
   <header class="app-header">
@@ -296,8 +296,9 @@
         </div>
       </form>
       <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
-      <div id="search-pagination" class="search-pagination hidden"></div>
+      <div id="search-pagination" class="search-pagination hidden" data-search-pagination></div>
       <div id="search-results" class="card-grid"></div>
+      <div id="search-pagination-bottom" class="search-pagination search-pagination--bottom hidden" data-search-pagination></div>
     </section>
 
     <section id="view-collection" class="view" role="tabpanel" aria-labelledby="tab-collection" hidden tabindex="0">
@@ -709,6 +710,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=102" type="module"></script>
+  <script src="/static/js/app.js?v=103" type="module"></script>
 </body>
 </html>

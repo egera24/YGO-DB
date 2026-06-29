@@ -1966,39 +1966,52 @@ async function deleteSearchPreset() {
   showToast("Preset deleted.");
 }
 
+function setSearchPaginationHidden(hidden) {
+  for (const bar of document.querySelectorAll("[data-search-pagination]")) {
+    bar.classList.toggle("hidden", hidden);
+    if (hidden) bar.innerHTML = "";
+  }
+}
+
+function bindSearchPaginationBar(bar) {
+  bar.querySelector('[data-action="prev"]')?.addEventListener("click", () => {
+    if (state.searchPage > 0) loadSearchPage(state.searchPage - 1);
+  });
+  bar.querySelector('[data-action="next"]')?.addEventListener("click", () => {
+    const lastPage = Math.ceil(state.searchTotal / SEARCH_PAGE_SIZE) - 1;
+    if (state.searchPage < lastPage) loadSearchPage(state.searchPage + 1);
+  });
+}
+
 function renderSearchPagination() {
-  const bar = $("#search-pagination");
-  if (!bar) return;
+  const bars = document.querySelectorAll("[data-search-pagination]");
+  if (!bars.length) return;
   const total = state.searchTotal;
   const totalPages = Math.max(1, Math.ceil(total / SEARCH_PAGE_SIZE));
   const page = state.searchPage;
 
   if (totalPages <= 1) {
-    bar.classList.add("hidden");
-    bar.innerHTML = "";
+    setSearchPaginationHidden(true);
     return;
   }
 
-  bar.classList.remove("hidden");
-  bar.innerHTML = `
-    <button type="button" id="search-prev" class="secondary"${page === 0 ? " disabled" : ""}>← Previous</button>
+  const html = `
+    <button type="button" data-action="prev" class="secondary"${page === 0 ? " disabled" : ""}>← Previous</button>
     <span class="search-page-info">Page ${page + 1} of ${totalPages}</span>
-    <button type="button" id="search-next" class="secondary"${page >= totalPages - 1 ? " disabled" : ""}>Next →</button>`;
+    <button type="button" data-action="next" class="secondary"${page >= totalPages - 1 ? " disabled" : ""}>Next →</button>`;
 
-  $("#search-prev")?.addEventListener("click", () => {
-    if (state.searchPage > 0) loadSearchPage(state.searchPage - 1);
-  });
-  $("#search-next")?.addEventListener("click", () => {
-    const lastPage = Math.ceil(state.searchTotal / SEARCH_PAGE_SIZE) - 1;
-    if (state.searchPage < lastPage) loadSearchPage(state.searchPage + 1);
-  });
+  for (const bar of bars) {
+    bar.classList.remove("hidden");
+    bar.innerHTML = html;
+    bindSearchPaginationBar(bar);
+  }
 }
 
 function renderSearchResults(cards) {
   const grid = $("#search-results");
   if (!cards.length) {
     grid.innerHTML = '<p class="empty-msg">No cards found.</p>';
-    $("#search-pagination")?.classList.add("hidden");
+    setSearchPaginationHidden(true);
     state.searchResultsById = {};
     renderSearchResultsSummary();
     return;
@@ -2041,7 +2054,7 @@ async function loadSearchPage(pageIndex) {
   const offset = pageIndex * SEARCH_PAGE_SIZE;
   const grid = $("#search-results");
   grid.innerHTML = '<p class="empty-msg">Searching…</p>';
-  $("#search-pagination")?.classList.add("hidden");
+  setSearchPaginationHidden(true);
   renderSearchResultsSummary({ loading: true });
 
   try {
@@ -2051,7 +2064,7 @@ async function loadSearchPage(pageIndex) {
     renderSearchResults(page.items);
     renderSearchPagination();
     renderActiveSearchFilters();
-    $("#search-pagination")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#search-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
     if (seq !== searchRequestSeq) return;
     grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;

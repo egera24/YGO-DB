@@ -2553,7 +2553,6 @@ function renderModalSkeleton() {
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>
     <div class="skeleton skeleton-row"></div>`;
-  applyModalPriceLegend([]);
 }
 
 function setModalLoadingState(loading) {
@@ -2824,38 +2823,36 @@ function formatPriceLegend(printings) {
   if (!printings.some(printingHasMarketPrices)) return null;
   const updatedAt = latestPriceUpdatedAt(printings);
   const dateLabel = updatedAt ? formatPriceUpdatedAt(updatedAt) : "";
-  let html = "Low / Avg / Trend · Cardmarket";
+  const lines = [
+    '<span class="printings-price-tooltip-line printings-price-tooltip-line--primary">Low / Avg / Trend</span>',
+    '<span class="printings-price-tooltip-line printings-price-tooltip-line--source">Cardmarket</span>',
+  ];
   if (dateLabel && updatedAt) {
-    html += ` · <time datetime="${escapeHtml(updatedAt)}">Updated ${escapeHtml(dateLabel)}</time>`;
+    lines.push(
+      `<time class="printings-price-tooltip-line printings-price-tooltip-line--updated" datetime="${escapeHtml(updatedAt)}">Updated ${escapeHtml(dateLabel)}</time>`
+    );
   }
   return {
-    html,
+    html: lines.join(""),
     ariaLabel: dateLabel
       ? `Low, average, and trend prices from Cardmarket, last updated ${dateLabel}`
       : "Low, average, and trend prices from Cardmarket",
   };
 }
 
-function applyModalPriceLegend(printings) {
-  const priceLegend = $("#modal-price-legend");
-  if (!priceLegend) return;
-  const hasAnyPrices = printings.some(printingHasMarketPrices);
-  if (!hasAnyPrices) {
-    priceLegend.hidden = false;
-    priceLegend.innerHTML = "Prices unavailable · Cardmarket";
-    priceLegend.setAttribute("aria-label", "Market prices unavailable from Cardmarket");
-    return;
-  }
+function renderPrintingsPriceInfo(printings) {
   const legend = formatPriceLegend(printings);
-  if (!legend) {
-    priceLegend.hidden = true;
-    priceLegend.innerHTML = "";
-    priceLegend.removeAttribute("aria-label");
-    return;
-  }
-  priceLegend.hidden = false;
-  priceLegend.innerHTML = legend.html;
-  priceLegend.setAttribute("aria-label", legend.ariaLabel);
+  if (!legend) return "";
+  return `<span class="printings-price-info-wrap">
+    <button type="button" class="icon-btn printings-price-info" aria-label="${escapeHtml(legend.ariaLabel)}" aria-describedby="modal-printings-price-tooltip">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
+      </svg>
+    </button>
+    <span id="modal-printings-price-tooltip" class="printings-price-tooltip" role="tooltip">${legend.html}</span>
+  </span>`;
 }
 
 function formatPasscode(cardId) {
@@ -2924,12 +2921,15 @@ function renderModalPrintingsList(printings, selectedKey) {
   }`;
 
   const headerPriceCol = hasAnyPrices
-    ? '<span class="printings-col-price">Price</span>'
+    ? `<span class="printings-col-price">
+      <span class="printings-col-price-label">Price</span>
+      ${renderPrintingsPriceInfo(printings)}
+    </span>`
     : "";
   const header = hasAnyPrices
     ? `
-    <div class="printings-list-header" aria-hidden="true">
-      <span class="printings-col-printing"></span>
+    <div class="printings-list-header">
+      <span class="printings-col-printing" aria-hidden="true"></span>
       ${headerPriceCol}
     </div>`
     : "";
@@ -2967,7 +2967,9 @@ function renderModalPrintingsList(printings, selectedKey) {
     })
     .join("");
 
-  listEl.innerHTML = printings.length ? header + rows : "";
+  listEl.innerHTML = printings.length
+    ? `${header}<div class="printings-list-body">${rows}</div>`
+    : "";
 }
 
 function renderModalCard(card) {
@@ -2982,7 +2984,6 @@ function renderModalCard(card) {
 
   const printings = card.printings || [];
   const selectedKey = addCollectionSelectedPrintingKey;
-  applyModalPriceLegend(printings);
   renderModalPrintingsList(printings, selectedKey);
   renderModalSupplements(card);
   applyModalReadableColors();

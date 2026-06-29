@@ -972,10 +972,6 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   flex: 1 1 auto;
   min-width: 0;
 }
-.modal-printings-header-actions .printings-price-legend {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .modal-printings-header-actions #owned-add-btn {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -1859,18 +1855,6 @@ tr:hover td { background: var(--surface); }
 .modal-section-header h3 {
   margin: 0;
 }
-.printings-price-legend {
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  white-space: normal;
-  text-align: right;
-  max-width: 100%;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.printings-price-legend time {
-  white-space: nowrap;
-}
 .modal-action-grid {
   display: flex;
   flex-wrap: wrap;
@@ -2198,7 +2182,11 @@ tr:hover td { background: var(--surface); }
 }
 
 .muted { color: var(--muted); font-size: 0.9rem; }
-.printings-list { max-height: 200px; overflow-y: auto; font-size: 0.85rem; margin: 0; }
+.printings-list { font-size: 0.85rem; margin: 0; }
+.printings-list-body {
+  max-height: 200px;
+  overflow-y: auto;
+}
 .printings-list--grid {
   display: flex;
   flex-direction: column;
@@ -2226,7 +2214,76 @@ tr:hover td { background: var(--surface); }
   min-width: 4.5rem;
 }
 .printings-col-price {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
   text-align: right;
+}
+.printings-price-info-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.printings-price-info {
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+  flex: 0 0 auto;
+}
+.printings-price-info svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.printings-price-info-wrap:hover .printings-price-info,
+.printings-price-info-wrap:focus-within .printings-price-info {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--surface);
+}
+.printings-price-tooltip {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 12.5rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 20;
+}
+.printings-price-tooltip-line {
+  display: block;
+}
+.printings-price-tooltip-line + .printings-price-tooltip-line {
+  margin-top: 0.3rem;
+}
+.printings-price-tooltip-line--primary {
+  font-weight: 600;
+  color: var(--text);
+}
+.printings-price-tooltip-line--source,
+.printings-price-tooltip-line--updated {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.printings-price-info-wrap:hover .printings-price-tooltip,
+.printings-price-info-wrap:focus-within .printings-price-tooltip {
+  opacity: 1;
 }
 .printing-col-main {
   display: flex;

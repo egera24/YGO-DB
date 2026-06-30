@@ -1,0 +1,5 @@
+flowchart LR
+  expansions[scrape_expansions] --> cardList[scrape_card_list]
+  cardList --> details[scrape_card_details]
+  details --> export[export_cardmarket_prices]
+  export --> json[cardmarket_prices.json]

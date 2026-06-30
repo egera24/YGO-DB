@@ -1,0 +1,13 @@
+I spent months scraping Cardmarket for a TCG collection tracker.
+
+HTTP 429. IP bans. Hours-long runs from my laptop.
+
+Then I found Cardmarket publishes the entire catalog as JSON on S3 — no Cloudflare, no HTML parsing.
+
+I wrote up the full story: the legacy 4-step scraper, why Cloudflare won, the catalog pipeline I shipped instead, and the messy matching rules that replaced one problem with another.
+
+• Legacy scrape: browser automation, ~0.05 req/s, datacenter IPs blocked
+• New pipeline: weekly S3 download → Yugipedia join → automated import
+• Honest trade-offs: ~40 manual set aliases, price-ordered rarity guessing, per-set rejections
+
+Link to the article below. If you've joined two catalogs with no shared IDs, tell me how you did it.

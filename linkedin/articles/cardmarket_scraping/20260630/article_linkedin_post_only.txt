@@ -1,0 +1,11 @@
+I stopped scraping Cardmarket for my TCG collection tracker.
+
+Months of HTTP 429, IP bans, and laptop-only runs. Then I found they publish the full catalog as JSON on S3.
+
+New approach: weekly download → join with my Yugipedia catalog → automated price import.
+
+The hard part wasn't fetching data — it was matching two catalogs with different names and no shared IDs. ~40 manual set aliases. Price-ordered rarity guessing. Per-set rejection logs.
+
+Full write-up in the article (link below). Curious how others solve catalog joins without a shared API.
+
+[IMAGE: attach 02_legacy_vs_catalog.png and 04_catalog_matching_flow.png as post images]

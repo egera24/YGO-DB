@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=75" />
+  <link rel="stylesheet" href="/static/css/style.css?v=76" />
 </head>
 <body>
   <header class="app-header">
@@ -159,9 +159,21 @@
             </div>
             <div id="search-banlist-wrap" class="filter-group filter-group--wide hidden">
               <label for="search-banlist">Banlist</label>
-              <select id="search-banlist" aria-label="Banlist revision">
-                <option value="">Latest</option>
-              </select>
+              <select id="search-banlist" aria-label="Banlist revision"></select>
+            </div>
+            <div id="search-banlist-status-wrap" class="filter-group filter-group--compact hidden">
+              <span class="filter-group-heading" id="filter-banlist-status-label">Restriction</span>
+              <div class="filter-multi" id="filter-banlist-status">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-banlist-status-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Forbidden" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--forbidden" aria-hidden="true"></span> Forbidden</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--limited" aria-hidden="true"></span> Limited</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Semi-Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--semi" aria-hidden="true"></span> Semi-Limited</label>
+                </div>
+              </div>
             </div>
             <div id="search-genesys-points-wrap" class="filter-ranges hidden">
               <fieldset class="filter-range filter-range--select">
@@ -419,9 +431,7 @@
           </div>
           <div id="deck-banlist-wrap" class="deck-format-field hidden">
             <label for="deck-banlist">Banlist</label>
-            <select id="deck-banlist" aria-label="Banlist revision">
-              <option value="">Latest</option>
-            </select>
+            <select id="deck-banlist" aria-label="Banlist revision"></select>
           </div>
           <div id="deck-genesys-list-wrap" class="deck-format-field hidden">
             <label for="deck-genesys-list">Point list</label>
@@ -775,6 +785,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=109" type="module"></script>
+  <script src="/static/js/app.js?v=113" type="module"></script>
 </body>
 </html>

@@ -2590,3 +2590,20 @@ tr:hover td { background: var(--surface); }
 .format-badge--semi {
   background: color-mix(in srgb, #ffb400 22%, transparent);
 }
+.filter-banlist-status-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  margin-right: 0.15rem;
+  vertical-align: middle;
+}
+.filter-banlist-status-dot--forbidden {
+  background: color-mix(in srgb, var(--danger) 70%, transparent);
+}
+.filter-banlist-status-dot--limited {
+  background: color-mix(in srgb, #ff6e00 70%, transparent);
+}
+.filter-banlist-status-dot--semi {
+  background: color-mix(in srgb, #ffb400 70%, transparent);
+}

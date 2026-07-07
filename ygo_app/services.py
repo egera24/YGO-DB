@@ -327,6 +327,7 @@ def search_cards(
     offset: int = 0,
     format_code: str | None = None,
     banlist_revision_id: int | None = None,
+    banlist_status: str | None = None,
     genesys_point_list_id: int | None = None,
     points_min: int | None = None,
     points_max: int | None = None,
@@ -505,9 +506,10 @@ def search_cards(
         return [], 0
 
     if format_code:
+        from ygo_app.formats.banlist import parse_banlist_status_param, resolve_banlist_revision
         from ygo_app.formats.context import resolve_format_search_context
         from ygo_app.formats.pool import format_pool_legality_exists, warn_if_legality_table_empty
-        from ygo_app.models import GenesysPointEntry
+        from ygo_app.models import BanlistEntry, GenesysPointEntry
 
         ctx = resolve_format_search_context(
             session,
@@ -553,6 +555,21 @@ def search_cards(
                 else:
                     stmt = stmt.where(Card.id.in_(point_subq))
                     count_stmt = count_stmt.where(Card.id.in_(point_subq))
+
+            statuses = parse_banlist_status_param(banlist_status)
+            if statuses:
+                revision = resolve_banlist_revision(
+                    session, ctx.rules, banlist_revision_id
+                )
+                if not revision:
+                    return [], 0
+                restricted = select(BanlistEntry.card_id).where(
+                    BanlistEntry.revision_id == revision.id,
+                    BanlistEntry.card_id.is_not(None),
+                    BanlistEntry.status.in_(statuses),
+                )
+                stmt = stmt.where(Card.id.in_(restricted))
+                count_stmt = count_stmt.where(Card.id.in_(restricted))
 
     total = session.execute(count_stmt).scalar() or 0
     cards = (

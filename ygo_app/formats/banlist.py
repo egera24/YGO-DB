@@ -12,6 +12,33 @@ STATUS_FORBIDDEN = "forbidden"
 STATUS_LIMITED = "limited"
 STATUS_SEMI_LIMITED = "semi_limited"
 
+_VALID_STATUSES = frozenset({STATUS_FORBIDDEN, STATUS_LIMITED, STATUS_SEMI_LIMITED})
+
+_STATUS_ALIASES: dict[str, str] = {
+    "forbidden": STATUS_FORBIDDEN,
+    "limited": STATUS_LIMITED,
+    "semi_limited": STATUS_SEMI_LIMITED,
+    "semi-limited": STATUS_SEMI_LIMITED,
+    "semilimited": STATUS_SEMI_LIMITED,
+}
+
+
+def parse_banlist_status_param(value: str | None) -> list[str]:
+    """Parse comma-separated banlist status filter tokens into DB status values."""
+    if not value or not value.strip():
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for chunk in value.split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        normalized = _STATUS_ALIASES.get(token.lower().replace(" ", ""), token.lower())
+        if normalized in _VALID_STATUSES and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
+
 
 def resolve_banlist_revision(
     session: Session,

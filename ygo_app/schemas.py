@@ -405,6 +405,7 @@ SEARCH_PRESET_PARAM_KEYS = frozenset(
         "tag",
         "format",
         "banlist_revision_id",
+        "banlist_status",
         "genesys_point_list_id",
         "points_min",
         "points_max",

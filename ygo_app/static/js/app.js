@@ -99,6 +99,7 @@ const ROUTE_SEARCH_KEYS = new Set([
   "favorites_only",
   "format",
   "banlist_revision_id",
+  "banlist_status",
   "genesys_point_list_id",
   "points_min",
   "points_max",
@@ -1403,6 +1404,9 @@ function collectActiveSearchFilterChips() {
   for (const val of getFilterMultiValues("filter-attribute")) {
     chips.push({ id: `attribute:${val}`, label: val });
   }
+  for (const val of getFilterMultiValues("filter-banlist-status")) {
+    chips.push({ id: `banlist_status:${val}`, label: val });
+  }
 
   const archetype = $("#filter-archetype")?.value.trim();
   if (archetype) chips.push({ id: "archetype", label: `Archetype: ${archetype}` });
@@ -1489,6 +1493,8 @@ function removeSearchFilterChip(chipId) {
     removeFilterMultiValue("filter-mechanic", chipId.slice("mechanic:".length));
   } else if (chipId.startsWith("attribute:")) {
     removeFilterMultiValue("filter-attribute", chipId.slice("attribute:".length));
+  } else if (chipId.startsWith("banlist_status:")) {
+    removeFilterMultiValue("filter-banlist-status", chipId.slice("banlist_status:".length));
   } else if (chipId.startsWith("link_marker:")) {
     const marker = chipId.slice("link_marker:".length);
     const btn = document.querySelector(`.link-marker-btn[data-marker="${marker}"]`);
@@ -1683,6 +1689,10 @@ function buildSearchParams() {
     const banlist = $("#search-banlist")?.value;
     if (banlist) params.set("banlist_revision_id", banlist);
   }
+  if (fmt?.uses_banlist) {
+    const statuses = getFilterMultiValues("filter-banlist-status");
+    if (statuses.length) params.set("banlist_status", statuses.join(","));
+  }
   const genesysList = $("#search-genesys-list")?.value;
   if (genesysList) params.set("genesys_point_list_id", genesysList);
   if (fmt?.uses_point_list) {
@@ -1769,6 +1779,9 @@ function applySearchParams(snapshot) {
       const el = $("#search-banlist");
       if (el) el.value = s.banlist_revision_id;
     }
+  }
+  if (s.banlist_status) {
+    setFilterMultiValues("filter-banlist-status", s.banlist_status.split(","));
   }
   if (s.points_min) {
     const el = $("#points-min");
@@ -5525,6 +5538,7 @@ async function loadFormats() {
     for (const fmt of state.formatsList.filter((f) => f.uses_banlist)) {
       state.banlistsByFormat[fmt.code] = await api(`/formats/${fmt.code}/banlists`);
     }
+    updateSearchFormatUi();
   } catch {
     state.formatsList = [];
   }
@@ -5559,23 +5573,46 @@ function renderFormatsInfoBody() {
     .join("");
 }
 
+function renderBanlistSelectOptions(selectEl, lists, selectedId) {
+  if (!selectEl) return;
+  let previous;
+  if (selectedId !== undefined) {
+    previous = selectedId !== null ? String(selectedId) : "";
+  } else {
+    previous = selectEl.value;
+  }
+  selectEl.innerHTML = lists
+    .map(
+      (b) =>
+        `<option value="${b.id}">${escapeHtml(b.label)}${b.is_current ? " (current)" : ""}</option>`
+    )
+    .join("");
+  const current = lists.find((b) => b.is_current);
+  const stillValid = previous && lists.some((b) => String(b.id) === String(previous));
+  selectEl.value = stillValid
+    ? String(previous)
+    : current
+      ? String(current.id)
+      : lists[0]
+        ? String(lists[0].id)
+        : "";
+}
+
 function updateSearchFormatUi() {
   const format = $("#search-format")?.value || "";
   const fmt = state.formatsList.find((f) => f.code === format);
   const showBanlist = Boolean(fmt?.uses_banlist && fmt?.banlist_selectable);
   $("#search-banlist-wrap")?.classList.toggle("hidden", !showBanlist);
+  const showBanlistStatus = Boolean(fmt?.uses_banlist);
+  $("#search-banlist-status-wrap")?.classList.toggle("hidden", !showBanlistStatus);
+  if (!showBanlistStatus) {
+    setFilterMultiValues("filter-banlist-status", []);
+  }
   $("#search-genesys-points-wrap")?.classList.toggle("hidden", format !== "genesys");
   const banlistSel = $("#search-banlist");
   if (banlistSel && showBanlist) {
     const lists = state.banlistsByFormat[format] || [];
-    banlistSel.innerHTML =
-      `<option value="">Latest</option>` +
-      lists
-        .map(
-          (b) =>
-            `<option value="${b.id}">${escapeHtml(b.label)}${b.is_current ? " (current)" : ""}</option>`
-        )
-        .join("");
+    renderBanlistSelectOptions(banlistSel, lists);
   }
 }
 
@@ -5590,12 +5627,7 @@ function renderDeckFormatBar(deck) {
   const banlistSel = $("#deck-banlist");
   if (banlistSel && showBanlist) {
     const lists = state.banlistsByFormat[deck.format_code] || [];
-    banlistSel.innerHTML =
-      `<option value="">Latest</option>` +
-      lists
-        .map((b) => `<option value="${b.id}">${escapeHtml(b.label)}</option>`)
-        .join("");
-    banlistSel.value = deck.banlist_revision_id ? String(deck.banlist_revision_id) : "";
+    renderBanlistSelectOptions(banlistSel, lists, deck.banlist_revision_id);
   }
   const genesysSel = $("#deck-genesys-list");
   if (genesysSel && fmt?.uses_point_list) {

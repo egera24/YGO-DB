@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=76" />
+  <link rel="stylesheet" href="/static/css/style.css?v=77" />
 </head>
 <body>
   <header class="app-header">
@@ -128,6 +128,20 @@
           </div>
         </div>
         <div class="search-secondary">
+          <div class="search-presets-bar hidden" id="search-presets-bar">
+            <label for="search-preset-select" class="search-field-label">Search Presets</label>
+            <div class="search-presets-controls">
+              <select id="search-preset-select"><option value="">— None —</option></select>
+              <button type="button" id="search-preset-save" class="secondary">Save</button>
+              <div class="preset-menu-wrap">
+                <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
+                <div id="search-preset-menu" class="preset-menu" hidden role="menu">
+                  <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
+                  <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
           <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
             <span class="search-active-filters-label">Active filters</span>
             <div id="search-active-filters-chips" class="search-filter-chips"></div>
@@ -142,62 +156,52 @@
               </span>
             </summary>
             <div class="advanced-filters-body">
-            <div class="filter-group filter-group--wide">
-              <div class="filter-group-label-row">
-                <label for="search-format">Format</label>
-                <button type="button" id="formats-info-btn" class="icon-btn supplement-icon-btn formats-info-btn" aria-label="Format guide" data-tooltip="Format guide" aria-haspopup="dialog" aria-controls="formats-info-modal" aria-expanded="false">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 16v-4" />
-                    <path d="M12 8h.01" />
-                  </svg>
-                </button>
-              </div>
-              <select id="search-format" aria-label="Search format">
-                <option value="">Any format</option>
-              </select>
-            </div>
-            <div id="search-banlist-wrap" class="filter-group filter-group--wide hidden">
-              <label for="search-banlist">Banlist</label>
-              <select id="search-banlist" aria-label="Banlist revision"></select>
-            </div>
-            <div id="search-banlist-status-wrap" class="filter-group filter-group--compact hidden">
-              <span class="filter-group-heading" id="filter-banlist-status-label">Restriction</span>
-              <div class="filter-multi" id="filter-banlist-status">
-                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-banlist-status-label">
-                  <span class="filter-multi-summary">Any</span>
-                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
-                </button>
-                <div class="filter-multi-panel" hidden>
-                  <label class="check filter-multi-option"><input type="checkbox" value="Forbidden" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--forbidden" aria-hidden="true"></span> Forbidden</label>
-                  <label class="check filter-multi-option"><input type="checkbox" value="Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--limited" aria-hidden="true"></span> Limited</label>
-                  <label class="check filter-multi-option"><input type="checkbox" value="Semi-Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--semi" aria-hidden="true"></span> Semi-Limited</label>
-                  <label class="check filter-multi-option"><input type="checkbox" value="Unlimited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--unlimited" aria-hidden="true"></span> Unlimited</label>
+            <div class="search-format-context">
+              <div class="search-format-bar">
+                <div class="search-format-field">
+                  <div class="filter-group-label-row">
+                    <label for="search-format">Format</label>
+                    <button type="button" id="formats-info-btn" class="icon-btn supplement-icon-btn formats-info-btn" aria-label="Format guide" data-tooltip="Format guide" aria-haspopup="dialog" aria-controls="formats-info-modal" aria-expanded="false">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 16v-4" />
+                        <path d="M12 8h.01" />
+                      </svg>
+                    </button>
+                  </div>
+                  <select id="search-format" aria-label="Search format">
+                    <option value="">Any format</option>
+                  </select>
                 </div>
-              </div>
-            </div>
-            <div id="search-genesys-points-wrap" class="filter-ranges hidden">
-              <fieldset class="filter-range filter-range--select">
-                <legend>Genesys points</legend>
-                <div class="filter-range-row">
-                  <input type="number" id="points-min" min="0" max="100" placeholder="min" aria-label="Points minimum" />
-                  <span class="filter-range-sep" aria-hidden="true">–</span>
-                  <input type="number" id="points-max" min="0" max="100" placeholder="max" aria-label="Points maximum" />
+                <div id="search-banlist-wrap" class="search-format-field hidden">
+                  <label for="search-banlist">Banlist</label>
+                  <select id="search-banlist" aria-label="Banlist revision"></select>
                 </div>
-              </fieldset>
-            </div>
-            <div class="search-secondary-presets hidden" id="search-presets-bar">
-              <label for="search-preset-select" class="search-field-label">Search Presets</label>
-              <div class="search-secondary-preset-controls">
-                <select id="search-preset-select"><option value="">— None —</option></select>
-                <button type="button" id="search-preset-save" class="secondary">Save</button>
-                <div class="preset-menu-wrap">
-                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
-                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
-                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
-                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+                <div id="search-banlist-status-wrap" class="search-format-field hidden">
+                  <span class="filter-group-heading" id="filter-banlist-status-label">Restriction</span>
+                  <div class="filter-multi" id="filter-banlist-status">
+                    <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-banlist-status-label">
+                      <span class="filter-multi-summary">Any</span>
+                      <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="filter-multi-panel" hidden>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Forbidden" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--forbidden" aria-hidden="true"></span> Forbidden</label>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--limited" aria-hidden="true"></span> Limited</label>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Semi-Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--semi" aria-hidden="true"></span> Semi-Limited</label>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Unlimited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--unlimited" aria-hidden="true"></span> Unlimited</label>
+                    </div>
                   </div>
                 </div>
+              </div>
+              <div id="search-genesys-points-wrap" class="filter-ranges hidden">
+                <fieldset class="filter-range filter-range--select">
+                  <legend>Genesys points</legend>
+                  <div class="filter-range-row">
+                    <input type="number" id="points-min" min="0" max="100" placeholder="min" aria-label="Points minimum" />
+                    <span class="filter-range-sep" aria-hidden="true">–</span>
+                    <input type="number" id="points-max" min="0" max="100" placeholder="max" aria-label="Points maximum" />
+                  </div>
+                </fieldset>
               </div>
             </div>
             <div class="filter-group filter-group--compact">

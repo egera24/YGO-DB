@@ -11,8 +11,10 @@ from ygo_app.models import BanlistEntry, BanlistRevision
 STATUS_FORBIDDEN = "forbidden"
 STATUS_LIMITED = "limited"
 STATUS_SEMI_LIMITED = "semi_limited"
+STATUS_UNLIMITED = "unlimited"
 
 _VALID_STATUSES = frozenset({STATUS_FORBIDDEN, STATUS_LIMITED, STATUS_SEMI_LIMITED})
+_FILTER_TOKENS = _VALID_STATUSES | {STATUS_UNLIMITED}
 
 _STATUS_ALIASES: dict[str, str] = {
     "forbidden": STATUS_FORBIDDEN,
@@ -20,11 +22,15 @@ _STATUS_ALIASES: dict[str, str] = {
     "semi_limited": STATUS_SEMI_LIMITED,
     "semi-limited": STATUS_SEMI_LIMITED,
     "semilimited": STATUS_SEMI_LIMITED,
+    "unlimited": STATUS_UNLIMITED,
+    "unrestricted": STATUS_UNLIMITED,
+    "notonlist": STATUS_UNLIMITED,
+    "not-on-list": STATUS_UNLIMITED,
 }
 
 
 def parse_banlist_status_param(value: str | None) -> list[str]:
-    """Parse comma-separated banlist status filter tokens into DB status values."""
+    """Parse comma-separated banlist status filter tokens into filter values."""
     if not value or not value.strip():
         return []
     seen: set[str] = set()
@@ -34,10 +40,19 @@ def parse_banlist_status_param(value: str | None) -> list[str]:
         if not token:
             continue
         normalized = _STATUS_ALIASES.get(token.lower().replace(" ", ""), token.lower())
-        if normalized in _VALID_STATUSES and normalized not in seen:
+        if normalized in _FILTER_TOKENS and normalized not in seen:
             seen.add(normalized)
             result.append(normalized)
     return result
+
+
+def partition_banlist_status_filters(
+    statuses: list[str],
+) -> tuple[list[str], bool]:
+    """Split parsed filter tokens into DB statuses and unlimited flag."""
+    restricted = [s for s in statuses if s != STATUS_UNLIMITED]
+    include_unlimited = STATUS_UNLIMITED in statuses
+    return restricted, include_unlimited
 
 
 def resolve_banlist_revision(
@@ -82,6 +97,32 @@ def load_banlist_map(
     return {int(card_id): status for card_id, status in rows if card_id is not None}
 
 
+def effective_banlist_status(status: str | None, rules: FormatRules) -> str | None:
+    """Return restriction status as seen in the given format."""
+    if status == STATUS_FORBIDDEN and rules.banlist_mode == "traditional":
+        return STATUS_LIMITED
+    return status
+
+
+def db_statuses_for_effective_filters(
+    effective_statuses: list[str],
+    rules: FormatRules,
+) -> list[str]:
+    """Map user-facing restriction filters to raw banlist DB statuses."""
+    db_statuses: set[str] = set()
+    for status in effective_statuses:
+        if status == STATUS_FORBIDDEN:
+            if rules.banlist_mode != "traditional":
+                db_statuses.add(STATUS_FORBIDDEN)
+        elif status == STATUS_LIMITED:
+            db_statuses.add(STATUS_LIMITED)
+            if rules.banlist_mode == "traditional":
+                db_statuses.add(STATUS_FORBIDDEN)
+        elif status == STATUS_SEMI_LIMITED:
+            db_statuses.add(STATUS_SEMI_LIMITED)
+    return sorted(db_statuses)
+
+
 def effective_max_copies(status: str | None, rules: FormatRules) -> int:
     if status is None:
         return rules.max_copies_default
@@ -96,7 +137,9 @@ def effective_max_copies(status: str | None, rules: FormatRules) -> int:
     return rules.max_copies_default
 
 
-def banlist_status_label(status: str | None) -> str | None:
+def banlist_status_label(status: str | None, rules: FormatRules | None = None) -> str | None:
+    if rules is not None:
+        status = effective_banlist_status(status, rules)
     if status == STATUS_FORBIDDEN:
         return "Forbidden"
     if status == STATUS_LIMITED:

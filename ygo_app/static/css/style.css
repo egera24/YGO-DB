@@ -2607,3 +2607,6 @@ tr:hover td { background: var(--surface); }
 .filter-banlist-status-dot--semi {
   background: color-mix(in srgb, #ffb400 70%, transparent);
 }
+.filter-banlist-status-dot--unlimited {
+  background: color-mix(in srgb, #3ecf6e 70%, transparent);
+}

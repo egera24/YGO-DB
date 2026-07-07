@@ -13,6 +13,7 @@ from ygo_app.formats.banlist import (
     STATUS_FORBIDDEN,
     STATUS_LIMITED,
     STATUS_SEMI_LIMITED,
+    STATUS_UNLIMITED,
     parse_banlist_status_param,
 )
 from ygo_app.models import BanlistEntry, BanlistRevision, Base, Card, Format
@@ -60,6 +61,18 @@ class TestParseBanlistStatusParam(unittest.TestCase):
 
     def test_ignores_unknown(self):
         self.assertEqual(parse_banlist_status_param("forbidden,unknown"), [STATUS_FORBIDDEN])
+
+    def test_unlimited_display_label(self):
+        self.assertEqual(parse_banlist_status_param("Unlimited"), [STATUS_UNLIMITED])
+
+    def test_unlimited_snake_case(self):
+        self.assertEqual(parse_banlist_status_param("unlimited"), [STATUS_UNLIMITED])
+
+    def test_unlimited_with_restricted(self):
+        self.assertEqual(
+            parse_banlist_status_param("Forbidden,Unlimited"),
+            [STATUS_FORBIDDEN, STATUS_UNLIMITED],
+        )
 
 
 class TestBanlistStatusSearchFilter(unittest.TestCase):
@@ -157,6 +170,24 @@ class TestBanlistStatusSearchFilter(unittest.TestCase):
             {3},
         )
 
+    def test_unlimited_only(self):
+        self.assertEqual(
+            self._ids(format_code="advanced", banlist_status="Unlimited"),
+            {4},
+        )
+
+    def test_unlimited_snake_case_param(self):
+        self.assertEqual(
+            self._ids(format_code="advanced", banlist_status="unlimited"),
+            {4},
+        )
+
+    def test_forbidden_and_unlimited(self):
+        self.assertEqual(
+            self._ids(format_code="advanced", banlist_status="Forbidden,Unlimited"),
+            {1, 4},
+        )
+
     def test_no_match_when_status_not_on_list(self):
         self.assertEqual(
             self._ids(format_code="advanced", banlist_status="forbidden", q="Unrestricted"),
@@ -220,6 +251,24 @@ class TestBanlistStatusSearchFilter(unittest.TestCase):
                 banlist_revision_id=old_id,
             ),
             {4},
+        )
+
+    def test_traditional_forbidden_filter_returns_empty(self):
+        self.assertEqual(
+            self._ids(format_code="traditional", banlist_status="forbidden"),
+            set(),
+        )
+
+    def test_traditional_limited_includes_advanced_forbidden(self):
+        self.assertEqual(
+            self._ids(format_code="traditional", banlist_status="limited"),
+            {1, 2},
+        )
+
+    def test_traditional_forbidden_and_limited(self):
+        self.assertEqual(
+            self._ids(format_code="traditional", banlist_status="forbidden,limited"),
+            {1, 2},
         )
 
 

@@ -506,7 +506,12 @@ def search_cards(
         return [], 0
 
     if format_code:
-        from ygo_app.formats.banlist import parse_banlist_status_param, resolve_banlist_revision
+        from ygo_app.formats.banlist import (
+            db_statuses_for_effective_filters,
+            partition_banlist_status_filters,
+            parse_banlist_status_param,
+            resolve_banlist_revision,
+        )
         from ygo_app.formats.context import resolve_format_search_context
         from ygo_app.formats.pool import format_pool_legality_exists, warn_if_legality_table_empty
         from ygo_app.models import BanlistEntry, GenesysPointEntry
@@ -563,13 +568,32 @@ def search_cards(
                 )
                 if not revision:
                     return [], 0
-                restricted = select(BanlistEntry.card_id).where(
-                    BanlistEntry.revision_id == revision.id,
-                    BanlistEntry.card_id.is_not(None),
-                    BanlistEntry.status.in_(statuses),
+                restricted_statuses, include_unlimited = partition_banlist_status_filters(
+                    statuses
                 )
-                stmt = stmt.where(Card.id.in_(restricted))
-                count_stmt = count_stmt.where(Card.id.in_(restricted))
+                db_statuses = db_statuses_for_effective_filters(
+                    restricted_statuses, ctx.rules
+                )
+                conditions = []
+                if restricted_statuses:
+                    if not db_statuses:
+                        return [], 0
+                    restricted = select(BanlistEntry.card_id).where(
+                        BanlistEntry.revision_id == revision.id,
+                        BanlistEntry.card_id.is_not(None),
+                        BanlistEntry.status.in_(db_statuses),
+                    )
+                    conditions.append(Card.id.in_(restricted))
+                if include_unlimited:
+                    on_list = select(BanlistEntry.card_id).where(
+                        BanlistEntry.revision_id == revision.id,
+                        BanlistEntry.card_id.is_not(None),
+                    )
+                    conditions.append(~Card.id.in_(on_list))
+                if conditions:
+                    banlist_filter = or_(*conditions)
+                    stmt = stmt.where(banlist_filter)
+                    count_stmt = count_stmt.where(banlist_filter)
 
     total = session.execute(count_stmt).scalar() or 0
     cards = (
@@ -623,7 +647,7 @@ def enrich_cards_for_format(
         payload: dict = {}
         if ctx.banlist_map is not None:
             status = ctx.banlist_map.get(card.id)
-            payload["banlist_status"] = banlist_status_label(status)
+            payload["banlist_status"] = banlist_status_label(status, ctx.rules)
         if ctx.rules.uses_point_list and ctx.points_map is not None:
             payload["genesys_points"] = card_point_value(card.id, ctx.points_map)
         if not for_search and (

@@ -41,6 +41,22 @@ def clean_card_name(cell_text: str, link_title: str | None = None) -> str:
     return text
 
 
+def _table_column_headers(table) -> list[str]:
+    """Return lowercase column headers from a wikitable.
+
+    Yugipedia serves two layouts: saved fixtures use ``thead th``, while live
+    pages often place header cells in the first ``tbody tr`` without a thead.
+    """
+    headers = [th.get_text(strip=True).lower() for th in table.select("thead th")]
+    if headers:
+        return headers
+    for row in table.select("tr"):
+        row_headers = [th.get_text(strip=True).lower() for th in row.find_all("th")]
+        if row_headers:
+            return row_headers
+    return []
+
+
 def parse_point_list_html(html: str, *, source_url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     title = page_title_from_url(source_url) or (soup.title.string if soup.title else "")
@@ -49,7 +65,7 @@ def parse_point_list_html(html: str, *, source_url: str) -> dict[str, Any]:
 
     entries: list[dict[str, Any]] = []
     for table in soup.select("table.wikitable"):
-        headers = [th.get_text(strip=True).lower() for th in table.select("thead th")]
+        headers = _table_column_headers(table)
         if "card" not in headers or "cost" not in headers:
             continue
         card_idx = headers.index("card")
@@ -75,13 +91,39 @@ def parse_point_list_html(html: str, *, source_url: str) -> dict[str, Any]:
         if RELATED_POINT_LIST_RE.match(path):
             related_urls.add(f"https://yugipedia.com{path}")
 
-    return {
+    result = {
         "label": label,
         "effective_from": effective_from,
         "source_url": source_url.split("?")[0],
         "entries": entries,
         "related_urls": sorted(related_urls),
     }
+    # #region agent log
+    try:
+        import json, time
+        from pathlib import Path as _Path
+        _Path("debug-14a0ee.log").open("a", encoding="utf-8").write(
+            json.dumps(
+                {
+                    "sessionId": "14a0ee",
+                    "runId": "parse",
+                    "hypothesisId": "D",
+                    "location": "genesys/parse.py:parse_point_list_html",
+                    "message": "parsed point list",
+                    "data": {
+                        "source_url": result["source_url"],
+                        "entry_count": len(entries),
+                        "related_count": len(related_urls),
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            + "\n"
+        )
+    except Exception:
+        pass
+    # #endregion
+    return result
 
 
 def parse_point_list_file(path: Path, *, source_url: str) -> dict[str, Any]:

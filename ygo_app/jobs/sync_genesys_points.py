@@ -37,6 +37,30 @@ def sync_genesys_points(*, fixture: Path | None = None) -> dict:
     }
     try:
         for list_data in lists:
+            # #region agent log
+            try:
+                import json, time
+                from pathlib import Path as _Path
+                _Path("debug-14a0ee.log").open("a", encoding="utf-8").write(
+                    json.dumps(
+                        {
+                            "sessionId": "14a0ee",
+                            "runId": "sync",
+                            "hypothesisId": "A",
+                            "location": "jobs/sync_genesys_points.py",
+                            "message": "before upsert_point_list",
+                            "data": {
+                                "label": list_data.get("label"),
+                                "entry_count": len(list_data.get("entries", [])),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+            except Exception:
+                pass
+            # #endregion
             point_list, matched, unmatched = upsert_point_list(
                 session, list_data, card_index=card_index
             )

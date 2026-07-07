@@ -21,7 +21,7 @@ def resolve_banlist_revision(
     if rules.banlist_mode == "none":
         return None
 
-    if revision_id is not None:
+    if revision_id is not None and rules.banlist_selectable:
         return session.get(BanlistRevision, revision_id)
 
     if rules.fixed_banlist_label:

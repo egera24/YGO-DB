@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ygo_app.formats.base import FormatRules
@@ -18,6 +18,20 @@ def expansion_abbr_from_set_code(set_code: str) -> str | None:
     if len(parts) >= 2:
         return parts[0].upper()
     return None
+
+
+def legal_card_ids_by_cutoff(session: Session, cutoff: date) -> set[int]:
+    printing_rows = session.execute(select(Printing.card_id, Printing.set_code)).all()
+    tcg_sets = {row.abbr: row for row in session.execute(select(TcgSet)).scalars().all()}
+    legal_ids: set[int] = set()
+    for card_id, set_code in printing_rows:
+        abbr = expansion_abbr_from_set_code(set_code or "")
+        if not abbr:
+            continue
+        tcg_set = tcg_sets.get(abbr)
+        if tcg_set and tcg_set.release_date and tcg_set.release_date <= cutoff:
+            legal_ids.add(int(card_id))
+    return legal_ids
 
 
 def card_in_pool_by_cutoff(session: Session, card_id: int, cutoff: date) -> bool:
@@ -43,6 +57,8 @@ def card_legal_in_format(session: Session, card: Card, rules: FormatRules) -> bo
         ).scalar_one_or_none()
         if row is not None:
             return bool(row)
+        if rules.pool_cutoff_date:
+            return card_in_pool_by_cutoff(session, card.id, rules.pool_cutoff_date)
         return False
 
     if rules.pool_cutoff_date:
@@ -72,10 +88,27 @@ def printing_legal_in_format(
 
 def format_pool_card_ids_subquery(session: Session, rules: FormatRules):
     if rules.pool_uses_legality_table:
-        return select(CardFormatLegality.card_id).where(
-            CardFormatLegality.format_code == rules.code,
-            CardFormatLegality.is_legal.is_(True),
+        legality_count = (
+            session.execute(
+                select(func.count())
+                .select_from(CardFormatLegality)
+                .where(
+                    CardFormatLegality.format_code == rules.code,
+                    CardFormatLegality.is_legal.is_(True),
+                )
+            ).scalar()
+            or 0
         )
+        if legality_count > 0:
+            return select(CardFormatLegality.card_id).where(
+                CardFormatLegality.format_code == rules.code,
+                CardFormatLegality.is_legal.is_(True),
+            )
+        if rules.pool_cutoff_date:
+            legal_ids = legal_card_ids_by_cutoff(session, rules.pool_cutoff_date)
+            if not legal_ids:
+                return select(Card.id).where(Card.id < 0)
+            return select(Card.id).where(Card.id.in_(legal_ids))
     return None
 
 

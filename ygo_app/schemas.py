@@ -100,6 +100,8 @@ class FormatOut(BaseModel):
     description: str
     uses_banlist: bool
     uses_point_list: bool
+    banlist_selectable: bool = False
+    fixed_banlist_label: str | None = None
     zone_tooltips: dict[str, str] = Field(default_factory=dict)
 
 

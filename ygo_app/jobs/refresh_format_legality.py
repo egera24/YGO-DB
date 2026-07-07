@@ -11,10 +11,10 @@ from pathlib import Path
 from sqlalchemy import delete, select
 
 from ygo_app.database import SessionLocal
+from ygo_app.formats.pool import legal_card_ids_by_cutoff
 from ygo_app.formats.registry import EDISON_POOL_CUTOFF, GOAT_POOL_CUTOFF
-from ygo_app.formats.pool import expansion_abbr_from_set_code
 from ygo_app.job_logging import job_log_session
-from ygo_app.models import CardFormatLegality, Printing, TcgSet
+from ygo_app.models import CardFormatLegality, Printing
 from ygo_app.yugipedia.scrape_progress import log_line
 
 SPEED_DUEL_FORMAT = "speed_duel"
@@ -23,16 +23,7 @@ GOAT_FORMAT = "goat"
 
 
 def _legal_ids_by_cutoff(session, cutoff: date) -> set[int]:
-    printing_rows = session.execute(select(Printing.card_id, Printing.set_code)).all()
-    legal_ids: set[int] = set()
-    for card_id, set_code in printing_rows:
-        abbr = expansion_abbr_from_set_code(set_code or "")
-        if not abbr:
-            continue
-        tcg_set = session.get(TcgSet, abbr)
-        if tcg_set and tcg_set.release_date and tcg_set.release_date <= cutoff:
-            legal_ids.add(int(card_id))
-    return legal_ids
+    return legal_card_ids_by_cutoff(session, cutoff)
 
 
 def _write_legality_flags(session, format_code: str, legal_ids: set[int]) -> int:

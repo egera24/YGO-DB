@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ygo_app.auth import get_current_user
 from ygo_app.database import get_db
 from ygo_app.formats.base import DECK_ZONE_TOOLTIPS
+from ygo_app.formats.registry import get_format_rules
 from ygo_app.models import BanlistRevision, Format, GenesysPointList, User
 from ygo_app.schemas import BanlistRevisionOut, FormatOut, GenesysPointListOut
 
@@ -23,6 +24,16 @@ def list_formats(db: Session = Depends(get_db), user: User = Depends(get_current
             description=row.description,
             uses_banlist=row.uses_banlist,
             uses_point_list=row.uses_point_list,
+            banlist_selectable=(
+                get_format_rules(row.code).banlist_selectable
+                if get_format_rules(row.code)
+                else False
+            ),
+            fixed_banlist_label=(
+                get_format_rules(row.code).fixed_banlist_label
+                if get_format_rules(row.code)
+                else None
+            ),
             zone_tooltips=DECK_ZONE_TOOLTIPS,
         )
         for row in rows

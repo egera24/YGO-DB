@@ -1678,8 +1678,11 @@ function buildSearchParams() {
   if (tag) params.set("tag", tag);
   const format = $("#search-format")?.value;
   if (format) params.set("format", format);
-  const banlist = $("#search-banlist")?.value;
-  if (banlist) params.set("banlist_revision_id", banlist);
+  const fmt = state.formatsList.find((f) => f.code === format);
+  if (fmt?.banlist_selectable) {
+    const banlist = $("#search-banlist")?.value;
+    if (banlist) params.set("banlist_revision_id", banlist);
+  }
   const genesysList = $("#search-genesys-list")?.value;
   if (genesysList) params.set("genesys_point_list_id", genesysList);
   const pointsMin = $("#points-min")?.value;
@@ -1758,9 +1761,12 @@ function applySearchParams(snapshot) {
     if (el) el.value = s.format;
     updateSearchFormatUi();
   }
-  if (s.banlist_revision_id) {
-    const el = $("#search-banlist");
-    if (el) el.value = s.banlist_revision_id;
+  if (s.banlist_revision_id && s.format) {
+    const fmt = state.formatsList.find((f) => f.code === s.format);
+    if (fmt?.banlist_selectable) {
+      const el = $("#search-banlist");
+      if (el) el.value = s.banlist_revision_id;
+    }
   }
   if (s.points_min) {
     const el = $("#points-min");
@@ -5433,7 +5439,15 @@ function wireEvents() {
   $("#formats-info-modal")?.addEventListener("click", (e) => {
     if (e.target === $("#formats-info-modal")) closeFormatsInfoModal();
   });
-  $("#deck-format")?.addEventListener("change", saveDeckFormatSettings);
+  $("#deck-format")?.addEventListener("change", () => {
+    if (state.activeDeckDetail) {
+      renderDeckFormatBar({
+        ...state.activeDeckDetail,
+        format_code: $("#deck-format")?.value,
+      });
+    }
+    saveDeckFormatSettings();
+  });
   $("#deck-banlist")?.addEventListener("change", saveDeckFormatSettings);
   $("#deck-genesys-list")?.addEventListener("change", saveDeckFormatSettings);
 }
@@ -5461,13 +5475,14 @@ function buildCardDetailQuery() {
   const format = $("#search-format")?.value || state.activeDeckDetail?.format_code;
   if (!format) return "";
   const params = new URLSearchParams({ format });
+  const fmt = state.formatsList.find((f) => f.code === format);
   const banlist =
     $("#search-banlist")?.value || state.activeDeckDetail?.banlist_revision_id;
   const genesys =
     $("#deck-genesys-list")?.value ||
     $("#search-genesys-list")?.value ||
     state.activeDeckDetail?.genesys_point_list_id;
-  if (banlist) params.set("banlist_revision_id", String(banlist));
+  if (fmt?.banlist_selectable && banlist) params.set("banlist_revision_id", String(banlist));
   if (genesys) params.set("genesys_point_list_id", String(genesys));
   return `?${params}`;
 }
@@ -5525,10 +5540,11 @@ function renderFormatsInfoBody() {
 function updateSearchFormatUi() {
   const format = $("#search-format")?.value || "";
   const fmt = state.formatsList.find((f) => f.code === format);
-  $("#search-banlist-wrap")?.classList.toggle("hidden", !fmt?.uses_banlist);
+  const showBanlist = Boolean(fmt?.uses_banlist && fmt?.banlist_selectable);
+  $("#search-banlist-wrap")?.classList.toggle("hidden", !showBanlist);
   $("#search-genesys-points-wrap")?.classList.toggle("hidden", format !== "genesys");
   const banlistSel = $("#search-banlist");
-  if (banlistSel && fmt?.uses_banlist) {
+  if (banlistSel && showBanlist) {
     const lists = state.banlistsByFormat[format] || [];
     banlistSel.innerHTML =
       `<option value="">Latest</option>` +
@@ -5546,10 +5562,11 @@ function renderDeckFormatBar(deck) {
   if (!formatSel) return;
   formatSel.value = deck.format_code || "advanced";
   const fmt = state.formatsList.find((f) => f.code === deck.format_code);
-  $("#deck-banlist-wrap")?.classList.toggle("hidden", !fmt?.uses_banlist);
+  const showBanlist = Boolean(fmt?.uses_banlist && fmt?.banlist_selectable);
+  $("#deck-banlist-wrap")?.classList.toggle("hidden", !showBanlist);
   $("#deck-genesys-list-wrap")?.classList.toggle("hidden", !fmt?.uses_point_list);
   const banlistSel = $("#deck-banlist");
-  if (banlistSel && fmt?.uses_banlist) {
+  if (banlistSel && showBanlist) {
     const lists = state.banlistsByFormat[deck.format_code] || [];
     banlistSel.innerHTML =
       `<option value="">Latest</option>` +
@@ -5611,11 +5628,13 @@ function renderDeckValidation(validation) {
 async function saveDeckFormatSettings() {
   if (!state.activeDeckDetail) return;
   const deckId = state.activeDeckDetail.id;
+  const fmt = state.formatsList.find((f) => f.code === $("#deck-format")?.value);
   const body = {
     format_code: $("#deck-format")?.value,
-    banlist_revision_id: $("#deck-banlist")?.value
-      ? Number($("#deck-banlist").value)
-      : null,
+    banlist_revision_id:
+      fmt?.banlist_selectable && $("#deck-banlist")?.value
+        ? Number($("#deck-banlist").value)
+        : null,
     genesys_point_list_id: $("#deck-genesys-list")?.value
       ? Number($("#deck-genesys-list").value)
       : null,

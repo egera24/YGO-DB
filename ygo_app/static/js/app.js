@@ -1550,8 +1550,8 @@ function renderSearchResultsSummary({ loading = false } = {}) {
   const el = $("#search-results-summary");
   if (!el) return;
   if (loading) {
-    el.textContent = "Searching…";
-    el.classList.remove("hidden");
+    el.classList.add("hidden");
+    el.textContent = "";
     return;
   }
   const total = state.searchTotal;
@@ -2051,8 +2051,23 @@ function renderSearchPagination() {
   }
 }
 
+const SEARCH_SKELETON_COUNT = 10;
+
+function renderSearchLoadingSkeleton() {
+  const tiles = Array.from({ length: SEARCH_SKELETON_COUNT }, () => `
+    <article class="card-tile card-tile--skeleton" aria-hidden="true">
+      <div class="skeleton search-card-skeleton-img"></div>
+      <div class="info">
+        <div class="skeleton skeleton-line"></div>
+        <div class="skeleton skeleton-line skeleton-line--short"></div>
+      </div>
+    </article>`).join("");
+  return `<p class="sr-only" role="status">Searching…</p>${tiles}`;
+}
+
 function renderSearchResults(cards) {
   const grid = $("#search-results");
+  grid.removeAttribute("aria-busy");
   if (!cards.length) {
     grid.innerHTML = '<p class="empty-msg">No cards found.</p>';
     setSearchPaginationHidden(true);
@@ -2098,7 +2113,8 @@ async function loadSearchPage(pageIndex) {
   state.searchPage = pageIndex;
   const offset = pageIndex * SEARCH_PAGE_SIZE;
   const grid = $("#search-results");
-  grid.innerHTML = '<p class="empty-msg">Searching…</p>';
+  grid.innerHTML = renderSearchLoadingSkeleton();
+  grid.setAttribute("aria-busy", "true");
   setSearchPaginationHidden(true);
   renderSearchResultsSummary({ loading: true });
 
@@ -2112,6 +2128,7 @@ async function loadSearchPage(pageIndex) {
     $("#search-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
     if (seq !== searchRequestSeq) return;
+    grid.removeAttribute("aria-busy");
     grid.innerHTML = `<p class="empty-msg">${escapeHtml(err.message)}</p>`;
     state.searchTotal = null;
     renderSearchResultsSummary();

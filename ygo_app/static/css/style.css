@@ -1142,6 +1142,22 @@ button:disabled {
   background: var(--danger);
   color: #fff;
 }
+.card-tile--skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+.card-tile--skeleton:hover {
+  transform: none;
+  border-color: var(--border);
+}
+.search-card-skeleton-img {
+  width: 100%;
+  aspect-ratio: 59 / 86;
+  display: block;
+}
+.card-tile--skeleton .info {
+  padding: 0.4rem 0.5rem;
+}
 
 .collection-table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

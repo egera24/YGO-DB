@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=79" />
+  <link rel="stylesheet" href="/static/css/style.css?v=80" />
 </head>
 <body>
   <header class="app-header">
@@ -797,6 +797,21 @@
     </article>
   </div>
 
+  <div id="deck-zone-info-popover" class="search-help-popover deck-zone-info-popover" role="dialog" aria-modal="false" aria-labelledby="deck-zone-info-title" hidden>
+    <div class="search-help-shell">
+      <div class="search-help-topbar">
+        <h2 id="deck-zone-info-title"></h2>
+        <button type="button" class="search-help-dismiss deck-zone-info-dismiss" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+      <p id="deck-zone-info-body" class="muted"></p>
+    </div>
+  </div>
+
   <div id="formats-info-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="formats-info-title" hidden>
     <article class="modal-card modal-card--narrow">
       <button type="button" id="formats-info-close" class="modal-close" aria-label="Close">
@@ -814,6 +829,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=114" type="module"></script>
+  <script src="/static/js/app.js?v=117" type="module"></script>
 </body>
 </html>

@@ -52,6 +52,7 @@ let decksSearchTimer = null;
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
 const COLLECTION_FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+const INFO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>`;
 const COLLECTION_CONDITIONS = [
   { value: "Mint", label: "Mint (MT)", tone: "mint" },
   { value: "NearMint", label: "Near Mint (NM)", tone: "nearmint" },
@@ -4743,7 +4744,104 @@ function deckZoneTooltip(zone) {
 function deckZoneLabelHtml(zone) {
   const tip = deckZoneTooltip(zone);
   if (!tip) return escapeHtml(deckZoneLabel(zone));
-  return `<span class="deck-zone-label-row">${escapeHtml(deckZoneLabel(zone))}<button type="button" class="icon-btn deck-zone-info-btn" aria-label="${escapeHtml(deckZoneLabel(zone))} info" title="${escapeHtml(tip)}">?</button></span>`;
+  const label = deckZoneLabel(zone);
+  return `<span class="deck-zone-label-row">${escapeHtml(label)}<button type="button" class="icon-btn supplement-icon-btn formats-info-btn deck-zone-info-btn" data-zone="${zone}" aria-label="${escapeHtml(label)} info" data-tooltip="${escapeHtml(label)} info" aria-haspopup="dialog" aria-controls="deck-zone-info-popover" aria-expanded="false">${INFO_ICON_SVG}</button></span>`;
+}
+
+let deckZoneInfoTrigger = null;
+let deckZoneInfoOutsideHandler = null;
+let deckZoneInfoRepositionHandler = null;
+
+function isDeckZoneInfoOpen() {
+  const popover = $("#deck-zone-info-popover");
+  return popover && !popover.hidden;
+}
+
+function positionDeckZoneInfoPopover() {
+  const popover = $("#deck-zone-info-popover");
+  const anchor = deckZoneInfoTrigger;
+  if (!popover || popover.hidden || !anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(22 * 16, window.innerWidth - 16);
+  popover.style.width = `${width}px`;
+  popover.style.top = `${rect.bottom + 6}px`;
+  popover.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+}
+
+function detachDeckZoneInfoListeners() {
+  if (deckZoneInfoOutsideHandler) {
+    document.removeEventListener("click", deckZoneInfoOutsideHandler);
+    deckZoneInfoOutsideHandler = null;
+  }
+  if (deckZoneInfoRepositionHandler) {
+    window.removeEventListener("resize", deckZoneInfoRepositionHandler);
+    window.removeEventListener("scroll", deckZoneInfoRepositionHandler, true);
+    deckZoneInfoRepositionHandler = null;
+  }
+}
+
+function attachDeckZoneInfoListeners() {
+  detachDeckZoneInfoListeners();
+  deckZoneInfoOutsideHandler = (e) => {
+    if (
+      $("#deck-zone-info-popover")?.contains(e.target) ||
+      e.target.closest(".deck-zone-info-btn")
+    ) {
+      return;
+    }
+    closeDeckZoneInfo();
+  };
+  deckZoneInfoRepositionHandler = () => {
+    if (isDeckZoneInfoOpen()) positionDeckZoneInfoPopover();
+  };
+  document.addEventListener("click", deckZoneInfoOutsideHandler);
+  window.addEventListener("resize", deckZoneInfoRepositionHandler);
+  window.addEventListener("scroll", deckZoneInfoRepositionHandler, true);
+}
+
+function closeDeckZoneInfo() {
+  const popover = $("#deck-zone-info-popover");
+  if (!popover || popover.hidden) return;
+  popover.hidden = true;
+  detachDeckZoneInfoListeners();
+  if (deckZoneInfoTrigger) {
+    deckZoneInfoTrigger.setAttribute("aria-expanded", "false");
+    deckZoneInfoTrigger.focus();
+    deckZoneInfoTrigger = null;
+  }
+}
+
+function openDeckZoneInfo(zone, trigger) {
+  const popover = $("#deck-zone-info-popover");
+  const tip = deckZoneTooltip(zone);
+  if (!popover || !tip) return;
+  if (isDeckZoneInfoOpen() && deckZoneInfoTrigger === trigger) {
+    closeDeckZoneInfo();
+    return;
+  }
+  closeDeckZoneInfo();
+  const title = $("#deck-zone-info-title");
+  const body = $("#deck-zone-info-body");
+  if (title) title.textContent = deckZoneLabel(zone);
+  if (body) body.textContent = tip;
+  deckZoneInfoTrigger = trigger;
+  trigger?.setAttribute("aria-expanded", "true");
+  popover.hidden = false;
+  positionDeckZoneInfoPopover();
+  attachDeckZoneInfoListeners();
+  popover.querySelector(".deck-zone-info-dismiss")?.focus();
+}
+
+function setupDeckZoneInfoDelegation() {
+  $("#deck-zones")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".deck-zone-info-btn");
+    if (!btn) return;
+    e.stopPropagation();
+    openDeckZoneInfo(btn.dataset.zone, btn);
+  });
+  $("#deck-zone-info-popover")
+    ?.querySelector(".deck-zone-info-dismiss")
+    ?.addEventListener("click", closeDeckZoneInfo);
 }
 
 function renderDeckCardSlot(deck, card, zone) {
@@ -4788,6 +4886,7 @@ async function loadDecks({ background = false, force = false } = {}) {
 }
 
 function renderDeckDetail(deckId, deck) {
+  closeDeckZoneInfo();
   state.activeDeckDetail = deck;
   const nameEl = $("#deck-name");
   if (nameEl) {
@@ -4951,6 +5050,7 @@ function wireEvents() {
   setupSearchResultsDelegation();
   setupSearchFilterChipDelegation();
   setupCollectionTableDelegation();
+  setupDeckZoneInfoDelegation();
 
   document.querySelectorAll(".tab[data-view]").forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -5328,6 +5428,7 @@ function wireEvents() {
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
     else if (isSearchHelpOpen()) closeSearchHelp();
+    else if (isDeckZoneInfoOpen()) closeDeckZoneInfo();
     else if (isModalVisible("#formats-info-modal")) closeFormatsInfoModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });

@@ -2598,14 +2598,6 @@ tr:hover td { background: var(--surface); }
   align-items: center;
   gap: 0.35rem;
 }
-.deck-zone-info-btn {
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 0;
-}
 .filter-group-label-row {
   display: flex;
   align-items: center;

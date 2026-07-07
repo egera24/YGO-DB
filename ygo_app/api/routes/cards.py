@@ -283,8 +283,6 @@ def _build_card_detail(
         last_erratum_date=card.last_erratum_date,
         errata=card_errata_for_api(card),
         tips=card_tips_for_api(card),
-        banlist_status=format_extra.get("banlist_status"),
-        genesys_points=format_extra.get("genesys_points"),
         format_legal=format_extra.get("format_legal"),
     )
 

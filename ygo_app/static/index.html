@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=78" />
+  <link rel="stylesheet" href="/static/css/style.css?v=79" />
 </head>
 <body>
   <header class="app-header">
@@ -132,12 +132,14 @@
             <div class="search-presets-controls">
               <label for="search-preset-select" class="search-presets-label">Search presets</label>
               <select id="search-preset-select" aria-label="Search presets"><option value="">No preset</option></select>
-              <button type="button" id="search-preset-save" class="secondary" aria-label="Save current search as preset">Save preset</button>
-              <div class="preset-menu-wrap">
-                <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu" disabled title="Select a preset first">⋯</button>
-                <div id="search-preset-menu" class="preset-menu" hidden role="menu">
-                  <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
-                  <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+              <div class="search-presets-actions">
+                <button type="button" id="search-preset-save" class="secondary" aria-label="Save current search as preset">Save preset</button>
+                <div class="preset-menu-wrap">
+                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu" disabled title="Select a preset first">⋯</button>
+                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
+                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
+                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+                  </div>
                 </div>
               </div>
             </div>

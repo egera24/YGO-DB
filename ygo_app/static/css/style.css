@@ -351,11 +351,10 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .search-secondary {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  padding: 0.75rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: 0.5rem;
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 .search-presets-bar {
   width: 100%;
@@ -366,7 +365,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: 0.4rem 0.65rem;
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -378,12 +377,15 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   font-size: 0.95rem;
 }
 .search-presets-controls select {
-  flex: 1 1 12rem;
-  min-width: 0;
-  max-width: none;
+  flex: 0 1 auto;
+  width: min(16rem, 100%);
+  min-width: 10rem;
 }
-.search-presets-controls #search-preset-save,
-.search-presets-controls .preset-menu-wrap {
+.search-presets-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
   flex-shrink: 0;
 }
 .search-preset-name-form {
@@ -466,7 +468,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.4rem 0.65rem;
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: var(--radius);

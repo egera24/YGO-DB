@@ -142,6 +142,29 @@
               </span>
             </summary>
             <div class="advanced-filters-body">
+            <div class="filter-group filter-group--wide">
+              <label for="search-format">Format</label>
+              <select id="search-format" aria-label="Search format">
+                <option value="">Any format</option>
+              </select>
+              <button type="button" id="formats-info-btn" class="secondary formats-info-btn">Format guide</button>
+            </div>
+            <div id="search-banlist-wrap" class="filter-group filter-group--wide hidden">
+              <label for="search-banlist">Banlist</label>
+              <select id="search-banlist" aria-label="Banlist revision">
+                <option value="">Latest</option>
+              </select>
+            </div>
+            <div id="search-genesys-points-wrap" class="filter-ranges hidden">
+              <fieldset class="filter-range filter-range--select">
+                <legend>Genesys points</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="points-min" min="0" max="100" placeholder="min" aria-label="Points minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="points-max" min="0" max="100" placeholder="max" aria-label="Points maximum" />
+                </div>
+              </fieldset>
+            </div>
             <div class="search-secondary-presets hidden" id="search-presets-bar">
               <label for="search-preset-select" class="search-field-label">Search Presets</label>
               <div class="search-secondary-preset-controls">
@@ -381,6 +404,25 @@
           </div>
           <button type="button" id="deck-rename-btn" class="secondary deck-rename-btn" title="Rename deck">Rename</button>
         </header>
+        <div id="deck-format-bar" class="deck-format-bar">
+          <div class="deck-format-field">
+            <label for="deck-format">Format</label>
+            <select id="deck-format" aria-label="Deck format"></select>
+          </div>
+          <div id="deck-banlist-wrap" class="deck-format-field hidden">
+            <label for="deck-banlist">Banlist</label>
+            <select id="deck-banlist" aria-label="Banlist revision">
+              <option value="">Latest</option>
+            </select>
+          </div>
+          <div id="deck-genesys-list-wrap" class="deck-format-field hidden">
+            <label for="deck-genesys-list">Point list</label>
+            <select id="deck-genesys-list" aria-label="Genesys point list">
+              <option value="">Latest</option>
+            </select>
+          </div>
+        </div>
+        <div id="deck-validation" class="deck-validation hidden" aria-live="polite"></div>
         <div id="deck-zones"></div>
       </div>
     </section>
@@ -708,8 +750,23 @@
     </article>
   </div>
 
+  <div id="formats-info-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="formats-info-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="formats-info-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header>
+        <h2 id="formats-info-title">Yu-Gi-Oh! formats</h2>
+      </header>
+      <div id="formats-info-body" class="formats-info-body"></div>
+    </article>
+  </div>
+
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=103" type="module"></script>
+  <script src="/static/js/app.js?v=104" type="module"></script>
 </body>
 </html>

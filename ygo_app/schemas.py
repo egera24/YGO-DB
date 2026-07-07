@@ -53,6 +53,8 @@ class CardSummary(BaseModel):
     owned: bool = False
     owned_quantity: int = 0
     trade_quantity: int = 0
+    banlist_status: str | None = None
+    genesys_points: int | None = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 
@@ -87,6 +89,32 @@ class CardDetail(CardSummary):
     last_erratum_date: date | None = None
     errata: list[CardErrataVersionOut] = Field(default_factory=list)
     tips: list[CardTipsSectionOut] = Field(default_factory=list)
+    banlist_status: str | None = None
+    genesys_points: int | None = None
+    format_legal: bool | None = None
+
+
+class FormatOut(BaseModel):
+    code: str
+    name: str
+    description: str
+    uses_banlist: bool
+    uses_point_list: bool
+    zone_tooltips: dict[str, str] = Field(default_factory=dict)
+
+
+class BanlistRevisionOut(BaseModel):
+    id: int
+    label: str
+    effective_from: date | None = None
+    source_list_id: str
+    is_current: bool = False
+
+
+class GenesysPointListOut(BaseModel):
+    id: int
+    label: str
+    effective_from: date
 
 
 class FolderAllocationOut(BaseModel):
@@ -288,23 +316,53 @@ class DeckOut(BaseModel):
     extra_count: int = 0
     side_count: int = 0
     card_count: int = 0
+    format_code: str = "advanced"
+    banlist_revision_id: int | None = None
+    genesys_point_list_id: int | None = None
 
     model_config = {"from_attributes": True}
 
 
+class ValidationIssueOut(BaseModel):
+    severity: str
+    code: str
+    message: str
+    card_id: int | None = None
+    zone: str | None = None
+
+
+class DeckValidationOut(BaseModel):
+    errors: list[ValidationIssueOut] = Field(default_factory=list)
+    warnings: list[ValidationIssueOut] = Field(default_factory=list)
+    info: list[ValidationIssueOut] = Field(default_factory=list)
+    main_count: int = 0
+    extra_count: int = 0
+    side_count: int = 0
+    card_count: int = 0
+    points_total: int | None = None
+    points_cap: int | None = None
+
+
 class DeckDetail(DeckOut):
     cards: list[DeckCardOut] = []
+    validation: DeckValidationOut | None = None
 
 
 class DeckCreate(BaseModel):
     name: str = Field(max_length=128)
     description: str | None = Field(default=None, max_length=2000)
+    format_code: str = "advanced"
+    banlist_revision_id: int | None = None
+    genesys_point_list_id: int | None = None
 
 
 class DeckUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=128)
     description: str | None = Field(default=None, max_length=2000)
     preview_card_id: int | None = None
+    format_code: str | None = None
+    banlist_revision_id: int | None = None
+    genesys_point_list_id: int | None = None
 
 
 class DeckCardMutate(BaseModel):
@@ -343,6 +401,11 @@ SEARCH_PRESET_PARAM_KEYS = frozenset(
         "owned_only",
         "favorites_only",
         "tag",
+        "format",
+        "banlist_revision_id",
+        "genesys_point_list_id",
+        "points_min",
+        "points_max",
     }
 )
 

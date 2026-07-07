@@ -378,6 +378,9 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 **2026-06-21**
 - **Search preset save choice** — removed redundant **Clear preset** button (deselect via dropdown "— None —"). When a preset is selected, **Save** opens `#search-preset-save-modal` to **Overwrite** the active preset or **Save as new** (name prompt). Static `app.js?v=71`, `style.css?v=57`.
 
+**2026-07-07**
+- **Formats, banlists, deck validation** — Alembic `015`: `formats`, `banlist_revisions`/`banlist_entries`, `genesys_point_lists`/`genesys_point_entries`, `card_format_legality`, deck `format_code`/`banlist_revision_id`/`genesys_point_list_id`. Packages: `ygo_app/formats/` (rules engine), `ygo_app/banlist/` (Konami EU JSON), `ygo_app/genesys/` (Yugipedia point lists). Jobs: `sync_banlists`, `sync_genesys_points`, `refresh_format_legality`. GHA: `sync-banlists.yml`, `sync-genesys-points.yml`; catalog import runs legality refresh. API: `GET /api/formats`, format-aware search/card detail, deck `validation` payload. UI: deck format/banlist selectors, validation panel, search format filter, format guide modal. Docs: [`docs/formats-and-banlists.md`](docs/formats-and-banlists.md). Static `app.js?v=104`.
+
 **2026-06-20**
 - **Yugipedia errata, set chronology & tips** — Alembic `010`: `tcg_sets`, `card_errata_versions`, `cards.has_errata` / `last_erratum_date` / `tips`. Jobs: `scrape_yugipedia_set_chronology`, `scrape_yugipedia_supplements` (batched errata + tips), `import_set_chronology` (also runs from catalog import). GHA: `set_chronology` + `supplements_batch_0..5` before images/import. API `CardDetail` adds `errata[]` (English UI) + `tips[]`. Card modal: errata teaser + tips button with nested popups. Static `app.js?v=51`, `style.css?v=39`. Tests: `test_yugipedia_set_chronology.py`, `test_yugipedia_errata.py`, `test_yugipedia_tips.py`, `test_card_detail_supplements.py`.
 
@@ -467,7 +470,7 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 
 ```
 ygo_app/
-  api/                 # FastAPI: main.py + routes/{auth,cards,collection,decks,meta,search_presets}.py
+  api/                 # FastAPI: main.py + routes/{auth,cards,collection,decks,formats,meta,search_presets}.py
   yugipedia/           # passcodes, details, parsing, card_sets, adapter, card_import,
                        #   images, http_client, scrape_progress, constants, paths
   card_filters.py      # advanced search SQL helpers

@@ -2484,3 +2484,82 @@ tr:hover td { background: var(--surface); }
   .deck-card-slot img,
   .deck-card-skeleton { width: 88px; }
 }
+
+.deck-format-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin: 0.75rem 0 1rem;
+  align-items: end;
+}
+.deck-format-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 180px;
+}
+.deck-format-field select {
+  min-width: 180px;
+}
+.deck-validation {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+}
+.deck-validation.has-errors {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.deck-validation-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+.deck-validation-list li {
+  margin: 0.2rem 0;
+}
+.deck-zone-label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.deck-zone-info-btn {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0;
+}
+.formats-info-btn {
+  margin-top: 0.35rem;
+}
+.formats-info-body {
+  display: grid;
+  gap: 0.85rem;
+}
+.formats-info-item h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+.formats-info-item p {
+  margin: 0;
+  color: var(--muted);
+}
+.format-badge {
+  display: inline-block;
+  margin-top: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.format-badge--forbidden {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.format-badge--limited {
+  background: color-mix(in srgb, #ff6e00 22%, transparent);
+}
+.format-badge--semi {
+  background: color-mix(in srgb, #ffb400 22%, transparent);
+}

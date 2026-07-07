@@ -38,6 +38,10 @@ const state = {
   activePresetId: null,
   searchPresets: [],
   searchResultsById: {},
+  formatsList: [],
+  banlistsByFormat: {},
+  genesysPointLists: [],
+  zoneTooltips: {},
 };
 
 let searchRequestSeq = 0;
@@ -93,6 +97,11 @@ const ROUTE_SEARCH_KEYS = new Set([
   "def_max",
   "owned_only",
   "favorites_only",
+  "format",
+  "banlist_revision_id",
+  "genesys_point_list_id",
+  "points_min",
+  "points_max",
 ]);
 const ROUTE_PARAM_MAX_LEN = 500;
 const ROUTE_PARAM_MAX_KEYS = 30;
@@ -706,7 +715,7 @@ async function bootstrapAuthenticatedApp() {
   setupLinkMarkerGrid();
   setupSummoningSuggestions();
 
-  await Promise.all([loadStatus(), loadFilters(), loadSearchPresets(), loadUserTags()]);
+  await Promise.all([loadStatus(), loadFilters(), loadSearchPresets(), loadUserTags(), loadFormats()]);
   await applyRouteFromHash({ initial: true });
 }
 
@@ -1667,6 +1676,16 @@ function buildSearchParams() {
   if ($("#favorites-only").checked) params.set("favorites_only", "true");
   const tag = $("#filter-tag")?.value.trim();
   if (tag) params.set("tag", tag);
+  const format = $("#search-format")?.value;
+  if (format) params.set("format", format);
+  const banlist = $("#search-banlist")?.value;
+  if (banlist) params.set("banlist_revision_id", banlist);
+  const genesysList = $("#search-genesys-list")?.value;
+  if (genesysList) params.set("genesys_point_list_id", genesysList);
+  const pointsMin = $("#points-min")?.value;
+  const pointsMax = $("#points-max")?.value;
+  if (pointsMin) params.set("points_min", pointsMin);
+  if (pointsMax) params.set("points_max", pointsMax);
   return params;
 }
 
@@ -1733,6 +1752,23 @@ function applySearchParams(snapshot) {
   if (s.tag) {
     const el = $("#filter-tag");
     if (el) el.value = s.tag;
+  }
+  if (s.format) {
+    const el = $("#search-format");
+    if (el) el.value = s.format;
+    updateSearchFormatUi();
+  }
+  if (s.banlist_revision_id) {
+    const el = $("#search-banlist");
+    if (el) el.value = s.banlist_revision_id;
+  }
+  if (s.points_min) {
+    const el = $("#points-min");
+    if (el) el.value = s.points_min;
+  }
+  if (s.points_max) {
+    const el = $("#points-max");
+    if (el) el.value = s.points_max;
   }
   renderActiveSearchFilters();
 }
@@ -2030,6 +2066,7 @@ function renderSearchResults(cards) {
         <div class="info">
           <div class="name">${escapeHtml(c.name)}</div>
           <div class="muted">${escapeHtml(c.type || "")}</div>
+          ${formatBadgeHtml(c)}
         </div>
       </article>`
       )
@@ -3043,7 +3080,7 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
   $("#modal-close")?.focus();
 
   try {
-    const card = await api(`/cards/${cardId}`);
+    const card = await api(`/cards/${cardId}${buildCardDetailQuery()}`);
     if (state.currentCardId !== cardId) return;
 
     state.currentCard = card;
@@ -4543,7 +4580,7 @@ function showDeckDetailLoading() {
     .map(
       (zone) => `
     <section class="deck-zone-row deck-zone-row--loading">
-      <h3 class="deck-zone-label">${deckZoneLabel(zone)}</h3>
+      <h3 class="deck-zone-label">${deckZoneLabelHtml(zone)}</h3>
       <div class="deck-zone-cards">
         <div class="skeleton deck-card-skeleton" aria-hidden="true"></div>
         <div class="skeleton deck-card-skeleton" aria-hidden="true"></div>
@@ -4604,6 +4641,16 @@ function deckZoneLabel(zone) {
   return "Side deck";
 }
 
+function deckZoneTooltip(zone) {
+  return state.zoneTooltips?.[zone] || "";
+}
+
+function deckZoneLabelHtml(zone) {
+  const tip = deckZoneTooltip(zone);
+  if (!tip) return escapeHtml(deckZoneLabel(zone));
+  return `<span class="deck-zone-label-row">${escapeHtml(deckZoneLabel(zone))}<button type="button" class="icon-btn deck-zone-info-btn" aria-label="${escapeHtml(deckZoneLabel(zone))} info" title="${escapeHtml(tip)}">?</button></span>`;
+}
+
 function renderDeckCardSlot(deck, card, zone) {
   const imgUrl = card.image_url || card.image_url_small || null;
   const isCover = deck.preview_card_id === card.card_id;
@@ -4653,6 +4700,8 @@ function renderDeckDetail(deckId, deck) {
     nameEl.title = "Double-click to rename";
   }
   renderDeckDetailMeta(deck);
+  renderDeckFormatBar(deck);
+  renderDeckValidation(deck.validation);
   updateRouteDocumentTitle();
 
   const zones = { main: [], extra: [], side: [] };
@@ -4669,7 +4718,7 @@ function renderDeckDetail(deckId, deck) {
       });
       return `
         <section class="deck-zone-row">
-          <h3 class="deck-zone-label">${deckZoneLabel(zone)}</h3>
+          <h3 class="deck-zone-label">${deckZoneLabelHtml(zone)}</h3>
           <div class="deck-zone-cards">
             ${
               slots.length
@@ -5367,13 +5416,233 @@ function wireEvents() {
     const deck = await api("/decks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({ name: name.trim(), format_code: "advanced" }),
     });
     invalidateDecksCache();
     state.activeDeckId = deck.id;
     await loadDecks({ force: true });
     selectDeck(deck.id);
   });
+
+  $("#search-format")?.addEventListener("change", () => {
+    updateSearchFormatUi();
+    renderActiveSearchFilters();
+  });
+  $("#formats-info-btn")?.addEventListener("click", openFormatsInfoModal);
+  $("#formats-info-close")?.addEventListener("click", closeFormatsInfoModal);
+  $("#formats-info-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#formats-info-modal")) closeFormatsInfoModal();
+  });
+  $("#deck-format")?.addEventListener("change", saveDeckFormatSettings);
+  $("#deck-banlist")?.addEventListener("change", saveDeckFormatSettings);
+  $("#deck-genesys-list")?.addEventListener("change", saveDeckFormatSettings);
+}
+
+function formatBadgeHtml(card) {
+  const parts = [];
+  if (card.banlist_status) {
+    const cls =
+      card.banlist_status === "Forbidden"
+        ? "format-badge--forbidden"
+        : card.banlist_status === "Limited"
+          ? "format-badge--limited"
+          : card.banlist_status === "Semi-Limited"
+            ? "format-badge--semi"
+            : "";
+    parts.push(`<span class="format-badge ${cls}">${escapeHtml(card.banlist_status)}</span>`);
+  }
+  if (card.genesys_points != null) {
+    parts.push(`<span class="format-badge">${card.genesys_points} pts</span>`);
+  }
+  return parts.join("");
+}
+
+function buildCardDetailQuery() {
+  const format = $("#search-format")?.value || state.activeDeckDetail?.format_code;
+  if (!format) return "";
+  const params = new URLSearchParams({ format });
+  const banlist =
+    $("#search-banlist")?.value || state.activeDeckDetail?.banlist_revision_id;
+  const genesys =
+    $("#deck-genesys-list")?.value ||
+    $("#search-genesys-list")?.value ||
+    state.activeDeckDetail?.genesys_point_list_id;
+  if (banlist) params.set("banlist_revision_id", String(banlist));
+  if (genesys) params.set("genesys_point_list_id", String(genesys));
+  return `?${params}`;
+}
+
+async function loadFormats() {
+  if (!state.token) return;
+  try {
+    state.formatsList = await api("/formats");
+    if (state.formatsList.length) {
+      state.zoneTooltips = state.formatsList[0].zone_tooltips || {};
+    }
+    populateSearchFormatSelect();
+    renderFormatsInfoBody();
+    const genesys = state.formatsList.find((f) => f.code === "genesys");
+    if (genesys) {
+      state.genesysPointLists = await api("/formats/genesys/point-lists");
+    }
+    for (const fmt of state.formatsList.filter((f) => f.uses_banlist)) {
+      state.banlistsByFormat[fmt.code] = await api(`/formats/${fmt.code}/banlists`);
+    }
+  } catch {
+    state.formatsList = [];
+  }
+}
+
+function populateSearchFormatSelect() {
+  const sel = $("#search-format");
+  const deckSel = $("#deck-format");
+  if (!sel && !deckSel) return;
+  const options = state.formatsList
+    .map((f) => `<option value="${escapeHtml(f.code)}">${escapeHtml(f.name)}</option>`)
+    .join("");
+  if (sel) {
+    sel.innerHTML = `<option value="">Any format</option>${options}`;
+  }
+  if (deckSel) {
+    deckSel.innerHTML = options;
+  }
+}
+
+function renderFormatsInfoBody() {
+  const body = $("#formats-info-body");
+  if (!body) return;
+  body.innerHTML = state.formatsList
+    .map(
+      (f) => `
+    <section class="formats-info-item">
+      <h3>${escapeHtml(f.name)}</h3>
+      <p>${escapeHtml(f.description)}</p>
+    </section>`
+    )
+    .join("");
+}
+
+function updateSearchFormatUi() {
+  const format = $("#search-format")?.value || "";
+  const fmt = state.formatsList.find((f) => f.code === format);
+  $("#search-banlist-wrap")?.classList.toggle("hidden", !fmt?.uses_banlist);
+  $("#search-genesys-points-wrap")?.classList.toggle("hidden", format !== "genesys");
+  const banlistSel = $("#search-banlist");
+  if (banlistSel && fmt?.uses_banlist) {
+    const lists = state.banlistsByFormat[format] || [];
+    banlistSel.innerHTML =
+      `<option value="">Latest</option>` +
+      lists
+        .map(
+          (b) =>
+            `<option value="${b.id}">${escapeHtml(b.label)}${b.is_current ? " (current)" : ""}</option>`
+        )
+        .join("");
+  }
+}
+
+function renderDeckFormatBar(deck) {
+  const formatSel = $("#deck-format");
+  if (!formatSel) return;
+  formatSel.value = deck.format_code || "advanced";
+  const fmt = state.formatsList.find((f) => f.code === deck.format_code);
+  $("#deck-banlist-wrap")?.classList.toggle("hidden", !fmt?.uses_banlist);
+  $("#deck-genesys-list-wrap")?.classList.toggle("hidden", !fmt?.uses_point_list);
+  const banlistSel = $("#deck-banlist");
+  if (banlistSel && fmt?.uses_banlist) {
+    const lists = state.banlistsByFormat[deck.format_code] || [];
+    banlistSel.innerHTML =
+      `<option value="">Latest</option>` +
+      lists
+        .map((b) => `<option value="${b.id}">${escapeHtml(b.label)}</option>`)
+        .join("");
+    banlistSel.value = deck.banlist_revision_id ? String(deck.banlist_revision_id) : "";
+  }
+  const genesysSel = $("#deck-genesys-list");
+  if (genesysSel && fmt?.uses_point_list) {
+    genesysSel.innerHTML =
+      `<option value="">Latest</option>` +
+      state.genesysPointLists
+        .map((g) => `<option value="${g.id}">${escapeHtml(g.label)}</option>`)
+        .join("");
+    genesysSel.value = deck.genesys_point_list_id ? String(deck.genesys_point_list_id) : "";
+  }
+}
+
+function renderDeckValidation(validation) {
+  const el = $("#deck-validation");
+  if (!el) return;
+  if (!validation) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  const issues = [
+    ...(validation.errors || []).map((i) => ({ ...i, kind: "error" })),
+    ...(validation.warnings || []).map((i) => ({ ...i, kind: "warning" })),
+    ...(validation.info || []).map((i) => ({ ...i, kind: "info" })),
+  ];
+  if (!issues.length && validation.points_total == null) {
+    el.classList.add("hidden");
+    el.innerHTML = `<p class="muted">Deck looks valid for the selected format.</p>`;
+    el.classList.remove("hidden");
+    return;
+  }
+  const points =
+    validation.points_total != null
+      ? `<p class="muted">Point total: ${validation.points_total}${validation.points_cap != null ? ` / ${validation.points_cap}` : ""}</p>`
+      : "";
+  const list = issues
+    .map((issue) => {
+      const link = issue.card_id
+        ? ` <button type="button" class="secondary linkish" data-open-card="${issue.card_id}">View card</button>`
+        : "";
+      return `<li>${escapeHtml(issue.message)}${link}</li>`;
+    })
+    .join("");
+  el.innerHTML = `${points}<ul class="deck-validation-list">${list}</ul>`;
+  el.classList.toggle("has-errors", (validation.errors || []).length > 0);
+  el.classList.remove("hidden");
+  el.querySelectorAll("[data-open-card]").forEach((btn) => {
+    btn.addEventListener("click", () => openCardModal(Number(btn.dataset.openCard)));
+  });
+}
+
+async function saveDeckFormatSettings() {
+  if (!state.activeDeckDetail) return;
+  const deckId = state.activeDeckDetail.id;
+  const body = {
+    format_code: $("#deck-format")?.value,
+    banlist_revision_id: $("#deck-banlist")?.value
+      ? Number($("#deck-banlist").value)
+      : null,
+    genesys_point_list_id: $("#deck-genesys-list")?.value
+      ? Number($("#deck-genesys-list").value)
+      : null,
+  };
+  try {
+    await api(`/decks/${deckId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const deck = await api(`/decks/${deckId}`);
+    if (state.activeDeckId === deckId) renderDeckDetail(deckId, deck);
+  } catch (err) {
+    showToast(err.message || "Failed to update deck format.", { variant: "error" });
+  }
+}
+
+function openFormatsInfoModal() {
+  const modal = $("#formats-info-modal");
+  if (!modal) return;
+  modal.hidden = false;
+  $("#formats-info-close")?.focus();
+}
+
+function closeFormatsInfoModal() {
+  const modal = $("#formats-info-modal");
+  if (modal) modal.hidden = true;
 }
 
 async function init() {

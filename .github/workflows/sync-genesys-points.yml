@@ -1,0 +1,70 @@
+name: Sync Genesys point lists
+
+on:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - production
+        default: dev
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  sync-genesys:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: ${{ github.event_name == 'schedule' && 'production' || github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve database URL
+        id: db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_DEV: ${{ secrets.DATABASE_URL_DEV }}
+          ENV_INPUT: ${{ github.event_name == 'schedule' && 'production' || github.event.inputs.environment }}
+        run: |
+          if [[ "$ENV_INPUT" == "production" ]]; then
+            echo "url=${DATABASE_URL}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${DATABASE_URL_DEV}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alembic upgrade
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+        run: alembic upgrade head
+
+      - name: Sync Genesys point lists
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+        run: |
+          set -o pipefail
+          python -m ygo_app.jobs.sync_genesys_points 2>&1 | tee genesys_sync.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: genesys-sync-${{ github.run_id }}
+          path: |
+            data/logs/sync_genesys_points_*.log
+            data/catalog/genesys_sync_summary.json
+            genesys_sync.log
+          retention-days: 14
+          if-no-files-found: warn

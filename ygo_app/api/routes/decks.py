@@ -15,6 +15,8 @@ from ygo_app.schemas import (
     DeckOut,
     DeckPreviewCard,
     DeckUpdate,
+    DeckValidationOut,
+    ValidationIssueOut,
 )
 from ygo_app.services import (
     build_deck_out,
@@ -23,6 +25,7 @@ from ygo_app.services import (
     deck_counts,
     list_decks_enriched,
     update_deck,
+    validate_deck_for_api,
     _deck_card_entries_for_decks,
 )
 
@@ -47,14 +50,21 @@ def _deck_card_out(dc: DeckCard) -> DeckCardOut:
     )
 
 
+def _validation_out(validation: dict | None) -> DeckValidationOut | None:
+    if not validation:
+        return None
+    return DeckValidationOut(**validation)
+
+
 def _deck_detail_from_deck(deck: Deck, db: Session) -> DeckDetail:
     counts = deck_counts(db, deck.id)
     entries = _deck_card_entries_for_decks(db, [deck.id]).get(deck.id, [])
     previews = compute_deck_preview_cards(deck.preview_card_id, entries)
-    base = build_deck_out(deck, counts, previews)
+    validation = validate_deck_for_api(db, deck)
+    base = build_deck_out(deck, counts, previews, validation=validation)
     cards = [_deck_card_out(dc) for dc in deck.cards]
     out = _deck_out_from_base(base)
-    return DeckDetail(**out.model_dump(), cards=cards)
+    return DeckDetail(**out.model_dump(), cards=cards, validation=_validation_out(validation))
 
 
 def _get_user_deck(db: Session, deck_id: int, user_id: int) -> Deck | None:
@@ -85,6 +95,9 @@ def create_deck(
         user_id=user.id,
         name=body.name.strip(),
         description=body.description,
+        format_code=body.format_code,
+        banlist_revision_id=body.banlist_revision_id,
+        genesys_point_list_id=body.genesys_point_list_id,
     )
     db.add(deck)
     db.commit()

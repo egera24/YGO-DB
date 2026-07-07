@@ -325,6 +325,11 @@ def search_cards(
     user_id: int | None = None,
     limit: int = 60,
     offset: int = 0,
+    format_code: str | None = None,
+    banlist_revision_id: int | None = None,
+    genesys_point_list_id: int | None = None,
+    points_min: int | None = None,
+    points_max: int | None = None,
 ) -> tuple[list[Card], int]:
     search_columns = (
         Card.id,
@@ -499,6 +504,56 @@ def search_cards(
     elif owned_only:
         return [], 0
 
+    if format_code:
+        from ygo_app.formats.context import resolve_format_context
+        from ygo_app.formats.pool import format_pool_card_ids_subquery
+        from ygo_app.models import GenesysPointEntry
+
+        ctx = resolve_format_context(
+            session,
+            format_code,
+            banlist_revision_id=banlist_revision_id,
+            genesys_point_list_id=genesys_point_list_id,
+        )
+        if ctx:
+            pool_subq = format_pool_card_ids_subquery(session, ctx.rules)
+            if pool_subq is not None:
+                stmt = stmt.where(Card.id.in_(pool_subq))
+                count_stmt = count_stmt.where(Card.id.in_(pool_subq))
+
+            if ctx.rules.disallow_link:
+                stmt = stmt.where(or_(Card.mechanic.is_(None), Card.mechanic != "Link"))
+                count_stmt = count_stmt.where(
+                    or_(Card.mechanic.is_(None), Card.mechanic != "Link")
+                )
+            if ctx.rules.disallow_pendulum:
+                stmt = stmt.where(or_(Card.mechanic.is_(None), Card.mechanic != "Pendulum"))
+                count_stmt = count_stmt.where(
+                    or_(Card.mechanic.is_(None), Card.mechanic != "Pendulum")
+                )
+
+            if ctx.rules.uses_point_list and ctx.point_list and (
+                points_min is not None or points_max is not None
+            ):
+                point_subq = select(GenesysPointEntry.card_id).where(
+                    GenesysPointEntry.list_id == ctx.point_list.id,
+                    GenesysPointEntry.card_id.is_not(None),
+                )
+                if points_min is not None:
+                    point_subq = point_subq.where(GenesysPointEntry.points >= points_min)
+                if points_max is not None:
+                    point_subq = point_subq.where(GenesysPointEntry.points <= points_max)
+                if points_min is not None and points_min <= 0:
+                    stmt = stmt.where(
+                        or_(Card.id.in_(point_subq), ~Card.id.in_(select(GenesysPointEntry.card_id).where(GenesysPointEntry.list_id == ctx.point_list.id)))
+                    )
+                    count_stmt = count_stmt.where(
+                        or_(Card.id.in_(point_subq), ~Card.id.in_(select(GenesysPointEntry.card_id).where(GenesysPointEntry.list_id == ctx.point_list.id)))
+                    )
+                else:
+                    stmt = stmt.where(Card.id.in_(point_subq))
+                    count_stmt = count_stmt.where(Card.id.in_(point_subq))
+
     total = session.execute(count_stmt).scalar() or 0
     cards = (
         session.execute(stmt.order_by(Card.name).offset(offset).limit(limit))
@@ -507,6 +562,43 @@ def search_cards(
         .all()
     )
     return list(cards), int(total)
+
+
+def enrich_cards_for_format(
+    session: Session,
+    cards: list[Card],
+    *,
+    format_code: str | None,
+    banlist_revision_id: int | None = None,
+    genesys_point_list_id: int | None = None,
+) -> dict[int, dict]:
+    if not cards or not format_code:
+        return {}
+    from ygo_app.formats.banlist import banlist_status_label
+    from ygo_app.formats.context import resolve_format_context
+    from ygo_app.formats.genesys import card_point_value
+    from ygo_app.formats.pool import card_legal_in_format
+
+    ctx = resolve_format_context(
+        session,
+        format_code,
+        banlist_revision_id=banlist_revision_id,
+        genesys_point_list_id=genesys_point_list_id,
+    )
+    if not ctx:
+        return {}
+    extras: dict[int, dict] = {}
+    for card in cards:
+        payload: dict = {}
+        if ctx.banlist_map is not None:
+            status = ctx.banlist_map.get(card.id)
+            payload["banlist_status"] = banlist_status_label(status)
+        if ctx.rules.uses_point_list and ctx.points_map is not None:
+            payload["genesys_points"] = card_point_value(card.id, ctx.points_map)
+        if ctx.rules.pool_uses_legality_table or ctx.rules.pool_cutoff_date:
+            payload["format_legal"] = card_legal_in_format(session, card, ctx.rules)
+        extras[card.id] = payload
+    return extras
 
 
 def card_summaries_batch(
@@ -1281,9 +1373,11 @@ def build_deck_out(
     deck: Deck,
     counts: dict[str, int],
     preview_cards: list[dict],
+    *,
+    validation: dict | None = None,
 ) -> dict:
     card_count = counts.get("main", 0) + counts.get("extra", 0) + counts.get("side", 0)
-    return {
+    payload = {
         "id": deck.id,
         "name": deck.name,
         "description": deck.description,
@@ -1295,7 +1389,19 @@ def build_deck_out(
         "extra_count": counts.get("extra", 0),
         "side_count": counts.get("side", 0),
         "card_count": card_count,
+        "format_code": deck.format_code,
+        "banlist_revision_id": deck.banlist_revision_id,
+        "genesys_point_list_id": deck.genesys_point_list_id,
     }
+    if validation is not None:
+        payload["validation"] = validation
+    return payload
+
+
+def validate_deck_for_api(session: Session, deck: Deck) -> dict:
+    from ygo_app.formats.validate import validate_deck
+
+    return validate_deck(session, deck).to_dict()
 
 
 def list_decks_enriched(
@@ -1350,6 +1456,12 @@ def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
             if not in_deck:
                 raise ValueError("Preview card must be in the deck")
         deck.preview_card_id = preview_card_id
+    if "format_code" in updates and updates["format_code"] is not None:
+        deck.format_code = updates["format_code"]
+    if "banlist_revision_id" in updates:
+        deck.banlist_revision_id = updates["banlist_revision_id"]
+    if "genesys_point_list_id" in updates:
+        deck.genesys_point_list_id = updates["genesys_point_list_id"]
     deck.updated_at = datetime.utcnow()
     session.commit()
     session.refresh(deck)

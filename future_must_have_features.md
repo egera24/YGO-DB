@@ -2,7 +2,7 @@
 
 Agent-readable backlog of planned work. Not scheduled for implementation yet. Use this document when scoping or implementing a feature — each section follows **Goal / Current state / Required change / Open research** where applicable.
 
-**Last updated:** 2026-06-20
+**Last updated:** 2026-07-01
 
 ---
 
@@ -15,6 +15,10 @@ Agent-readable backlog of planned work. Not scheduled for implementation yet. Us
 | [C. Format and banlist](#c-format-and-banlist) | Banlist module, deck format, rules engine, per-format card data |
 | [D. Search and deck conversion](#d-search-and-deck-conversion) | Format-aware search, conversion between formats |
 | [F. Database architecture](#f-database-architecture-olap--analytics) | OLAP read store, supervised data engineering, denormalization |
+| [G. Multi-language catalog and localization](#g-multi-language-catalog-and-localization) | Regional printings, card images per language, portal i18n, storage budget |
+| [H. Scalability and infrastructure](#h-scalability-and-infrastructure) | High user scale, performance, HA, backups, load balancing |
+| [I. Mobile applications](#i-mobile-applications) | Native iOS and Android clients |
+| [J. Card scanner (OCR)](#j-card-scanner-ocr) | Card-number OCR + rarity picker instead of image recognition |
 | [E. Meta](#e-meta) | Implementation phases, open decisions, relation to codebase |
 
 ---
@@ -319,6 +323,139 @@ Design for N formats; avoid Genesys-only hard-coding.
 
 ---
 
+## G. Multi-language catalog and localization
+
+### G.1 Regional sets and printings
+
+#### Goal
+
+Optionally track **sets and printings per language/region** (e.g. TCG English, OCG Japanese, European languages) so collectors can see which regional release a copy belongs to, including **language-specific card numbers** on the printing row.
+
+#### Current state
+
+- Printings are keyed primarily by set + rarity + passcode; regional/language variants are not first-class.
+- Card images are one WebP per passcode in R2 (`cards/{passcode}.webp`), sourced from Yugipedia English pages.
+- Yugipedia coverage for non-English card art is **incomplete and often outdated** compared to the latest TCG/OCG releases.
+
+#### Required change (if pursued)
+
+1. **Scrape / ingest** — Per-language set data and **distinct card numbers** per regional printing (not just passcode).
+2. **Data model** — `language` or `region` on `printings` (or a `printing_locales` table); avoid exploding one card into hundreds of flat printing rows in the default UI.
+3. **Card details UI** — In the **All printings** pane, use **tabs by language/region** instead of one long list of every regional variant under a single card.
+4. **Images** — Open decision: store **per-language card images** in R2 (e.g. `cards/{passcode}_{locale}.webp`) vs keep a single canonical image per passcode.
+
+#### Open research
+
+- [ ] **English-only portal** vs **full portal i18n** (UI strings, card names, card text in the user’s language). English-only is simpler; full i18n multiplies scrape, cache, and QA surface.
+- [ ] Whether regional printings are **metadata-only** (set code + card number + language) with shared art, or **separate image assets** per locale.
+- [ ] Yugipedia vs Cardmarket S3 / other sources for non-English art and set numbers.
+- [ ] **Storage budget** — Neon is capped at **~5 GB**. Estimate before committing:
+  - DB: extra printing rows, localized names/text JSON, indexes (likely modest if denormalized carefully).
+  - R2: dominant cost if every passcode × locale gets a WebP (~50–150 KB each × N languages × ~10k+ cards scales quickly; images belong in R2/CDN, not Postgres blobs).
+  - Rule of thumb: **one image per passcode in DB is wrong**; **one image per passcode × locale in R2** can be tens of GB at full catalog × many languages — needs tiering (canonical EN only, on-demand mirror for other locales, or user-uploaded overrides).
+- [ ] UI default: show **user’s region/language tab first**; hide empty locales when Yugipedia has no art.
+
+#### Recommendation (planning)
+
+Treat **regional printing metadata** (card number, set, language) as higher priority than **per-locale images**. Start with language **tabs in All printings** and English canonical art; add locale-specific images only where sources are reliable and storage/CDN budget allows.
+
+---
+
+## H. Scalability and infrastructure
+
+### H.1 Scale to thousands or millions of users
+
+#### Goal
+
+Architecture that supports **large user growth** (thousands → millions) without redesigning core paths: search, collection, decks, auth, and catalog reads.
+
+#### Current state
+
+- Single Neon Postgres instance; FastAPI app; catalog and user data largely share one database ([F.1](#f1-supervised-olap-serving-layer)).
+- No documented horizontal scaling, read replicas, or multi-region deployment.
+- Scheduled jobs (Yugipedia scrape, Cardmarket S3 sync) run on GHA, not user-request path.
+
+#### Required change
+
+1. **Performance** — Define SLOs (p95 API latency, search timeout); profile hot queries; align with OLAP read shapes ([F.1](#f1-supervised-olap-serving-layer)); CDN for static assets and card images; connection pooling and query limits.
+2. **Read scaling** — Read replicas or dedicated **catalog read** vs **user write** separation as traffic grows; cache layer (e.g. Redis) for session, rate limits, and hot catalog keys.
+3. **App tier** — Stateless API behind load balancer; multiple workers/containers; no local filesystem state for user sessions.
+4. **High availability** — **Backup servers** and **database backups** with tested restore; failover plan for Neon/outage (RPO/RTO targets).
+5. **Load balancing** — LB in front of API; optional geo routing later; job queue for async work (imports, notifications) so spikes do not block requests.
+
+#### Open research
+
+- [ ] Neon plan limits (connections, storage, read replicas) vs migrate catalog OLAP to a larger provider later.
+- [ ] When to introduce Redis vs Postgres-only caching.
+- [ ] Multi-region: required for global latency or single-region + CDN sufficient for v1 scale.
+- [ ] Cost model at 10k / 100k / 1M MAU (DB size, egress, R2, compute).
+
+---
+
+## I. Mobile applications
+
+### I.1 Native iOS and Android clients
+
+#### Goal
+
+Dedicated **mobile apps** (iOS App Store, Google Play) for collection management, deck building, and card lookup — sharing the same backend API as the web portal.
+
+#### Current state
+
+- Web-only UI ([`ygo_app/static/`](ygo_app/static/)); responsive layout may exist but no native apps.
+
+#### Required change (if pursued)
+
+- **API-first** — Ensure all collection/deck/search flows are available via stable, versioned REST (or GraphQL) with mobile-friendly pagination and auth (OAuth / token refresh).
+- **Clients** — Native (Swift/Kotlin) or cross-platform (React Native, Flutter); offline cache for owned collection is a common expectation on mobile.
+- **Parity** — Card images via existing R2/CDN URLs; push notifications (price alerts, banlist updates) optional later.
+- **Release** — Store compliance, privacy policy, and separate CI for mobile builds.
+
+#### Open research
+
+- [ ] Native vs cross-platform given team size and feature parity with web.
+- [ ] Offline mode scope (read-only collection vs full deck editor).
+- [ ] Shared auth with web (same user account).
+
+---
+
+## J. Card scanner (OCR)
+
+### J.1 Card-number scanner instead of image recognition
+
+#### Goal
+
+A **scanner** feature (likely in the mobile app) that identifies cards quickly without training a full **image-based** card classifier.
+
+#### Proposed approach
+
+1. **OCR the printed card number** (set code + collector number on the card frame) via camera — simpler and more reliable than matching artwork across thousands of printings and rarities.
+2. User **selects rarity** (or printing) from a short list when OCR maps to multiple printings with the same number in different sets.
+3. Resolve to passcode + printing via catalog DB ([G.1](#g1-regional-sets-and-printings) regional numbers matter here).
+
+#### Current state
+
+- No scanner; no OCR pipeline in repo.
+
+#### Required change (if pursued)
+
+- Mobile camera UX + on-device or server OCR (Tesseract, ML Kit, or cloud OCR).
+- Lookup API: `GET /api/printings/by-number?set=...&number=...` or fuzzy match on normalized OCR text.
+- Handle OCR errors (checksum, font, glare) with manual correction UI.
+
+#### Open research
+
+- [ ] On-device vs server OCR (privacy, latency, cost).
+- [ ] Whether set code is always visible in one OCR pass or needs a second crop.
+- [ ] Training data: not required for card **art**; may need font/layout tuning per card era.
+- [ ] Relation to [I.1](#i1-native-ios-and-android-clients) — scanner is a natural mobile-first feature.
+
+#### Recommendation (planning)
+
+Prefer **card-number OCR + rarity picker** over image classification: lower ML cost, easier maintenance, aligns with multi-language printings if numbers are scraped per locale ([G.1](#g1-regional-sets-and-printings)).
+
+---
+
 ## E. Meta
 
 ### E.1 Implementation phases
@@ -398,6 +535,25 @@ flowchart TB
 - [ ] User data vs catalog data layering
 - [ ] Materialized views vs permanently denormalized tables
 
+**Multi-language / localization**
+
+- [ ] Track regional printings and card numbers ([G.1](#g1-regional-sets-and-printings))
+- [ ] Language tabs in All printings vs flat printing list
+- [ ] Per-locale card images in R2 vs English-only canonical art
+- [ ] English-only portal vs full UI i18n
+- [ ] Storage and CDN budget for locale images (5 GB Neon + R2 at scale)
+
+**Infrastructure / scale**
+
+- [ ] Target scale and SLOs ([H.1](#h1-scale-to-thousands-or-millions-of-users))
+- [ ] Read replicas, caching, load-balanced API tier
+- [ ] Backup/failover and tested restore procedures
+
+**Mobile / scanner**
+
+- [ ] iOS and Android apps ([I.1](#i1-native-ios-and-android-clients)) — native vs cross-platform
+- [ ] OCR card-number scanner + rarity picker ([J.1](#j1-card-number-scanner-instead-of-image-recognition))
+
 ---
 
 ### E.3 Relation to current codebase
@@ -417,6 +573,10 @@ flowchart TB
 | API | `/api/decks/*` | `/api/formats/*`, format-scoped banlist and card fields |
 | R2 | Images only (`cards/*.webp`) | Optional `catalog/` JSON checkpoint — not runtime |
 | Database | Single normalized Neon; shared read/write | Supervised OLAP serving layer; read-optimized, redundancy OK |
+| Printings / locales | Single-language-oriented printings | Regional sets, card numbers, language tabs ([G.1](#g1-regional-sets-and-printings)) |
+| Portal language | English UI and Yugipedia EN lore | Optional full i18n; English-only default |
+| Infrastructure | Single Neon + single API deployment | HA, backups, LB, read scaling ([H.1](#h1-scale-to-thousands-or-millions-of-users)) |
+| Clients | Web only | iOS / Android apps ([I.1](#i1-native-ios-and-android-clients)); OCR scanner ([J.1](#j1-card-number-scanner-instead-of-image-recognition)) |
 
 ---
 

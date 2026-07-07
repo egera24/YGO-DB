@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
 
-from ygo_app.api.routes import auth, cards, collection, decks, meta, search_presets
+from ygo_app.api.routes import auth, cards, collection, decks, formats, meta, search_presets
 from ygo_app.config import IMAGE_BASE_URL, IS_PRODUCTION
 from ygo_app.import_data import init_db
 
@@ -99,6 +99,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(cards.router, prefix="/api")
 app.include_router(collection.router, prefix="/api")
 app.include_router(decks.router, prefix="/api")
+app.include_router(formats.router, prefix="/api")
 app.include_router(search_presets.router, prefix="/api")
 
 

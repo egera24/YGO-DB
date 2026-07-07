@@ -11,6 +11,7 @@ from ygo_app.schemas import CardDetail, CardSearchPage, CardSummary, PrintingOut
 from ygo_app.services import (
     add_user_tag,
     card_summaries_batch,
+    enrich_cards_for_format,
     get_card_detail,
     list_user_tags,
     remove_user_tag,
@@ -18,6 +19,9 @@ from ygo_app.services import (
     summoning_condition_suggestions,
     toggle_favorite,
 )
+from ygo_app.formats.edison import errata_text_as_of
+from ygo_app.formats.pool import card_legal_in_format, printing_legal_in_format
+from ygo_app.formats.registry import get_format_rules
 from ygo_app.yugipedia.card_detail_extras import card_errata_for_api, card_tips_for_api
 from ygo_app.yugipedia.images import resolve_display_image_url_small
 
@@ -43,8 +47,9 @@ def _printing_out(p: Printing) -> PrintingOut:
     )
 
 
-def _card_summary(card: Card, extra: dict) -> CardSummary:
+def _card_summary(card: Card, extra: dict, format_extra: dict | None = None) -> CardSummary:
     yugi = card_response_extras(card)
+    merged = {**extra, **(format_extra or {})}
     return CardSummary(
         id=card.id,
         name=card.name,
@@ -67,10 +72,12 @@ def _card_summary(card: Card, extra: dict) -> CardSummary:
         image_url_small=resolve_display_image_url_small(
             card.image_url_small, card.image_url
         ),
-        is_favorite=extra["is_favorite"],
-        owned=extra["owned"],
-        owned_quantity=extra["owned_quantity"],
-        trade_quantity=extra.get("trade_quantity", 0),
+        is_favorite=merged.get("is_favorite", False),
+        owned=merged.get("owned", False),
+        owned_quantity=merged.get("owned_quantity", 0),
+        trade_quantity=merged.get("trade_quantity", 0),
+        banlist_status=merged.get("banlist_status"),
+        genesys_points=merged.get("genesys_points"),
     )
 
 
@@ -101,6 +108,11 @@ def search(
     owned_only: bool = False,
     favorites_only: bool = False,
     tag: str | None = None,
+    format: str | None = Query(None, alias="format"),
+    banlist_revision_id: int | None = None,
+    genesys_point_list_id: int | None = None,
+    points_min: int | None = None,
+    points_max: int | None = None,
     limit: int = Query(None, le=SEARCH_MAX_LIMIT),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -137,9 +149,24 @@ def search(
         user_id=user.id,
         limit=effective_limit,
         offset=offset,
+        format_code=format,
+        banlist_revision_id=banlist_revision_id,
+        genesys_point_list_id=genesys_point_list_id,
+        points_min=points_min,
+        points_max=points_max,
     )
     extras = card_summaries_batch(db, cards, user.id)
-    results = [_card_summary(card, extras.get(card.id, {})) for card in cards]
+    format_extras = enrich_cards_for_format(
+        db,
+        cards,
+        format_code=format,
+        banlist_revision_id=banlist_revision_id,
+        genesys_point_list_id=genesys_point_list_id,
+    )
+    results = [
+        _card_summary(card, extras.get(card.id, {}), format_extras.get(card.id))
+        for card in cards
+    ]
     return CardSearchPage(
         items=results, total=total, limit=effective_limit, offset=offset
     )
@@ -182,10 +209,20 @@ def by_set_code(
 @router.get("/{card_id}", response_model=CardDetail)
 def get_card(
     card_id: int,
+    format: str | None = Query(None, alias="format"),
+    banlist_revision_id: int | None = None,
+    genesys_point_list_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return _build_card_detail(db, card_id, user)
+    return _build_card_detail(
+        db,
+        card_id,
+        user,
+        format_code=format,
+        banlist_revision_id=banlist_revision_id,
+        genesys_point_list_id=genesys_point_list_id,
+    )
 
 
 def _summary_extra_from_card(card: Card) -> dict:
@@ -199,20 +236,43 @@ def _summary_extra_from_card(card: Card) -> dict:
     }
 
 
-def _build_card_detail(db: Session, card_id: int, user: User) -> CardDetail:
+def _build_card_detail(
+    db: Session,
+    card_id: int,
+    user: User,
+    *,
+    format_code: str | None = None,
+    banlist_revision_id: int | None = None,
+    genesys_point_list_id: int | None = None,
+) -> CardDetail:
     card = get_card_detail(db, card_id, user.id)
     if not card:
         raise HTTPException(404, "Card not found")
 
     extra = _summary_extra_from_card(card)
-    printings = sorted(card.printings, key=lambda p: p.set_code)
-    tags = getattr(card, "_user_tags", [])
+    format_extra = enrich_cards_for_format(
+        db,
+        [card],
+        format_code=format_code,
+        banlist_revision_id=banlist_revision_id,
+        genesys_point_list_id=genesys_point_list_id,
+    ).get(card.id, {})
 
-    summary = _card_summary(card, extra)
+    rules = get_format_rules(format_code) if format_code else None
+    printings = sorted(card.printings, key=lambda p: p.set_code)
+    if rules:
+        printings = [p for p in printings if printing_legal_in_format(db, p, rules)]
+
+    tags = getattr(card, "_user_tags", [])
+    desc = card.desc
+    if format_code == "edison":
+        desc = errata_text_as_of(card) or card.desc
+
+    summary = _card_summary(card, extra, format_extra)
     return CardDetail(
         **summary.model_dump(),
         human_readable_type=card.human_readable_type,
-        desc=card.desc,
+        desc=desc,
         linkval=card.linkval,
         scale=card.scale,
         ygoprodeck_url=card.ygoprodeck_url,
@@ -223,6 +283,9 @@ def _build_card_detail(db: Session, card_id: int, user: User) -> CardDetail:
         last_erratum_date=card.last_erratum_date,
         errata=card_errata_for_api(card),
         tips=card_tips_for_api(card),
+        banlist_status=format_extra.get("banlist_status"),
+        genesys_points=format_extra.get("genesys_points"),
+        format_legal=format_extra.get("format_legal"),
     )
 
 

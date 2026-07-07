@@ -1579,10 +1579,20 @@ function closePresetMenu() {
   btn?.setAttribute("aria-expanded", "false");
 }
 
+function syncSearchPresetControls() {
+  const select = $("#search-preset-select");
+  const menuBtn = $("#search-preset-menu-btn");
+  if (!select || !menuBtn) return;
+  const hasPreset = Boolean(select.value);
+  menuBtn.disabled = !hasPreset;
+  menuBtn.title = hasPreset ? "" : "Select a preset first";
+  if (!hasPreset) closePresetMenu();
+}
+
 function togglePresetMenu() {
   const menu = $("#search-preset-menu");
   const btn = $("#search-preset-menu-btn");
-  if (!menu || !btn) return;
+  if (!menu || !btn || btn.disabled) return;
   if (!menu.hidden) {
     closePresetMenu();
     return;
@@ -1798,6 +1808,7 @@ function clearActivePreset() {
   state.activePresetId = null;
   const select = $("#search-preset-select");
   if (select) select.value = "";
+  syncSearchPresetControls();
 }
 
 function renderSearchPresetSelect() {
@@ -1805,13 +1816,14 @@ function renderSearchPresetSelect() {
   if (!select) return;
   const activeId = state.activePresetId;
   select.innerHTML =
-    '<option value="">— None —</option>' +
+    '<option value="">No preset</option>' +
     state.searchPresets
       .map(
         (p) =>
           `<option value="${p.id}"${p.id === activeId ? " selected" : ""}>${escapeHtml(p.name)}</option>`
       )
       .join("");
+  syncSearchPresetControls();
 }
 
 async function loadSearchPresets() {
@@ -1864,6 +1876,50 @@ function currentSearchSnapshot() {
 
 let presetSaveChoiceResolve = null;
 let presetSaveChoiceTrigger = null;
+let presetNameResolve = null;
+let presetNameTrigger = null;
+
+function closeSearchPresetNameModal(result = null) {
+  const dlg = $("#search-preset-name-modal");
+  if (!dlg || dlg.hidden) {
+    if (presetNameResolve) {
+      const resolve = presetNameResolve;
+      presetNameResolve = null;
+      resolve(result);
+    }
+    return;
+  }
+  dlg.hidden = true;
+  syncModalOpenClass();
+  (presetNameTrigger ?? $("#search-preset-save"))?.focus();
+  presetNameTrigger = null;
+  if (presetNameResolve) {
+    const resolve = presetNameResolve;
+    presetNameResolve = null;
+    resolve(result);
+  }
+}
+
+function promptPresetName({ title, defaultValue = "", submitLabel = "Save" }) {
+  const dlg = $("#search-preset-name-modal");
+  if (!dlg) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    presetNameResolve = resolve;
+    presetNameTrigger = document.activeElement;
+    const titleEl = $("#search-preset-name-title");
+    if (titleEl) titleEl.textContent = title;
+    const input = $("#search-preset-name-input");
+    if (input) {
+      input.value = defaultValue;
+    }
+    const submitBtn = $("#search-preset-name-submit");
+    if (submitBtn) submitBtn.textContent = submitLabel;
+    dlg.hidden = false;
+    syncModalOpenClass();
+    input?.focus();
+    input?.select();
+  });
+}
 
 function closeSearchPresetSaveModal(choice = null) {
   const dlg = $("#search-preset-save-modal");
@@ -1960,13 +2016,13 @@ async function saveSearchPreset() {
       await patchActiveSearchPreset(snapshot);
       return;
     }
-    const name = prompt("Preset name:");
+    const name = await promptPresetName({ title: "Save search preset" });
     if (!name?.trim()) return;
     await createSearchPresetByName(snapshot, name.trim());
     return;
   }
 
-  const name = prompt("Preset name:");
+  const name = await promptPresetName({ title: "Save search preset" });
   if (!name?.trim()) return;
   await createSearchPresetByName(snapshot, name.trim());
 }
@@ -1977,12 +2033,13 @@ async function renameSearchPreset() {
     return;
   }
   const presetId = Number($("#search-preset-select")?.value);
-  if (!presetId) {
-    showToast("Select a preset to rename.", { variant: "error" });
-    return;
-  }
+  if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
-  const newName = prompt("New preset name:", current?.name || "");
+  const newName = await promptPresetName({
+    title: "Rename preset",
+    defaultValue: current?.name || "",
+    submitLabel: "Rename",
+  });
   if (!newName?.trim() || newName.trim() === current?.name) return;
 
   try {
@@ -2010,10 +2067,7 @@ async function deleteSearchPreset() {
     return;
   }
   const presetId = Number($("#search-preset-select")?.value);
-  if (!presetId) {
-    showToast("Select a preset to delete.", { variant: "error" });
-    return;
-  }
+  if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
   if (!confirm(`Delete preset "${current?.name || presetId}"?`)) return;
 
@@ -2234,6 +2288,7 @@ function syncModalOpenClass() {
     isModalVisible("#formats-info-modal") ||
     isModalVisible("#export-collection-modal") ||
     isModalVisible("#search-preset-save-modal") ||
+    isModalVisible("#search-preset-name-modal") ||
     isModalVisible("#collection-add-modal") ||
     isModalVisible("#collection-edit-modal")
   ) {
@@ -4929,6 +4984,7 @@ function wireEvents() {
   });
   $("#search-preset-select")?.addEventListener("change", async () => {
     const presetId = Number($("#search-preset-select")?.value);
+    syncSearchPresetControls();
     if (presetId) await loadSearchPresetById(presetId);
     else clearActivePreset();
   });
@@ -5102,6 +5158,22 @@ function wireEvents() {
     if (e.target === $("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
   });
 
+  $("#search-preset-name-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("#search-preset-name-input")?.value?.trim();
+    if (!name) return;
+    closeSearchPresetNameModal(name);
+  });
+  $("#search-preset-name-cancel")?.addEventListener("click", () =>
+    closeSearchPresetNameModal(null)
+  );
+  $("#search-preset-name-close")?.addEventListener("click", () =>
+    closeSearchPresetNameModal(null)
+  );
+  $("#search-preset-name-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#search-preset-name-modal")) closeSearchPresetNameModal(null);
+  });
+
   $("#collection-edit-cancel")?.addEventListener("click", closeCollectionEditModal);
   $("#collection-edit-close")?.addEventListener("click", closeCollectionEditModal);
   $("#collection-edit-modal")?.addEventListener("click", (e) => {
@@ -5248,6 +5320,7 @@ function wireEvents() {
       closeFolderAllocationPopover();
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
     else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
+    else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
     else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();

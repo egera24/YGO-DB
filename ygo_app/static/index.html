@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=77" />
+  <link rel="stylesheet" href="/static/css/style.css?v=78" />
 </head>
 <body>
   <header class="app-header">
@@ -129,12 +129,12 @@
         </div>
         <div class="search-secondary">
           <div class="search-presets-bar hidden" id="search-presets-bar">
-            <label for="search-preset-select" class="search-field-label">Search Presets</label>
             <div class="search-presets-controls">
-              <select id="search-preset-select"><option value="">— None —</option></select>
-              <button type="button" id="search-preset-save" class="secondary">Save</button>
+              <label for="search-preset-select" class="search-presets-label">Search presets</label>
+              <select id="search-preset-select" aria-label="Search presets"><option value="">No preset</option></select>
+              <button type="button" id="search-preset-save" class="secondary" aria-label="Save current search as preset">Save preset</button>
               <div class="preset-menu-wrap">
-                <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu">⋯</button>
+                <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu" disabled title="Select a preset first">⋯</button>
                 <div id="search-preset-menu" class="preset-menu" hidden role="menu">
                   <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
                   <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
@@ -608,6 +608,28 @@
     </article>
   </div>
 
+  <div id="search-preset-name-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-preset-name-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="search-preset-name-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="search-preset-name-title">Save search preset</h2>
+      </header>
+      <form id="search-preset-name-form" class="search-preset-name-form">
+        <label for="search-preset-name-input">Preset name</label>
+        <input type="text" id="search-preset-name-input" maxlength="128" autocomplete="off" required />
+        <div class="export-collection-actions">
+          <button type="button" id="search-preset-name-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="search-preset-name-submit">Save</button>
+        </div>
+      </form>
+    </article>
+  </div>
+
   <div id="collection-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-add-title" hidden>
     <article class="modal-card modal-card--narrow">
       <button type="button" id="collection-add-close" class="modal-close" aria-label="Close">
@@ -790,6 +812,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=113" type="module"></script>
+  <script src="/static/js/app.js?v=114" type="module"></script>
 </body>
 </html>

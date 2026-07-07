@@ -10,13 +10,15 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.models import Base, Card, Deck, DeckCard, User
+from ygo_app.models import Base, Card, Deck, DeckCard, Format, User
 from ygo_app.services import (
+    apply_deck_save,
     clear_deck_preview_if_removed,
     compute_deck_preview_cards,
     deck_counts,
     list_decks_enriched,
     list_user_decks,
+    reconcile_deck_cards,
     update_deck,
     _deck_card_entries_for_decks,
 )
@@ -50,6 +52,17 @@ class TestDecksApi(unittest.TestCase):
         session.add(user)
         session.flush()
         self.user_id = user.id
+
+        session.add(
+            Format(
+                code="advanced",
+                name="Advanced",
+                description="Advanced format",
+                uses_banlist=True,
+                uses_point_list=False,
+                sort_order=0,
+            )
+        )
 
         cards = [
             Card(
@@ -205,6 +218,56 @@ class TestDecksApi(unittest.TestCase):
         session = self.Session()
         counts = deck_counts(session, self.deck_a_id)
         self.assertEqual(counts["main"], 4)
+        session.close()
+
+    def test_apply_deck_save_reconciles_cards(self):
+        session = self.Session()
+        deck = session.get(Deck, self.deck_a_id)
+        apply_deck_save(
+            session,
+            deck,
+            {
+                "name": "Dragon Deck",
+                "description": None,
+                "format_code": "advanced",
+                "banlist_revision_id": None,
+                "genesys_point_list_id": None,
+                "preview_card_id": 1001,
+                "cards": [
+                    {"card_id": 1001, "zone": "main", "quantity": 2},
+                    {"card_id": 1003, "zone": "side", "quantity": 1},
+                ],
+            },
+        )
+        session.commit()
+        rows = session.execute(
+            select(DeckCard).where(DeckCard.deck_id == self.deck_a_id)
+        ).scalars().all()
+        by_key = {(r.card_id, r.zone): r.quantity for r in rows}
+        self.assertEqual(by_key, {(1001, "main"): 2, (1003, "side"): 1})
+        self.assertEqual(deck.preview_card_id, 1001)
+        session.close()
+
+    def test_apply_deck_save_clears_preview_when_cover_removed(self):
+        session = self.Session()
+        deck = session.get(Deck, self.deck_a_id)
+        deck.preview_card_id = 1002
+        session.commit()
+        apply_deck_save(
+            session,
+            deck,
+            {
+                "name": deck.name,
+                "description": deck.description,
+                "format_code": deck.format_code,
+                "banlist_revision_id": deck.banlist_revision_id,
+                "genesys_point_list_id": deck.genesys_point_list_id,
+                "preview_card_id": None,
+                "cards": [{"card_id": 1001, "zone": "main", "quantity": 1}],
+            },
+        )
+        session.commit()
+        self.assertIsNone(deck.preview_card_id)
         session.close()
 
 

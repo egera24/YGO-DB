@@ -1496,7 +1496,10 @@ def clear_deck_preview_if_removed(session: Session, deck_id: int, card_id: int) 
         deck.preview_card_id = None
 
 
-def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
+VALID_DECK_ZONES = frozenset({"main", "extra", "side"})
+
+
+def _apply_deck_settings(session: Session, deck: Deck, updates: dict) -> None:
     if "name" in updates and updates["name"] is not None:
         deck.name = updates["name"].strip()
     if "description" in updates:
@@ -1519,6 +1522,65 @@ def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
         deck.banlist_revision_id = updates["banlist_revision_id"]
     if "genesys_point_list_id" in updates:
         deck.genesys_point_list_id = updates["genesys_point_list_id"]
+
+
+def reconcile_deck_cards(session: Session, deck_id: int, cards: list[dict]) -> None:
+    desired: dict[tuple[int, str], int] = {}
+    for item in cards:
+        zone = item.get("zone", "main")
+        if zone not in VALID_DECK_ZONES:
+            continue
+        card_id = int(item["card_id"])
+        quantity = int(item.get("quantity", 1))
+        if quantity <= 0:
+            continue
+        if session.get(Card, card_id) is None:
+            continue
+        key = (card_id, zone)
+        desired[key] = desired.get(key, 0) + quantity
+
+    existing_rows = session.execute(
+        select(DeckCard).where(DeckCard.deck_id == deck_id)
+    ).scalars().all()
+    existing_map = {(row.card_id, row.zone): row for row in existing_rows}
+
+    for (card_id, zone), quantity in desired.items():
+        row = existing_map.get((card_id, zone))
+        if row:
+            row.quantity = quantity
+        else:
+            session.add(
+                DeckCard(
+                    deck_id=deck_id,
+                    card_id=card_id,
+                    zone=zone,
+                    quantity=quantity,
+                )
+            )
+
+    for key, row in existing_map.items():
+        if key not in desired:
+            session.delete(row)
+            clear_deck_preview_if_removed(session, deck_id, row.card_id)
+
+
+def apply_deck_save(session: Session, deck: Deck, body: dict) -> None:
+    reconcile_deck_cards(session, deck.id, body.get("cards") or [])
+    session.flush()
+    settings = {
+        "name": body.get("name"),
+        "description": body.get("description"),
+        "preview_card_id": body.get("preview_card_id"),
+        "format_code": body.get("format_code"),
+        "banlist_revision_id": body.get("banlist_revision_id"),
+        "genesys_point_list_id": body.get("genesys_point_list_id"),
+    }
+    _apply_deck_settings(session, deck, settings)
+    deck.updated_at = datetime.utcnow()
+
+
+def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
+    _apply_deck_settings(session, deck, updates)
     deck.updated_at = datetime.utcnow()
     session.commit()
     session.refresh(deck)

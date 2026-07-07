@@ -35,6 +35,9 @@ const state = {
   decksSort: "updated_at",
   decksDetailOpen: false,
   activeDeckDetail: null,
+  deckSaved: null,
+  deckDraft: null,
+  deckDirty: false,
   activePresetId: null,
   searchPresets: [],
   searchResultsById: {},
@@ -47,6 +50,8 @@ const state = {
 let searchRequestSeq = 0;
 let collectionRequestSeq = 0;
 let deckDetailRequestSeq = 0;
+let deckValidationPreviewSeq = 0;
+let deckValidationPreviewTimer = null;
 let decksSearchTimer = null;
 
 const COLLECTION_PAGE_SIZE = 100;
@@ -302,6 +307,17 @@ async function applyRouteFromHash({ initial = false } = {}) {
   await switchView(view, { fromRouter: true, replaceHash });
 
   if (route.view === "decks") {
+    const leavingDirtyDeck =
+      state.decksDetailOpen &&
+      state.deckDirty &&
+      (view !== "decks" ||
+        route.invalid ||
+        !route.deckId ||
+        route.deckId !== state.activeDeckId);
+    if (!initial && leavingDirtyDeck && !confirmLeaveDeck()) {
+      syncRouteHash({ replace: true });
+      return;
+    }
     if (!route.invalid && route.deckId) {
       if (!(state.decksDetailOpen && state.activeDeckId === route.deckId)) {
         await openDeckDetail(route.deckId, { fromRouter: true });
@@ -4656,9 +4672,204 @@ function showDecksDetailView() {
   $("#decks-detail-view")?.classList.remove("hidden");
 }
 
+function cloneDeck(deck) {
+  return JSON.parse(JSON.stringify(deck));
+}
+
+function setDeckDraftFromServer(deck) {
+  state.deckSaved = cloneDeck(deck);
+  state.deckDraft = cloneDeck(deck);
+  state.deckDirty = false;
+  state.activeDeckDetail = state.deckDraft;
+  updateDeckActionBar();
+}
+
+function markDeckDirty() {
+  state.deckDirty = true;
+  state.activeDeckDetail = state.deckDraft;
+  updateDeckActionBar();
+}
+
+function updateDeckActionBar() {
+  const dirty = Boolean(state.deckDirty);
+  $("#deck-dirty-indicator")?.classList.toggle("hidden", !dirty);
+  const saveBtn = $("#deck-save-btn");
+  const discardBtn = $("#deck-discard-btn");
+  if (saveBtn) saveBtn.disabled = !dirty;
+  if (discardBtn) discardBtn.disabled = !dirty;
+}
+
+function deckToSavePayload(draft) {
+  return {
+    name: draft.name,
+    description: draft.description ?? null,
+    format_code: draft.format_code || "advanced",
+    banlist_revision_id: draft.banlist_revision_id ?? null,
+    genesys_point_list_id: draft.genesys_point_list_id ?? null,
+    preview_card_id: draft.preview_card_id ?? null,
+    cards: (draft.cards || []).map((c) => ({
+      card_id: c.card_id,
+      zone: c.zone,
+      quantity: c.quantity,
+    })),
+  };
+}
+
+function syncDraftFormatFromForm() {
+  if (!state.deckDraft) return;
+  const fmt = state.formatsList.find((f) => f.code === $("#deck-format")?.value);
+  state.deckDraft.format_code = $("#deck-format")?.value || state.deckDraft.format_code;
+  state.deckDraft.banlist_revision_id =
+    fmt?.banlist_selectable && $("#deck-banlist")?.value
+      ? Number($("#deck-banlist").value)
+      : null;
+  state.deckDraft.genesys_point_list_id = $("#deck-genesys-list")?.value
+    ? Number($("#deck-genesys-list").value)
+    : null;
+}
+
+function refreshDraftCounts() {
+  if (!state.deckDraft) return;
+  const cards = state.deckDraft.cards || [];
+  state.deckDraft.card_count = deckCardCount(state.deckDraft);
+  state.deckDraft.main_count = cards
+    .filter((c) => c.zone === "main")
+    .reduce((sum, c) => sum + c.quantity, 0);
+  state.deckDraft.extra_count = cards
+    .filter((c) => c.zone === "extra")
+    .reduce((sum, c) => sum + c.quantity, 0);
+  state.deckDraft.side_count = cards
+    .filter((c) => c.zone === "side")
+    .reduce((sum, c) => sum + c.quantity, 0);
+}
+
+function mutateDraftCardQuantity(deckId, cardId, zone, delta) {
+  if (!state.deckDraft || state.deckDraft.id !== deckId) return;
+  const card = state.deckDraft.cards.find((c) => c.card_id === cardId && c.zone === zone);
+  if (!card) return;
+  const newQty = card.quantity + delta;
+  if (newQty <= 0) {
+    state.deckDraft.cards = state.deckDraft.cards.filter(
+      (c) => !(c.card_id === cardId && c.zone === zone)
+    );
+    if (state.deckDraft.preview_card_id === cardId) {
+      const stillHasCard = state.deckDraft.cards.some((c) => c.card_id === cardId);
+      if (!stillHasCard) state.deckDraft.preview_card_id = null;
+    }
+  } else {
+    card.quantity = newQty;
+  }
+  refreshDraftCounts();
+  markDeckDirty();
+  renderDeckDetail(deckId);
+  runDraftValidationPreview();
+}
+
+function setDraftCover(deckId, cardId) {
+  if (!state.deckDraft || state.deckDraft.id !== deckId) return;
+  const inDeck = state.deckDraft.cards.some((c) => c.card_id === cardId);
+  if (!inDeck) return;
+  state.deckDraft.preview_card_id = cardId;
+  markDeckDirty();
+  renderDeckDetail(deckId);
+  runDraftValidationPreview();
+}
+
+function addCardToActiveDraft(cardId, zone, cardMeta) {
+  if (!state.deckDraft || !state.decksDetailOpen) return false;
+  const deckId = state.deckDraft.id;
+  const existing = state.deckDraft.cards.find((c) => c.card_id === cardId && c.zone === zone);
+  if (existing) {
+    existing.quantity += 1;
+  } else {
+    state.deckDraft.cards.push({
+      card_id: cardId,
+      name: cardMeta.name,
+      type: cardMeta.type ?? null,
+      image_url: cardMeta.image_url ?? cardMeta.image_url_small ?? null,
+      image_url_small: cardMeta.image_url_small ?? cardMeta.image_url ?? null,
+      zone,
+      quantity: 1,
+    });
+  }
+  refreshDraftCounts();
+  markDeckDirty();
+  renderDeckDetail(deckId);
+  runDraftValidationPreview();
+  return true;
+}
+
+function confirmLeaveDeck() {
+  if (!state.deckDirty) return true;
+  return confirm("You have unsaved changes. Leave without saving?");
+}
+
+function runDraftValidationPreview() {
+  if (!state.deckDraft || !state.deckDirty) return;
+  clearTimeout(deckValidationPreviewTimer);
+  deckValidationPreviewTimer = setTimeout(async () => {
+    if (!state.deckDraft || !state.deckDirty) return;
+    const deckId = state.deckDraft.id;
+    const seq = ++deckValidationPreviewSeq;
+    try {
+      const validation = await api(`/decks/${deckId}/validate-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(deckToSavePayload(state.deckDraft)),
+      });
+      if (seq !== deckValidationPreviewSeq || state.activeDeckId !== deckId) return;
+      state.deckDraft.validation = validation;
+      renderDeckValidation(validation);
+    } catch (err) {
+      if (seq !== deckValidationPreviewSeq) return;
+      showToast(err.message || "Failed to validate deck draft.", { variant: "error" });
+    }
+  }, 350);
+}
+
+async function saveDeck() {
+  if (!state.deckDraft || !state.deckDirty) return;
+  const deckId = state.deckDraft.id;
+  const btn = $("#deck-save-btn");
+  try {
+    await runModalAction(
+      btn,
+      async () => {
+        syncDraftFormatFromForm();
+        const saved = await api(`/decks/${deckId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(deckToSavePayload(state.deckDraft)),
+        });
+        if (state.activeDeckId !== deckId) return;
+        setDeckDraftFromServer(saved);
+        renderDeckDetail(deckId);
+        invalidateDecksCache();
+        await loadDecks({ background: true });
+      },
+      { busyLabel: "Saving…", successMessage: "Deck saved" }
+    );
+  } catch {
+    // runModalAction already surfaced the error toast
+  }
+}
+
+function discardDeckChanges() {
+  if (!state.deckSaved || !state.deckDirty) return;
+  const deckId = state.deckSaved.id;
+  setDeckDraftFromServer(state.deckSaved);
+  renderDeckDetail(deckId);
+  showToast("Changes discarded", { durationMs: 2500 });
+}
+
 function closeDeckDetail({ fromRouter = false } = {}) {
   state.activeDeckId = null;
   state.activeDeckDetail = null;
+  state.deckSaved = null;
+  state.deckDraft = null;
+  state.deckDirty = false;
+  clearTimeout(deckValidationPreviewTimer);
+  updateDeckActionBar();
   showDecksListView();
   updateRouteDocumentTitle();
   if (!fromRouter) syncRouteHash();
@@ -4693,11 +4904,19 @@ function renderDeckDetailMeta(deck) {
   if (!metaEl) return;
   const count = deckCardCount(deck);
   const countLabel = count === 1 ? "1 card" : `${count} cards`;
-  const parts = formatRelativeDateParts(deck.updated_at);
+  if (state.deckDirty) {
+    metaEl.innerHTML = `
+      <span class="deck-meta-stat">${escapeHtml(countLabel)}</span>
+      <span class="deck-meta-unsaved muted">Unsaved edits</span>`;
+    metaEl.setAttribute("aria-label", `${countLabel}, unsaved edits`);
+    return;
+  }
+  const saved = state.deckSaved || deck;
+  const parts = formatRelativeDateParts(saved.updated_at);
   if (parts) {
     metaEl.innerHTML = `
       <span class="deck-meta-stat">${escapeHtml(countLabel)}</span>
-      <span class="deck-meta-edited">${renderDeckTimeHtml(deck.updated_at, "Edited")}</span>`;
+      <span class="deck-meta-edited">${renderDeckTimeHtml(saved.updated_at, "Edited")}</span>`;
     metaEl.setAttribute("aria-label", `${countLabel}, edited ${parts.relative}`);
   } else {
     metaEl.innerHTML = `<span class="deck-meta-stat">${escapeHtml(countLabel)}</span>`;
@@ -4854,6 +5073,9 @@ function renderDeckCardSlot(deck, card, zone) {
         <button type="button" class="deck-cover-btn${isCover ? " is-active" : ""}" title="Set as deck cover" aria-label="Set as deck cover">★</button>
         <button type="button" class="deck-minus-btn" title="Remove one" aria-label="Remove one">−</button>
       </div>
+      <div class="deck-card-actions deck-card-actions--bottom">
+        <button type="button" class="deck-plus-btn" title="Add one" aria-label="Add one">+</button>
+      </div>
     </div>`;
 }
 
@@ -4885,7 +5107,9 @@ async function loadDecks({ background = false, force = false } = {}) {
   await populateDeckSelect();
 }
 
-function renderDeckDetail(deckId, deck) {
+function renderDeckDetail(deckId) {
+  const deck = state.deckDraft;
+  if (!deck || deck.id !== deckId) return;
   closeDeckZoneInfo();
   state.activeDeckDetail = deck;
   const nameEl = $("#deck-name");
@@ -4897,6 +5121,7 @@ function renderDeckDetail(deckId, deck) {
   renderDeckFormatBar(deck);
   renderDeckValidation(deck.validation);
   updateRouteDocumentTitle();
+  updateDeckActionBar();
 
   const zones = { main: [], extra: [], side: [] };
   deck.cards.forEach((c) => zones[c.zone]?.push(c));
@@ -4904,6 +5129,8 @@ function renderDeckDetail(deckId, deck) {
   $("#deck-zones").innerHTML = ["main", "extra", "side"]
     .map((zone) => {
       const cards = zones[zone];
+      const zoneCount = cards.reduce((sum, c) => sum + c.quantity, 0);
+      const zoneCountLabel = zoneCount === 1 ? "1 card" : `${zoneCount} cards`;
       const slots = [];
       cards.forEach((c) => {
         for (let i = 0; i < c.quantity; i += 1) {
@@ -4912,7 +5139,10 @@ function renderDeckDetail(deckId, deck) {
       });
       return `
         <section class="deck-zone-row">
-          <h3 class="deck-zone-label">${deckZoneLabelHtml(zone)}</h3>
+          <div class="deck-zone-header">
+            <h3 class="deck-zone-label">${deckZoneLabelHtml(zone)}</h3>
+            <span class="deck-zone-count">${escapeHtml(zoneCountLabel)}</span>
+          </div>
           <div class="deck-zone-cards">
             ${
               slots.length
@@ -4927,39 +5157,17 @@ function renderDeckDetail(deckId, deck) {
   $("#deck-zones").querySelectorAll(".deck-card-slot").forEach((slot) => {
     const cardId = Number(slot.dataset.card);
     const zone = slot.dataset.zone;
-    slot.querySelector(".deck-minus-btn")?.addEventListener("click", async (e) => {
+    slot.querySelector(".deck-minus-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (!state.activeDeckDetail || state.activeDeckDetail.id !== deckId) return;
-      const snapshot = JSON.parse(JSON.stringify(state.activeDeckDetail));
-      const card = snapshot.cards.find((c) => c.card_id === cardId && c.zone === zone);
-      const newQty = (card?.quantity || 1) - 1;
-      const cards = snapshot.cards
-        .map((c) =>
-          c.card_id === cardId && c.zone === zone ? { ...c, quantity: newQty } : c
-        )
-        .filter((c) => c.quantity > 0);
-      const optimistic = {
-        ...snapshot,
-        cards,
-        card_count: cards.reduce((sum, c) => sum + c.quantity, 0),
-      };
-      renderDeckDetail(deckId, optimistic);
-      try {
-        const updated = await api(
-          `/decks/${deckId}/cards/${cardId}?zone=${zone}&quantity=${newQty}`,
-          { method: "PATCH" }
-        );
-        if (state.activeDeckId !== deckId) return;
-        renderDeckDetail(deckId, updated);
-        invalidateDecksCache();
-      } catch (err) {
-        if (state.activeDeckId === deckId) renderDeckDetail(deckId, snapshot);
-        alert(err.message);
-      }
+      mutateDraftCardQuantity(deckId, cardId, zone, -1);
     });
-    slot.querySelector(".deck-cover-btn")?.addEventListener("click", async (e) => {
+    slot.querySelector(".deck-plus-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      await setDeckCover(deckId, cardId);
+      mutateDraftCardQuantity(deckId, cardId, zone, 1);
+    });
+    slot.querySelector(".deck-cover-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setDraftCover(deckId, cardId);
     });
     slot.querySelector("img")?.addEventListener("click", () => openCardModal(cardId));
   });
@@ -4967,37 +5175,28 @@ function renderDeckDetail(deckId, deck) {
   $("#decks-detail-view")?.removeAttribute("aria-busy");
 }
 
-async function setDeckCover(deckId, cardId) {
-  if (!state.activeDeckDetail || state.activeDeckDetail.id !== deckId) return;
-  const snapshot = JSON.parse(JSON.stringify(state.activeDeckDetail));
-  const optimistic = { ...snapshot, preview_card_id: cardId };
-  renderDeckDetail(deckId, optimistic);
-  try {
-    const updated = await api(`/decks/${deckId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ preview_card_id: cardId }),
-    });
-    if (state.activeDeckId !== deckId) return;
-    state.activeDeckDetail = { ...optimistic, ...updated };
-    renderDeckDetail(deckId, state.activeDeckDetail);
-    invalidateDecksCache();
-  } catch (err) {
-    if (state.activeDeckId === deckId) renderDeckDetail(deckId, snapshot);
-    alert(err.message);
-  }
-}
-
 async function openDeckDetail(deckId, { fromRouter = false } = {}) {
+  if (state.decksDetailOpen && state.activeDeckId === deckId) {
+    if (!fromRouter) syncRouteHash();
+    return;
+  }
+  if (state.decksDetailOpen && state.deckDirty) {
+    if (!confirmLeaveDeck()) {
+      if (!fromRouter) syncRouteHash();
+      return;
+    }
+  }
   state.activeDeckId = deckId;
   const seq = ++deckDetailRequestSeq;
   showDecksDetailView();
   showDeckDetailLoading();
+  updateDeckActionBar();
   if (!fromRouter) syncRouteHash();
   try {
     const deck = await api(`/decks/${deckId}`);
     if (seq !== deckDetailRequestSeq || state.activeDeckId !== deckId) return;
-    renderDeckDetail(deckId, deck);
+    setDeckDraftFromServer(deck);
+    renderDeckDetail(deckId);
   } catch (err) {
     if (seq !== deckDetailRequestSeq) return;
     $("#decks-detail-view")?.removeAttribute("aria-busy");
@@ -5010,36 +5209,26 @@ async function openDeckDetail(deckId, { fromRouter = false } = {}) {
     }
     $("#deck-zones").innerHTML = `<p class="deck-zone-empty modal-load-error">${escapeHtml(err.message || "Failed to load deck.")}</p>`;
     updateRouteDocumentTitle();
+    showToast(err.message || "Failed to load deck.", { variant: "error" });
   }
 }
 
 async function renameDeck() {
   if (!state.token) {
-    alert("Log in to rename decks.");
+    showToast("Log in to rename decks.", { variant: "error" });
     return;
   }
-  if (!state.activeDeckDetail) {
-    alert("Open a deck to rename it.");
+  if (!state.deckDraft) {
+    showToast("Open a deck to rename it.", { variant: "error" });
     return;
   }
-  const deckId = state.activeDeckDetail.id;
-  const currentName = state.activeDeckDetail.name;
+  const currentName = state.deckDraft.name;
   const newName = prompt("Rename deck:", currentName);
   if (!newName?.trim() || newName.trim() === currentName) return;
-  try {
-    const updated = await api(`/decks/${deckId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim() }),
-    });
-    if (state.activeDeckId !== deckId) return;
-    state.activeDeckDetail = { ...state.activeDeckDetail, ...updated };
-    renderDeckDetail(deckId, state.activeDeckDetail);
-    invalidateDecksCache();
-    loadDecks({ background: true });
-  } catch (err) {
-    alert(err.message);
-  }
+  state.deckDraft.name = newName.trim();
+  markDeckDirty();
+  renderDeckDetail(state.deckDraft.id);
+  runDraftValidationPreview();
 }
 
 async function selectDeck(deckId) {
@@ -5057,7 +5246,8 @@ function wireEvents() {
       if (isModalVisible("#card-modal")) {
         closeCardModalOverlay({ fromRouter: true });
       }
-      if (tab.dataset.view === "decks" && state.decksDetailOpen) {
+      if (state.decksDetailOpen) {
+        if (!confirmLeaveDeck()) return;
         closeDeckDetail({ fromRouter: true });
       }
       switchView(tab.dataset.view);
@@ -5576,20 +5766,31 @@ function wireEvents() {
     }
     const zone = $("#deck-zone").value;
     const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1);
+    const card = state.currentCard;
+    if (!card || !state.currentCardId) return;
+
+    if (deckId === state.activeDeckId && state.decksDetailOpen) {
+      addCardToActiveDraft(state.currentCardId, zone, {
+        name: card.name,
+        type: card.type,
+        image_url: card.image_url,
+        image_url_small: card.image_url_small,
+      });
+      showToast(`Added to ${zoneLabel} deck (unsaved)`, { durationMs: 3000 });
+      return;
+    }
+
     const btn = $("#deck-add-card-btn");
     try {
       await runModalAction(
         btn,
         async () => {
-          const deck = await api(`/decks/${deckId}/cards`, {
+          await api(`/decks/${deckId}/cards`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ card_id: state.currentCardId, zone, quantity: 1 }),
           });
           invalidateDecksCache();
-          if (deckId === state.activeDeckId && state.decksDetailOpen) {
-            renderDeckDetail(deckId, deck);
-          }
         },
         { busyLabel: "Adding…", successMessage: `Added to ${zoneLabel} deck` }
       );
@@ -5599,15 +5800,25 @@ function wireEvents() {
   });
 
   $("#decks-back-btn")?.addEventListener("click", () => {
+    if (!confirmLeaveDeck()) return;
     closeDeckDetail();
     loadDecks({ background: true });
   });
 
+  $("#deck-save-btn")?.addEventListener("click", () => {
+    saveDeck().catch((err) => showToast(err.message, { variant: "error" }));
+  });
+  $("#deck-discard-btn")?.addEventListener("click", () => {
+    if (!state.deckDirty) return;
+    if (!confirm("Discard unsaved changes?")) return;
+    discardDeckChanges();
+  });
+
   $("#deck-rename-btn")?.addEventListener("click", () => {
-    renameDeck().catch((err) => alert(err.message));
+    renameDeck().catch((err) => showToast(err.message, { variant: "error" }));
   });
   $("#deck-name")?.addEventListener("dblclick", () => {
-    renameDeck().catch((err) => alert(err.message));
+    renameDeck().catch((err) => showToast(err.message, { variant: "error" }));
   });
 
   $("#decks-sort")?.addEventListener("change", () => {
@@ -5649,16 +5860,22 @@ function wireEvents() {
     if (e.target === $("#formats-info-modal")) closeFormatsInfoModal();
   });
   $("#deck-format")?.addEventListener("change", () => {
-    if (state.activeDeckDetail) {
+    if (state.deckDraft) {
       renderDeckFormatBar({
-        ...state.activeDeckDetail,
+        ...state.deckDraft,
         format_code: $("#deck-format")?.value,
       });
     }
-    saveDeckFormatSettings();
+    applyDraftFormatSettings();
   });
-  $("#deck-banlist")?.addEventListener("change", saveDeckFormatSettings);
-  $("#deck-genesys-list")?.addEventListener("change", saveDeckFormatSettings);
+  $("#deck-banlist")?.addEventListener("change", applyDraftFormatSettings);
+  $("#deck-genesys-list")?.addEventListener("change", applyDraftFormatSettings);
+
+  window.addEventListener("beforeunload", (e) => {
+    if (!state.deckDirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 }
 
 function formatBadgeHtml(card) {
@@ -5853,31 +6070,12 @@ function renderDeckValidation(validation) {
   });
 }
 
-async function saveDeckFormatSettings() {
-  if (!state.activeDeckDetail) return;
-  const deckId = state.activeDeckDetail.id;
-  const fmt = state.formatsList.find((f) => f.code === $("#deck-format")?.value);
-  const body = {
-    format_code: $("#deck-format")?.value,
-    banlist_revision_id:
-      fmt?.banlist_selectable && $("#deck-banlist")?.value
-        ? Number($("#deck-banlist").value)
-        : null,
-    genesys_point_list_id: $("#deck-genesys-list")?.value
-      ? Number($("#deck-genesys-list").value)
-      : null,
-  };
-  try {
-    await api(`/decks/${deckId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const deck = await api(`/decks/${deckId}`);
-    if (state.activeDeckId === deckId) renderDeckDetail(deckId, deck);
-  } catch (err) {
-    showToast(err.message || "Failed to update deck format.", { variant: "error" });
-  }
+function applyDraftFormatSettings() {
+  if (!state.deckDraft) return;
+  syncDraftFormatFromForm();
+  markDeckDirty();
+  renderDeckDetail(state.deckDraft.id);
+  runDraftValidationPreview();
 }
 
 function openFormatsInfoModal() {

@@ -373,6 +373,16 @@ class DeckCardMutate(BaseModel):
     quantity: int = 1
 
 
+class DeckSave(BaseModel):
+    name: str = Field(max_length=128)
+    description: str | None = Field(default=None, max_length=2000)
+    format_code: str = "advanced"
+    banlist_revision_id: int | None = None
+    genesys_point_list_id: int | None = None
+    preview_card_id: int | None = None
+    cards: list[DeckCardMutate] = Field(default_factory=list)
+
+
 class TagMutate(BaseModel):
     tag: str
 

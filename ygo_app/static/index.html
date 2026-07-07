@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=80" />
+  <link rel="stylesheet" href="/static/css/style.css?v=81" />
 </head>
 <body>
   <header class="app-header">
@@ -423,32 +423,48 @@
         <p id="decks-login-msg" class="empty-msg hidden">Log in to manage decks.</p>
       </div>
       <div id="decks-detail-view" class="hidden">
-        <header class="decks-detail-header">
-          <button type="button" id="decks-back-btn" class="decks-back-btn">← Decks</button>
+        <header class="deck-detail-toolbar">
+          <button type="button" id="decks-back-btn" class="decks-back-btn secondary">← Decks</button>
           <div class="deck-title-block">
-            <h2 id="deck-name" title="Double-click to rename"></h2>
+            <div class="deck-title-row">
+              <h2 id="deck-name" title="Double-click to rename"></h2>
+              <button type="button" id="deck-rename-btn" class="icon-btn secondary deck-rename-icon-btn" title="Rename deck" aria-label="Rename deck">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+            </div>
             <div id="deck-meta" class="deck-meta" aria-label="Deck summary"></div>
           </div>
-          <button type="button" id="deck-rename-btn" class="secondary deck-rename-btn" title="Rename deck">Rename</button>
         </header>
-        <div id="deck-format-bar" class="deck-format-bar">
-          <div class="deck-format-field">
-            <label for="deck-format">Format</label>
-            <select id="deck-format" aria-label="Deck format"></select>
-          </div>
-          <div id="deck-banlist-wrap" class="deck-format-field hidden">
-            <label for="deck-banlist">Banlist</label>
-            <select id="deck-banlist" aria-label="Banlist revision"></select>
-          </div>
-          <div id="deck-genesys-list-wrap" class="deck-format-field hidden">
-            <label for="deck-genesys-list">Point list</label>
-            <select id="deck-genesys-list" aria-label="Genesys point list">
-              <option value="">Latest</option>
-            </select>
+        <div id="deck-action-bar" class="deck-action-bar" aria-label="Deck actions">
+          <span id="deck-dirty-indicator" class="deck-dirty-indicator hidden" aria-live="polite">Unsaved changes</span>
+          <div class="deck-action-buttons">
+            <button type="button" id="deck-discard-btn" class="secondary" disabled>Discard</button>
+            <button type="button" id="deck-save-btn" class="primary" disabled>Save</button>
           </div>
         </div>
-        <div id="deck-validation" class="deck-validation hidden" aria-live="polite"></div>
-        <div id="deck-zones"></div>
+        <div class="deck-settings-panel">
+          <div id="deck-format-bar" class="deck-format-bar">
+            <div class="deck-format-field">
+              <label for="deck-format">Format</label>
+              <select id="deck-format" aria-label="Deck format"></select>
+            </div>
+            <div id="deck-banlist-wrap" class="deck-format-field hidden">
+              <label for="deck-banlist">Banlist</label>
+              <select id="deck-banlist" aria-label="Banlist revision"></select>
+            </div>
+            <div id="deck-genesys-list-wrap" class="deck-format-field hidden">
+              <label for="deck-genesys-list">Point list</label>
+              <select id="deck-genesys-list" aria-label="Genesys point list">
+                <option value="">Latest</option>
+              </select>
+            </div>
+          </div>
+          <div id="deck-validation" class="deck-validation hidden" aria-live="polite"></div>
+        </div>
+        <div id="deck-zones" class="deck-zones"></div>
       </div>
     </section>
   </main>
@@ -829,6 +845,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=117" type="module"></script>
+  <script src="/static/js/app.js?v=118" type="module"></script>
 </body>
 </html>

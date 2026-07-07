@@ -14,11 +14,13 @@ from ygo_app.schemas import (
     DeckDetail,
     DeckOut,
     DeckPreviewCard,
+    DeckSave,
     DeckUpdate,
     DeckValidationOut,
     ValidationIssueOut,
 )
 from ygo_app.services import (
+    apply_deck_save,
     build_deck_out,
     clear_deck_preview_if_removed,
     compute_deck_preview_cards,
@@ -149,6 +151,50 @@ def patch_deck(
     previews = compute_deck_preview_cards(deck.preview_card_id, entries)
     base = build_deck_out(deck, counts, previews)
     return _deck_out_from_base(base)
+
+
+@router.put("/{deck_id}", response_model=DeckDetail)
+def save_deck(
+    deck_id: int,
+    body: DeckSave,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    deck = _get_user_deck(db, deck_id, user.id)
+    if not deck:
+        raise HTTPException(404, "Deck not found")
+    try:
+        apply_deck_save(db, deck, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.commit()
+    return get_deck(deck_id, db, user)
+
+
+@router.post("/{deck_id}/validate-preview", response_model=DeckValidationOut)
+def validate_deck_preview(
+    deck_id: int,
+    body: DeckSave,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    deck = _get_user_deck(db, deck_id, user.id)
+    if not deck:
+        raise HTTPException(404, "Deck not found")
+    nested = db.begin_nested()
+    try:
+        apply_deck_save(db, deck, body.model_dump())
+        db.flush()
+        validation = validate_deck_for_api(db, deck)
+    except ValueError as exc:
+        nested.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    nested.rollback()
+    db.expire_all()
+    out = _validation_out(validation)
+    if out is None:
+        raise HTTPException(500, "Validation preview failed")
+    return out
 
 
 @router.delete("/{deck_id}")

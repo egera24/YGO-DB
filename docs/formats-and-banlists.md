@@ -40,6 +40,16 @@ python -m ygo_app.jobs.sync_genesys_points --fixture "DO NOT DELETE/genesys_poin
 python -m ygo_app.jobs.refresh_format_legality
 ```
 
+### Local development
+
+After running Alembic migration `015` (or any fresh catalog import), run `refresh_format_legality` locally. Search for Edison, Goat, and Speed Duel reads from `card_format_legality`; without this job the table is empty and format-filtered search is slow or returns no results.
+
+```powershell
+python -m ygo_app.jobs.refresh_format_legality
+```
+
+GHA runs this automatically at the end of `import-catalog-yugipedia.yml`; local dev must run it manually once per environment.
+
 ## Adding a new format
 
 1. Add row to `FORMAT_ROWS` in `alembic/versions/015_formats_banlists.py` (or new migration).

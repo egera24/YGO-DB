@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 
 from ygo_app.database import SessionLocal
-from ygo_app.formats.pool import legal_card_ids_by_cutoff
+from ygo_app.formats.pool import legal_card_ids_by_cutoff_sql
 from ygo_app.formats.registry import EDISON_POOL_CUTOFF, GOAT_POOL_CUTOFF
 from ygo_app.job_logging import job_log_session
 from ygo_app.models import CardFormatLegality, Printing
@@ -23,7 +23,7 @@ GOAT_FORMAT = "goat"
 
 
 def _legal_ids_by_cutoff(session, cutoff: date) -> set[int]:
-    return legal_card_ids_by_cutoff(session, cutoff)
+    return set(session.execute(legal_card_ids_by_cutoff_sql(session, cutoff)).scalars().all())
 
 
 def _write_legality_flags(session, format_code: str, legal_ids: set[int]) -> int:

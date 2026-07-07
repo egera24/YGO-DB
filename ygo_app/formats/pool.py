@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, distinct, exists, func, select
 from sqlalchemy.orm import Session
 
 from ygo_app.formats.base import FormatRules
 from ygo_app.models import Card, CardFormatLegality, Printing, TcgSet
+
+logger = logging.getLogger(__name__)
 
 
 def expansion_abbr_from_set_code(set_code: str) -> str | None:
@@ -21,6 +24,7 @@ def expansion_abbr_from_set_code(set_code: str) -> str | None:
 
 
 def legal_card_ids_by_cutoff(session: Session, cutoff: date) -> set[int]:
+    """Python cutoff pool — offline jobs and SQLite tests only."""
     printing_rows = session.execute(select(Printing.card_id, Printing.set_code)).all()
     tcg_sets = {row.abbr: row for row in session.execute(select(TcgSet)).scalars().all()}
     legal_ids: set[int] = set()
@@ -32,6 +36,25 @@ def legal_card_ids_by_cutoff(session: Session, cutoff: date) -> set[int]:
         if tcg_set and tcg_set.release_date and tcg_set.release_date <= cutoff:
             legal_ids.add(int(card_id))
     return legal_ids
+
+
+def legal_card_ids_by_cutoff_sql(session: Session, cutoff: date):
+    """SQL cutoff pool for offline refresh jobs (PostgreSQL)."""
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        abbr_expr = func.upper(func.split_part(Printing.set_code, "-", 1))
+        return (
+            select(distinct(Printing.card_id))
+            .join(TcgSet, TcgSet.abbr == abbr_expr)
+            .where(
+                TcgSet.release_date.is_not(None),
+                TcgSet.release_date <= cutoff,
+            )
+        )
+    legal_ids = legal_card_ids_by_cutoff(session, cutoff)
+    if not legal_ids:
+        return select(Card.id).where(Card.id < 0)
+    return select(Card.id).where(Card.id.in_(legal_ids))
 
 
 def card_in_pool_by_cutoff(session: Session, card_id: int, cutoff: date) -> bool:
@@ -47,24 +70,86 @@ def card_in_pool_by_cutoff(session: Session, card_id: int, cutoff: date) -> bool
     return False
 
 
-def card_legal_in_format(session: Session, card: Card, rules: FormatRules) -> bool:
+def format_pool_legality_exists(format_code: str):
+    """Semi-join filter: card is legal in the precomputed format pool."""
+    return exists(
+        select(1).where(
+            CardFormatLegality.card_id == Card.id,
+            CardFormatLegality.format_code == format_code,
+            CardFormatLegality.is_legal.is_(True),
+        )
+    )
+
+
+def warn_if_legality_table_empty(session: Session, rules: FormatRules) -> None:
+    if not rules.pool_uses_legality_table:
+        return
+    row = session.execute(
+        select(CardFormatLegality.card_id)
+        .where(
+            CardFormatLegality.format_code == rules.code,
+            CardFormatLegality.is_legal.is_(True),
+        )
+        .limit(1)
+    ).first()
+    if row is None:
+        logger.warning(
+            "card_format_legality has no rows for format %r; "
+            "run: python -m ygo_app.jobs.refresh_format_legality",
+            rules.code,
+        )
+
+
+def format_pool_card_ids_subquery(session: Session, rules: FormatRules):
+    """Subquery of legal card IDs from precomputed table. No runtime Python fallback."""
+    if not rules.pool_uses_legality_table:
+        return None
+    warn_if_legality_table_empty(session, rules)
+    return select(CardFormatLegality.card_id).where(
+        CardFormatLegality.format_code == rules.code,
+        CardFormatLegality.is_legal.is_(True),
+    )
+
+
+def card_ids_in_pool(session: Session, rules: FormatRules) -> set[int] | None:
+    subq = format_pool_card_ids_subquery(session, rules)
+    if subq is None:
+        return None
+    return set(session.execute(subq).scalars().all())
+
+
+def batch_card_legal_in_format(
+    session: Session, card_ids: list[int], rules: FormatRules
+) -> dict[int, bool]:
+    if not card_ids:
+        return {}
     if rules.pool_uses_legality_table:
-        row = session.execute(
-            select(CardFormatLegality.is_legal).where(
-                CardFormatLegality.card_id == card.id,
+        rows = session.execute(
+            select(CardFormatLegality.card_id, CardFormatLegality.is_legal).where(
                 CardFormatLegality.format_code == rules.code,
+                CardFormatLegality.card_id.in_(card_ids),
             )
-        ).scalar_one_or_none()
-        if row is not None:
-            return bool(row)
-        if rules.pool_cutoff_date:
-            return card_in_pool_by_cutoff(session, card.id, rules.pool_cutoff_date)
-        return False
-
+        ).all()
+        known = {int(cid): bool(legal) for cid, legal in rows}
+        result: dict[int, bool] = {}
+        for cid in card_ids:
+            if cid in known:
+                result[cid] = known[cid]
+            elif rules.pool_cutoff_date:
+                result[cid] = card_in_pool_by_cutoff(session, cid, rules.pool_cutoff_date)
+            else:
+                result[cid] = False
+        return result
     if rules.pool_cutoff_date:
-        return card_in_pool_by_cutoff(session, card.id, rules.pool_cutoff_date)
+        return {
+            cid: card_in_pool_by_cutoff(session, cid, rules.pool_cutoff_date)
+            for cid in card_ids
+        }
+    return {cid: True for cid in card_ids}
 
-    return True
+
+def card_legal_in_format(session: Session, card: Card, rules: FormatRules) -> bool:
+    return batch_card_legal_in_format(session, [card.id], rules).get(card.id, False)
 
 
 def printing_legal_in_format(
@@ -84,36 +169,3 @@ def printing_legal_in_format(
         return False
 
     return True
-
-
-def format_pool_card_ids_subquery(session: Session, rules: FormatRules):
-    if rules.pool_uses_legality_table:
-        legality_count = (
-            session.execute(
-                select(func.count())
-                .select_from(CardFormatLegality)
-                .where(
-                    CardFormatLegality.format_code == rules.code,
-                    CardFormatLegality.is_legal.is_(True),
-                )
-            ).scalar()
-            or 0
-        )
-        if legality_count > 0:
-            return select(CardFormatLegality.card_id).where(
-                CardFormatLegality.format_code == rules.code,
-                CardFormatLegality.is_legal.is_(True),
-            )
-        if rules.pool_cutoff_date:
-            legal_ids = legal_card_ids_by_cutoff(session, rules.pool_cutoff_date)
-            if not legal_ids:
-                return select(Card.id).where(Card.id < 0)
-            return select(Card.id).where(Card.id.in_(legal_ids))
-    return None
-
-
-def card_ids_in_pool(session: Session, rules: FormatRules) -> set[int] | None:
-    subq = format_pool_card_ids_subquery(session, rules)
-    if subq is None:
-        return None
-    return set(session.execute(subq).scalars().all())

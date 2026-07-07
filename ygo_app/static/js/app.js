@@ -1685,10 +1685,12 @@ function buildSearchParams() {
   }
   const genesysList = $("#search-genesys-list")?.value;
   if (genesysList) params.set("genesys_point_list_id", genesysList);
-  const pointsMin = $("#points-min")?.value;
-  const pointsMax = $("#points-max")?.value;
-  if (pointsMin) params.set("points_min", pointsMin);
-  if (pointsMax) params.set("points_max", pointsMax);
+  if (fmt?.uses_point_list) {
+    const pointsMin = $("#points-min")?.value;
+    const pointsMax = $("#points-max")?.value;
+    if (pointsMin) params.set("points_min", pointsMin);
+    if (pointsMax) params.set("points_max", pointsMax);
+  }
   return params;
 }
 

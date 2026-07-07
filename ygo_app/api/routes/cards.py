@@ -20,7 +20,8 @@ from ygo_app.services import (
     toggle_favorite,
 )
 from ygo_app.formats.edison import errata_text_as_of
-from ygo_app.formats.pool import card_legal_in_format, printing_legal_in_format
+from ygo_app.formats.context import resolve_format_enrich_context
+from ygo_app.formats.pool import printing_legal_in_format
 from ygo_app.formats.registry import get_format_rules
 from ygo_app.yugipedia.card_detail_extras import card_errata_for_api, card_tips_for_api
 from ygo_app.yugipedia.images import resolve_display_image_url_small
@@ -119,6 +120,16 @@ def search(
     user: User = Depends(get_current_user),
 ):
     effective_limit = limit if limit is not None else SEARCH_DEFAULT_LIMIT
+    format_ctx = (
+        resolve_format_enrich_context(
+            db,
+            format,
+            banlist_revision_id=banlist_revision_id,
+            genesys_point_list_id=genesys_point_list_id,
+        )
+        if format
+        else None
+    )
     cards, total = search_cards(
         db,
         q=q,
@@ -159,9 +170,8 @@ def search(
     format_extras = enrich_cards_for_format(
         db,
         cards,
-        format_code=format,
-        banlist_revision_id=banlist_revision_id,
-        genesys_point_list_id=genesys_point_list_id,
+        ctx=format_ctx,
+        for_search=True,
     )
     results = [
         _card_summary(card, extras.get(card.id, {}), format_extras.get(card.id))

@@ -505,21 +505,21 @@ def search_cards(
         return [], 0
 
     if format_code:
-        from ygo_app.formats.context import resolve_format_context
-        from ygo_app.formats.pool import format_pool_card_ids_subquery
+        from ygo_app.formats.context import resolve_format_search_context
+        from ygo_app.formats.pool import format_pool_legality_exists, warn_if_legality_table_empty
         from ygo_app.models import GenesysPointEntry
 
-        ctx = resolve_format_context(
+        ctx = resolve_format_search_context(
             session,
             format_code,
-            banlist_revision_id=banlist_revision_id,
             genesys_point_list_id=genesys_point_list_id,
         )
         if ctx:
-            pool_subq = format_pool_card_ids_subquery(session, ctx.rules)
-            if pool_subq is not None:
-                stmt = stmt.where(Card.id.in_(pool_subq))
-                count_stmt = count_stmt.where(Card.id.in_(pool_subq))
+            if ctx.rules.pool_uses_legality_table:
+                warn_if_legality_table_empty(session, ctx.rules)
+                pool_filter = format_pool_legality_exists(ctx.rules.code)
+                stmt = stmt.where(pool_filter)
+                count_stmt = count_stmt.where(pool_filter)
 
             if ctx.rules.disallow_link:
                 stmt = stmt.where(or_(Card.mechanic.is_(None), Card.mechanic != "Link"))
@@ -568,25 +568,39 @@ def enrich_cards_for_format(
     session: Session,
     cards: list[Card],
     *,
-    format_code: str | None,
+    format_code: str | None = None,
+    ctx: object | None = None,
     banlist_revision_id: int | None = None,
     genesys_point_list_id: int | None = None,
+    for_search: bool = False,
 ) -> dict[int, dict]:
-    if not cards or not format_code:
+    if not cards:
         return {}
     from ygo_app.formats.banlist import banlist_status_label
-    from ygo_app.formats.context import resolve_format_context
+    from ygo_app.formats.context import resolve_format_enrich_context
     from ygo_app.formats.genesys import card_point_value
-    from ygo_app.formats.pool import card_legal_in_format
+    from ygo_app.formats.pool import batch_card_legal_in_format
 
-    ctx = resolve_format_context(
-        session,
-        format_code,
-        banlist_revision_id=banlist_revision_id,
-        genesys_point_list_id=genesys_point_list_id,
-    )
+    if ctx is None:
+        if not format_code:
+            return {}
+        ctx = resolve_format_enrich_context(
+            session,
+            format_code,
+            banlist_revision_id=banlist_revision_id,
+            genesys_point_list_id=genesys_point_list_id,
+        )
     if not ctx:
         return {}
+
+    legal_map: dict[int, bool] = {}
+    if not for_search and (
+        ctx.rules.pool_uses_legality_table or ctx.rules.pool_cutoff_date
+    ):
+        legal_map = batch_card_legal_in_format(
+            session, [card.id for card in cards], ctx.rules
+        )
+
     extras: dict[int, dict] = {}
     for card in cards:
         payload: dict = {}
@@ -595,8 +609,10 @@ def enrich_cards_for_format(
             payload["banlist_status"] = banlist_status_label(status)
         if ctx.rules.uses_point_list and ctx.points_map is not None:
             payload["genesys_points"] = card_point_value(card.id, ctx.points_map)
-        if ctx.rules.pool_uses_legality_table or ctx.rules.pool_cutoff_date:
-            payload["format_legal"] = card_legal_in_format(session, card, ctx.rules)
+        if not for_search and (
+            ctx.rules.pool_uses_legality_table or ctx.rules.pool_cutoff_date
+        ):
+            payload["format_legal"] = legal_map.get(card.id, False)
         extras[card.id] = payload
     return extras
 

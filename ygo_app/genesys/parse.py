@@ -12,6 +12,9 @@ from bs4 import BeautifulSoup
 
 POINT_LIST_TITLE_RE = re.compile(r"^(.+)_Point_List$")
 POINT_LIST_PAGE_RE = re.compile(r"/wiki/([^?#]+_Point_List)")
+# Only real article pages: /wiki/<Title>_Point_List with no namespace colon
+# (namespaces such as Talk:, Special:, Category: all contain a colon).
+RELATED_POINT_LIST_RE = re.compile(r"^/wiki/[^:?#]+_Point_List$")
 
 
 def page_title_from_url(url: str) -> str:
@@ -66,11 +69,11 @@ def parse_point_list_html(html: str, *, source_url: str) -> dict[str, Any]:
     related_urls: set[str] = set()
     for anchor in soup.select("a[href*='_Point_List']"):
         href = anchor.get("href") or ""
-        if "_Point_List" in href and "Category:" not in href:
-            if href.startswith("/wiki/"):
-                related_urls.add(f"https://yugipedia.com{href.split('?')[0]}")
-            elif href.startswith("http"):
-                related_urls.add(href.split("?")[0])
+        if href.startswith("https://yugipedia.com"):
+            href = href[len("https://yugipedia.com"):]
+        path = href.split("?")[0].split("#")[0]
+        if RELATED_POINT_LIST_RE.match(path):
+            related_urls.add(f"https://yugipedia.com{path}")
 
     return {
         "label": label,

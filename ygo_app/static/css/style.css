@@ -2547,8 +2547,19 @@ tr:hover td { background: var(--surface); }
   line-height: 1;
   padding: 0;
 }
+.filter-group-label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
 .formats-info-btn {
-  margin-top: 0.35rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+}
+.formats-info-btn svg {
+  width: 1rem;
+  height: 1rem;
 }
 .formats-info-body {
   display: grid;

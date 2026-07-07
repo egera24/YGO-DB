@@ -2218,6 +2218,7 @@ function syncModalOpenClass() {
     isModalVisible("#card-errata-modal") ||
     isModalVisible("#card-tips-modal") ||
     isModalVisible("#search-help-modal") ||
+    isModalVisible("#formats-info-modal") ||
     isModalVisible("#export-collection-modal") ||
     isModalVisible("#search-preset-save-modal") ||
     isModalVisible("#collection-add-modal") ||
@@ -2230,6 +2231,7 @@ function syncModalOpenClass() {
 }
 
 let searchHelpTrigger = null;
+let formatsInfoTrigger = null;
 let searchHelpContentRendered = false;
 let searchHelpOutsideHandler = null;
 let searchHelpRepositionHandler = null;
@@ -5240,6 +5242,7 @@ function wireEvents() {
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
     else if (isSearchHelpOpen()) closeSearchHelp();
+    else if (isModalVisible("#formats-info-modal")) closeFormatsInfoModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });
 
@@ -5673,14 +5676,23 @@ async function saveDeckFormatSettings() {
 
 function openFormatsInfoModal() {
   const modal = $("#formats-info-modal");
+  const trigger = $("#formats-info-btn");
   if (!modal) return;
+  formatsInfoTrigger = trigger;
   modal.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  syncModalOpenClass();
   $("#formats-info-close")?.focus();
 }
 
 function closeFormatsInfoModal() {
   const modal = $("#formats-info-modal");
-  if (modal) modal.hidden = true;
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  $("#formats-info-btn")?.setAttribute("aria-expanded", "false");
+  (formatsInfoTrigger ?? $("#formats-info-btn"))?.focus();
+  formatsInfoTrigger = null;
 }
 
 async function init() {

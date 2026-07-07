@@ -1,5 +1,3 @@
-from datetime import date, datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -8,6 +6,7 @@ from ygo_app.auth import get_current_user
 from ygo_app.database import get_db
 from ygo_app.formats.base import DECK_ZONE_TOOLTIPS
 from ygo_app.formats.registry import get_format_rules
+from ygo_app.banlist.parse import format_banlist_label
 from ygo_app.models import BanlistRevision, Format, GenesysPointList, User
 from ygo_app.schemas import BanlistRevisionOut, FormatOut, GenesysPointListOut
 
@@ -59,7 +58,7 @@ def list_banlists(
     return [
         BanlistRevisionOut(
             id=row.id,
-            label=row.label,
+            label=format_banlist_label(row.effective_from, row.label),
             effective_from=row.effective_from,
             source_list_id=row.source_list_id,
             is_current=row.source_list_id == "current",

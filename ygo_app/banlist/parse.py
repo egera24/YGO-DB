@@ -38,6 +38,17 @@ def parse_label_date(label: str) -> date | None:
         return None
 
 
+def format_banlist_label(effective_from: date | None, label: str = "") -> str:
+    """Display label as 'Month YYYY', matching Konami options.json style."""
+    if effective_from is not None:
+        return effective_from.strftime("%B %Y")
+    parsed = parse_effective_date(label) or parse_label_date(label)
+    if parsed is not None:
+        return parsed.strftime("%B %Y")
+    text = (label or "").strip()
+    return text or "Current"
+
+
 def normalize_list_payload(
     payload: dict[str, Any],
     *,
@@ -69,7 +80,7 @@ def normalize_list_payload(
             )
     return {
         "source_list_id": source_list_id,
-        "label": label,
+        "label": format_banlist_label(effective_from, label),
         "effective_from": effective_from,
         "source_url": f"https://www.yugioh-card.com/eu/_data/fllists/{source_list_id}.json",
         "entries": entries,

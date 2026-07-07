@@ -46,11 +46,18 @@ def normalize_list_payload(
 ) -> dict[str, Any]:
     effective_from = parse_effective_date(payload.get("from")) or parse_label_date(label)
     entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for status_key, status in STATUS_BY_KEY.items():
         for row in payload.get(status_key, []) or []:
             name = (row.get("nameeng") or row.get("name") or "").strip()
             if not name:
                 continue
+            # Konami's payload can list the same card twice (same category or
+            # across categories); the DB enforces one row per (revision, name),
+            # so keep the first occurrence (most restrictive status wins).
+            if name in seen:
+                continue
+            seen.add(name)
             cid_raw = row.get("cid")
             konami_cid = int(cid_raw) if cid_raw is not None and str(cid_raw).isdigit() else None
             entries.append(

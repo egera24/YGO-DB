@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+import requests
+
 from ygo_app.banlist.fetch import fetch_list, fetch_options
 from ygo_app.banlist.import_data import upsert_banlist_revision
 from ygo_app.banlist.match import build_card_name_index
@@ -42,7 +44,16 @@ def sync_banlists(*, skip_existing: bool = False) -> dict:
             if skip_existing and list_id in existing_ids:
                 summary["lists_skipped"] += 1
                 continue
-            payload = fetch_list(list_id)
+            try:
+                payload = fetch_list(list_id)
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 404:
+                    log_line(
+                        f"[BANLIST] {label} ({list_id}): data file not published yet (404), skipping"
+                    )
+                    summary["lists_skipped"] += 1
+                    continue
+                raise
             normalized = normalize_list_payload(
                 payload, source_list_id=list_id, label=label
             )

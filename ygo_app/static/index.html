@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=88" />
+  <link rel="stylesheet" href="/static/css/style.css?v=89" />
 </head>
 <body>
   <header class="app-header">
@@ -540,6 +540,7 @@
               <div class="deck-target-wrap">
                 <label for="deck-target">Deck</label>
                 <select id="deck-target"></select>
+                <span id="deck-target-format" class="deck-target-format muted" aria-live="polite"></span>
               </div>
               <div class="deck-zone-wrap">
                 <label for="deck-zone">Zone</label>
@@ -847,6 +848,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=130" type="module"></script>
+  <script src="/static/js/app.js?v=131" type="module"></script>
 </body>
 </html>

@@ -4863,6 +4863,10 @@ function renderDecksGrid(decks) {
   grid.innerHTML = decks
     .map((d) => {
       const countLabel = d.card_count === 1 ? "1 card" : `${d.card_count} cards`;
+      const fmtLabel = formatDisplayName(d.format_code);
+      const formatLine = fmtLabel
+        ? `<span class="deck-tile-format muted">${escapeHtml(fmtLabel)}</span>`
+        : "";
       const dateLine =
         state.decksSort === "updated_at" && d.updated_at
           ? `<span class="deck-tile-date muted">${renderDeckTimeHtml(d.updated_at, "Edited")}</span>`
@@ -4880,6 +4884,7 @@ function renderDecksGrid(decks) {
       <div class="deck-tile-meta">
         <span class="deck-tile-name">${escapeHtml(d.name)}</span>
         <span class="deck-tile-count">${countLabel}</span>
+        ${formatLine}
         ${dateLine}
       </div>
     </article>`;
@@ -5190,30 +5195,59 @@ function renderDeckDetailMeta(deck) {
   }
 }
 
+function formatDisplayName(code) {
+  return state.formatsList.find((f) => f.code === code)?.name || code || "";
+}
+
+function deckFormatCode(deckId) {
+  if (deckId === state.activeDeckId && state.decksDetailOpen) {
+    return state.activeDeckDetail?.format_code || "advanced";
+  }
+  const decks = state.decksListCache?.decks || [];
+  return decks.find((d) => d.id === deckId)?.format_code || "advanced";
+}
+
+function updateDeckTargetFormat() {
+  const badge = $("#deck-target-format");
+  const sel = $("#deck-target");
+  if (!badge || !sel) return;
+  const deckId = Number(sel.value);
+  if (!deckId) {
+    badge.textContent = "";
+    return;
+  }
+  const fmtName = formatDisplayName(deckFormatCode(deckId));
+  badge.textContent = fmtName ? `Format: ${fmtName}` : "";
+}
+
 async function populateDeckSelect() {
   const sel = $("#deck-target");
   if (!sel) return;
   if (!state.token) {
     sel.innerHTML = "";
+    updateDeckTargetFormat();
     return;
   }
   const decks = await fetchDecksList();
   if (!decks.length) {
     sel.innerHTML =
       '<option value="" disabled selected>No decks — create one in Decks tab</option>';
+    updateDeckTargetFormat();
     return;
   }
   sel.innerHTML = decks
-    .map(
-      (d) =>
-        `<option value="${d.id}">${escapeHtml(d.name)} (#${d.id})</option>`
-    )
+    .map((d) => {
+      const fmt = formatDisplayName(d.format_code);
+      const suffix = fmt ? ` \u00b7 ${fmt}` : "";
+      return `<option value="${d.id}">${escapeHtml(d.name)} (#${d.id})${escapeHtml(suffix)}</option>`;
+    })
     .join("");
   const preferred =
     state.activeDeckId && decks.some((d) => d.id === state.activeDeckId)
       ? state.activeDeckId
       : decks[0].id;
   sel.value = String(preferred);
+  updateDeckTargetFormat();
 }
 
 function deckZoneLabel(zone) {
@@ -6119,6 +6153,8 @@ function wireEvents() {
     void activateModalPrintingRow(row);
   });
 
+  $("#deck-target")?.addEventListener("change", updateDeckTargetFormat);
+
   $("#deck-add-card-btn").addEventListener("click", async () => {
     if (!state.token) {
       showToast("Log in to add cards to a deck.", { variant: "error" });
@@ -6143,10 +6179,12 @@ function wireEvents() {
     }
     if (!deckName) {
       const optionText = $("#deck-target")?.selectedOptions?.[0]?.textContent?.trim() || "";
-      deckName = optionText.replace(/\s*\(#\d+\)\s*$/, "").trim();
+      deckName = optionText.replace(/\s*\(#\d+\).*$/, "").trim();
     }
     if (!deckName) deckName = "deck";
-    const addedMessage = `${card.name} added to ${zone} zone of ${deckName} deck.`;
+    const fmtName = formatDisplayName(deckFormatCode(deckId));
+    const fmtSuffix = fmtName ? ` [${fmtName}]` : "";
+    const addedMessage = `${card.name} added to ${zone} zone of ${deckName}${fmtSuffix} deck.`;
 
     if (deckId === state.activeDeckId && state.decksDetailOpen) {
       addCardToActiveDraft(state.currentCardId, zone, {

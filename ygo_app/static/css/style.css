@@ -1726,6 +1726,12 @@ tr:hover td { background: var(--surface); }
   color: var(--muted);
   margin-top: 0.15rem;
 }
+.deck-tile-format {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
 .deck-tile-date {
   display: block;
   font-size: 0.75rem;
@@ -2127,6 +2133,12 @@ tr:hover td { background: var(--surface); }
 .deck-target-wrap {
   flex: 1 1 8rem;
   min-width: 0;
+}
+.deck-target-format {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
 }
 .deck-zone-wrap {
   flex: 0 0 6.5rem;

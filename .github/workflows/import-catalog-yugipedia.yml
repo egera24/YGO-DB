@@ -86,7 +86,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Scrape Yugipedia passcode list
+      - name: Scrape Yugipedia passcode list (incl. cards without a passcode)
         run: |
           ARGS=(--passcodes-only)
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.test_mode }}" == "true" ]]; then
@@ -788,6 +788,11 @@ jobs:
           fi
           python -m ygo_app.jobs.import_catalog_yugipedia "${ARGS[@]}"
 
+      - name: Refresh format legality flags
+        env:
+          DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+        run: python -m ygo_app.jobs.refresh_format_legality
+
       - name: Upload scrape artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -854,6 +859,11 @@ jobs:
             ARGS+=(--limit "${{ inputs.card_limit }}")
           fi
           python -m ygo_app.jobs.import_catalog_yugipedia "${ARGS[@]}"
+
+      - name: Refresh format legality flags
+        env:
+          DATABASE_URL: ${{ inputs.environment == 'dev' && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
+        run: python -m ygo_app.jobs.refresh_format_legality
 
       - name: Upload scrape artifacts
         if: always()

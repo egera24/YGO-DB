@@ -53,6 +53,7 @@ let deckDetailRequestSeq = 0;
 let deckValidationPreviewSeq = 0;
 let deckValidationPreviewTimer = null;
 let decksSearchTimer = null;
+let searchEverLoaded = false;
 
 const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
@@ -327,7 +328,7 @@ async function applyRouteFromHash({ initial = false } = {}) {
     }
   }
 
-  if (view === "search" && (initial || needsSearchRun)) {
+  if (view === "search" && (initial || needsSearchRun || !searchEverLoaded)) {
     await runSearch(null, { skipHashSync: true });
   }
 
@@ -740,6 +741,9 @@ async function bootstrapAuthenticatedApp() {
       : route.invalid && route.view !== "decks"
         ? DEFAULT_ROUTE_VIEW
         : route.view;
+  // Show the correct pane immediately so the default Search view doesn't flash
+  // while the initial data requests below are in flight.
+  if (initialView && initialView !== "search") applyViewChrome(initialView);
   if (initialView === "search") showSearchLoadingState();
 
   await Promise.all([loadStatus(), loadFilters(), loadSearchPresets(), loadUserTags(), loadFormats()]);
@@ -822,6 +826,7 @@ function logout() {
   state.user = null;
   state.activePresetId = null;
   state.searchPresets = [];
+  searchEverLoaded = false;
   localStorage.removeItem("ygo_token");
   setDatalist("#tag-datalist", []);
   clearAuthForms();
@@ -1280,7 +1285,7 @@ function setupLinkMarkerGrid() {
   });
 }
 
-function switchView(name, { fromRouter = false, replaceHash = false } = {}) {
+function applyViewChrome(name) {
   if (!ROUTE_VIEWS.has(name)) name = DEFAULT_ROUTE_VIEW;
   state.activeView = name;
 
@@ -1299,12 +1304,25 @@ function switchView(name, { fromRouter = false, replaceHash = false } = {}) {
     if (isActive) activeTab = t;
   });
 
+  return activeTab;
+}
+
+function switchView(name, { fromRouter = false, replaceHash = false } = {}) {
+  if (!ROUTE_VIEWS.has(name)) name = DEFAULT_ROUTE_VIEW;
+  const activeTab = applyViewChrome(name);
+
   if (name === "decks") {
     loadDecks({ background: true });
     if (state.decksDetailOpen) showDecksDetailView();
     else showDecksListView();
   }
   if (name === "collection") loadCollectionView({ background: true });
+  // Ensure the search grid is populated the first time it becomes visible.
+  // The router handles its own initial/param-driven searches; here we cover
+  // direct switches (e.g. tab clicks) that would otherwise show an empty grid.
+  if (name === "search" && !fromRouter && !searchEverLoaded) {
+    runSearch();
+  }
 
   updateRouteDocumentTitle();
 
@@ -2212,6 +2230,7 @@ function setupSearchResultsDelegation() {
 
 async function loadSearchPage(pageIndex) {
   const seq = ++searchRequestSeq;
+  searchEverLoaded = true;
   state.searchPage = pageIndex;
   const offset = pageIndex * SEARCH_PAGE_SIZE;
   const grid = $("#search-results");

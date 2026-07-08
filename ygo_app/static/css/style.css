@@ -2855,6 +2855,9 @@ tr:hover td { background: var(--surface); }
 .format-badges .format-badge--semi {
   background: color-mix(in srgb, #ffb400 45%, #1e293b);
 }
+.format-badges .format-badge--unlimited {
+  background: color-mix(in srgb, #22c55e 40%, #1e293b);
+}
 .format-badges .format-badge--points {
   background: color-mix(in srgb, var(--accent) 40%, #1e293b);
   color: #e2e8f0;
@@ -2899,6 +2902,10 @@ tr:hover td { background: var(--surface); }
 .deck-card-format-badge .format-badge--semi,
 .card-tile-format-badge .format-badge--semi {
   background: rgba(161, 98, 7, 0.95);
+}
+.deck-card-format-badge .format-badge--unlimited,
+.card-tile-format-badge .format-badge--unlimited {
+  background: rgba(21, 128, 61, 0.92);
 }
 .deck-card-format-badge .format-badge--points,
 .card-tile-format-badge .format-badge--points {

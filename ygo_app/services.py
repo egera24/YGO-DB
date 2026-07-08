@@ -647,7 +647,10 @@ def enrich_cards_for_format(
         payload: dict = {}
         if ctx.banlist_map is not None:
             status = ctx.banlist_map.get(card.id)
-            payload["banlist_status"] = banlist_status_label(status, ctx.rules)
+            label = banlist_status_label(status, ctx.rules)
+            if label is None and ctx.rules.banlist_mode != "none":
+                label = "Unlimited"
+            payload["banlist_status"] = label
         if ctx.rules.uses_point_list and ctx.points_map is not None:
             payload["genesys_points"] = card_point_value(card.id, ctx.points_map)
         if not for_search and (

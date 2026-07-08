@@ -6255,7 +6255,9 @@ function formatBadgeHtml(card) {
           ? "format-badge--limited"
           : card.banlist_status === "Semi-Limited"
             ? "format-badge--semi"
-            : "";
+            : card.banlist_status === "Unlimited"
+              ? "format-badge--unlimited"
+              : "";
     parts.push(`<span class="format-badge ${cls}">${escapeHtml(card.banlist_status)}</span>`);
   }
   if (card.genesys_points != null) {

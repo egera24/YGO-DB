@@ -733,6 +733,15 @@ async function bootstrapAuthenticatedApp() {
   setupLinkMarkerGrid();
   setupSummoningSuggestions();
 
+  const route = parseRouteHash();
+  const initialView =
+    route.kind === "card"
+      ? null
+      : route.invalid && route.view !== "decks"
+        ? DEFAULT_ROUTE_VIEW
+        : route.view;
+  if (initialView === "search") showSearchLoadingState();
+
   await Promise.all([loadStatus(), loadFilters(), loadSearchPresets(), loadUserTags(), loadFormats()]);
   await applyRouteFromHash({ initial: true });
 }
@@ -2149,6 +2158,15 @@ function renderSearchLoadingSkeleton() {
   return `<p class="sr-only" role="status">Searching…</p>${tiles}`;
 }
 
+function showSearchLoadingState() {
+  const grid = $("#search-results");
+  if (!grid) return;
+  grid.innerHTML = renderSearchLoadingSkeleton();
+  grid.setAttribute("aria-busy", "true");
+  setSearchPaginationHidden(true);
+  renderSearchResultsSummary({ loading: true });
+}
+
 function renderSearchResults(cards) {
   const grid = $("#search-results");
   grid.removeAttribute("aria-busy");
@@ -2197,10 +2215,7 @@ async function loadSearchPage(pageIndex) {
   state.searchPage = pageIndex;
   const offset = pageIndex * SEARCH_PAGE_SIZE;
   const grid = $("#search-results");
-  grid.innerHTML = renderSearchLoadingSkeleton();
-  grid.setAttribute("aria-busy", "true");
-  setSearchPaginationHidden(true);
-  renderSearchResultsSummary({ loading: true });
+  showSearchLoadingState();
 
   try {
     const page = await fetchSearchPage(state.searchParams, offset);

@@ -6307,29 +6307,15 @@ function resolveCardDetailFormatContext() {
     };
   }
 
-  const deckTargetId = Number($("#deck-target")?.value);
-  if (deckTargetId) {
-    const decks = state.decksListCache?.decks || [];
-    const deck = decks.find((d) => d.id === deckTargetId);
-    if (deck?.format_code) {
-      return {
-        format: deck.format_code,
-        banlist_revision_id:
-          deck.banlist_revision_id != null ? String(deck.banlist_revision_id) : null,
-        genesys_point_list_id:
-          deck.genesys_point_list_id != null ? String(deck.genesys_point_list_id) : null,
-      };
-    }
-  }
-
   return {
-    format: "advanced",
+    format: null,
     banlist_revision_id: null,
     genesys_point_list_id: null,
   };
 }
 
 function formatContextLabel(ctx) {
+  if (!ctx.format) return "";
   const fmt = state.formatsList.find((f) => f.code === ctx.format);
   const formatName = fmt?.name || ctx.format;
   const parts = [formatName];
@@ -6375,7 +6361,8 @@ function renderModalFormatBadges(card) {
 
 function buildCardDetailQuery() {
   const ctx = resolveCardDetailFormatContext();
-  const params = new URLSearchParams({ format: ctx.format });
+  const params = new URLSearchParams();
+  if (ctx.format) params.set("format", ctx.format);
   const fmt = state.formatsList.find((f) => f.code === ctx.format);
   if (fmt?.banlist_selectable && ctx.banlist_revision_id) {
     params.set("banlist_revision_id", String(ctx.banlist_revision_id));

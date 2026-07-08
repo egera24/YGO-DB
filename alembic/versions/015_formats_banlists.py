@@ -17,7 +17,7 @@ depends_on: Union[str, Sequence[str], None] = None
 FORMAT_ROWS = [
     (
         "advanced",
-        "Advanced TCG",
+        "Advanced",
         "Official modern tournament format using the current Forbidden, Limited, and Semi-Limited lists.",
         True,
         False,
@@ -25,7 +25,7 @@ FORMAT_ROWS = [
     ),
     (
         "traditional",
-        "Traditional TCG",
+        "Traditional",
         "Like Advanced, but cards on the Forbidden list are allowed at 1 copy instead of 0.",
         True,
         False,
@@ -41,7 +41,7 @@ FORMAT_ROWS = [
     ),
     (
         "goat",
-        "Goat Format",
+        "Goat",
         "Summer 2005 format using the April 2005 banlist and card pool through The Lost Millennium.",
         True,
         False,

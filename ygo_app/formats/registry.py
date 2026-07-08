@@ -12,7 +12,7 @@ EDISON_POOL_CUTOFF = date(2010, 4, 20)
 FORMAT_REGISTRY: dict[str, FormatRules] = {
     "advanced": FormatRules(
         code="advanced",
-        name="Advanced TCG",
+        name="Advanced",
         main_min=40,
         main_max=60,
         extra_max=15,
@@ -23,7 +23,7 @@ FORMAT_REGISTRY: dict[str, FormatRules] = {
     ),
     "traditional": FormatRules(
         code="traditional",
-        name="Traditional TCG",
+        name="Traditional",
         main_min=40,
         main_max=60,
         extra_max=15,
@@ -48,7 +48,7 @@ FORMAT_REGISTRY: dict[str, FormatRules] = {
     ),
     "goat": FormatRules(
         code="goat",
-        name="Goat Format",
+        name="Goat",
         main_min=40,
         main_max=None,
         extra_max=None,

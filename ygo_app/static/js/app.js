@@ -4689,6 +4689,134 @@ function renderDeckStack(previewCards) {
     .join("");
 }
 
+function closeAllDeckTileMenus() {
+  document.querySelectorAll(".deck-tile-menu").forEach((menu) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    menu.classList.remove("deck-tile-menu--fixed");
+    menu.style.top = "";
+    menu.style.left = "";
+  });
+  document.querySelectorAll(".deck-tile-menu-btn").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function openDeckTileMenu(btn) {
+  const wrap = btn.closest(".deck-tile-menu-wrap");
+  const menu = wrap?.querySelector(".deck-tile-menu");
+  if (!menu) return;
+  closeAllDeckTileMenus();
+  closePresetMenu();
+  closeAllCollectionRowMenus();
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  menu.classList.add("deck-tile-menu--fixed");
+  const rect = btn.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth;
+  const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, left)}px`;
+}
+
+function toggleDeckTileMenu(btn) {
+  const wrap = btn.closest(".deck-tile-menu-wrap");
+  const menu = wrap?.querySelector(".deck-tile-menu");
+  if (!menu) return;
+  if (!menu.hidden) {
+    closeAllDeckTileMenus();
+    return;
+  }
+  openDeckTileMenu(btn);
+}
+
+async function renameDeckFromList(deckId, currentName) {
+  const newName = prompt("Rename deck:", currentName);
+  if (!newName?.trim() || newName.trim() === currentName) return;
+  try {
+    await api(`/decks/${deckId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim() }),
+    });
+    if (state.activeDeckId === deckId) {
+      if (state.deckDraft) state.deckDraft.name = newName.trim();
+      if (state.deckSaved) state.deckSaved.name = newName.trim();
+      const nameEl = $("#deck-name");
+      if (nameEl) nameEl.textContent = newName.trim();
+      updateRouteDocumentTitle();
+    }
+    invalidateDecksCache();
+    await loadDecks({ force: true });
+    await populateDeckSelect();
+    showToast("Deck renamed.");
+  } catch (err) {
+    showToast(err.message, { variant: "error", durationMs: 5000 });
+  }
+}
+
+async function deleteDeckFromList(deckId, label) {
+  if (!confirm(`Delete deck "${label}"? This cannot be undone.`)) return;
+  try {
+    await api(`/decks/${deckId}`, { method: "DELETE" });
+    if (state.activeDeckId === deckId) {
+      state.activeDeckId = null;
+      closeDeckDetail();
+    }
+    invalidateDecksCache();
+    await loadDecks({ force: true });
+    await populateDeckSelect();
+    showToast("Deck deleted.");
+  } catch (err) {
+    showToast(err.message, { variant: "error", durationMs: 5000 });
+  }
+}
+
+function setupDecksGridDelegation() {
+  const grid = $("#decks-grid");
+  if (!grid || grid.dataset.delegationBound) return;
+  grid.dataset.delegationBound = "1";
+  grid.addEventListener("click", async (e) => {
+    const menuBtn = e.target.closest(".deck-tile-menu-btn");
+    if (menuBtn) {
+      e.stopPropagation();
+      toggleDeckTileMenu(menuBtn);
+      return;
+    }
+    const renameBtn = e.target.closest(".deck-tile-rename-btn");
+    if (renameBtn) {
+      e.stopPropagation();
+      closeAllDeckTileMenus();
+      const deckId = Number(renameBtn.dataset.id);
+      const tile = renameBtn.closest(".deck-tile");
+      const name = tile?.querySelector(".deck-tile-name")?.textContent || "";
+      await renameDeckFromList(deckId, name);
+      return;
+    }
+    const deleteBtn = e.target.closest(".deck-tile-delete-btn");
+    if (deleteBtn) {
+      e.stopPropagation();
+      closeAllDeckTileMenus();
+      const deckId = Number(deleteBtn.dataset.id);
+      const tile = deleteBtn.closest(".deck-tile");
+      const label = tile?.querySelector(".deck-tile-name")?.textContent || "this deck";
+      await deleteDeckFromList(deckId, label);
+      return;
+    }
+    if (e.target.closest(".deck-tile-menu-wrap")) return;
+    const tile = e.target.closest(".deck-tile");
+    if (tile) openDeckDetail(Number(tile.dataset.id));
+  });
+  grid.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    if (e.target.closest(".deck-tile-menu-wrap")) return;
+    const tile = e.target.closest(".deck-tile");
+    if (!tile || e.target !== tile) return;
+    e.preventDefault();
+    openDeckDetail(Number(tile.dataset.id));
+  });
+}
+
 function renderDecksGrid(decks) {
   const grid = $("#decks-grid");
   const empty = $("#decks-empty");
@@ -4708,7 +4836,13 @@ function renderDecksGrid(decks) {
           : "";
       return `
     <article class="deck-tile" data-id="${d.id}" tabindex="0" role="button" aria-label="${escapeHtml(d.name)}, ${countLabel}">
-      <button type="button" class="deck-tile-delete" data-id="${d.id}" title="Delete deck" aria-label="Delete ${escapeHtml(d.name)}">×</button>
+      <div class="deck-tile-menu-wrap preset-menu-wrap">
+        <button type="button" class="icon-btn secondary deck-tile-menu-btn preset-menu-btn" data-id="${d.id}" aria-label="Deck actions for ${escapeHtml(d.name)}" title="Deck actions" aria-haspopup="menu" aria-expanded="false">⋯</button>
+        <div class="deck-tile-menu preset-menu" hidden role="menu">
+          <button type="button" role="menuitem" class="deck-tile-rename-btn" data-id="${d.id}">Rename</button>
+          <button type="button" role="menuitem" class="deck-tile-delete-btn preset-menu-danger" data-id="${d.id}">Delete</button>
+        </div>
+      </div>
       <div class="deck-stack">${renderDeckStack(d.preview_cards)}</div>
       <div class="deck-tile-meta">
         <span class="deck-tile-name">${escapeHtml(d.name)}</span>
@@ -4718,37 +4852,6 @@ function renderDecksGrid(decks) {
     </article>`;
     })
     .join("");
-
-  grid.querySelectorAll(".deck-tile").forEach((tile) => {
-    tile.addEventListener("click", (e) => {
-      if (e.target.closest(".deck-tile-delete")) return;
-      openDeckDetail(Number(tile.dataset.id));
-    });
-    tile.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        openDeckDetail(Number(tile.dataset.id));
-      }
-    });
-  });
-
-  grid.querySelectorAll(".deck-tile-delete").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const deckId = Number(btn.dataset.id);
-      const deck = decks.find((d) => d.id === deckId);
-      const label = deck?.name || "this deck";
-      if (!confirm(`Delete deck "${label}"? This cannot be undone.`)) return;
-      await api(`/decks/${deckId}`, { method: "DELETE" });
-      if (state.activeDeckId === deckId) {
-        state.activeDeckId = null;
-        closeDeckDetail();
-      }
-      invalidateDecksCache();
-      await loadDecks({ force: true });
-      await populateDeckSelect();
-    });
-  });
 }
 
 function showDecksListView() {
@@ -5330,6 +5433,7 @@ function wireEvents() {
   setupSearchResultsDelegation();
   setupSearchFilterChipDelegation();
   setupCollectionTableDelegation();
+  setupDecksGridDelegation();
   setupDeckZoneInfoDelegation();
 
   document.querySelectorAll(".tab[data-view]").forEach((tab) => {
@@ -5391,8 +5495,15 @@ function wireEvents() {
     );
   });
   document.addEventListener("click", (e) => {
-    if (!e.target.closest(".preset-menu-wrap:not(.collection-row-menu-wrap)")) closePresetMenu();
+    if (
+      !e.target.closest(
+        ".preset-menu-wrap:not(.collection-row-menu-wrap):not(.deck-tile-menu-wrap)"
+      )
+    ) {
+      closePresetMenu();
+    }
     if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
+    if (!e.target.closest(".deck-tile-menu-wrap")) closeAllDeckTileMenus();
   });
   $("#auth-tab-login")?.addEventListener("click", () => {
     switchAuthTab("login");
@@ -5700,6 +5811,7 @@ function wireEvents() {
     if (document.querySelector(".folder-allocation-popover:not(.move-copy-popover)")) {
       closeFolderAllocationPopover();
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
+    else if (document.querySelector(".deck-tile-menu:not([hidden])")) closeAllDeckTileMenus();
     else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
     else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);

@@ -92,41 +92,57 @@ def init_db():
         Base.metadata.create_all(bind=engine)
 
 
-def _card_from_api(entry: dict) -> Card:
+def _card_fields_from_api(entry: dict) -> dict:
+    """Column values for a Card row (no id — assigned by the DB / upsert match).
+
+    ``passcode`` falls back to the legacy ``id`` field for YGOProDeck-shaped
+    entries; it is NULL for cards printed without a passcode.
+    """
     images = entry.get("card_images") or [{}]
     img = images[0] if images else {}
     link_rating = _int_or_none(entry.get("link_rating"))
     pendulum_scale = _int_or_none(entry.get("pendulum_scale"))
-    return Card(
-        id=int(entry["id"]),
-        name=entry.get("name", ""),
-        type=entry.get("type"),
-        human_readable_type=entry.get("humanReadableCardType"),
-        frame_type=entry.get("frameType"),
-        desc=entry.get("desc"),
-        atk=_int_or_none(entry.get("atk")),
-        def_=_int_or_none(entry.get("def")),
-        level=_int_or_none(entry.get("level")),
-        race=entry.get("race"),
-        attribute=entry.get("attribute"),
-        archetype=entry.get("archetype"),
-        linkval=_int_or_none(entry.get("linkval")) or link_rating,
-        scale=_int_or_none(entry.get("scale")) or pendulum_scale,
-        category=entry.get("category"),
-        types=entry.get("types"),
-        mechanic=entry.get("mechanic"),
-        rank=_int_or_none(entry.get("rank")),
-        link_rating=link_rating,
-        pendulum_scale=pendulum_scale,
-        link_markers=entry.get("link_markers"),
-        summoning_condition=entry.get("summoning_condition"),
-        ygoprodeck_url=entry.get("ygoprodeck_url"),
-        image_url=img.get("image_url"),
-        image_url_small=img.get("image_url_small"),
-        has_errata=bool(entry.get("has_errata")),
-        last_erratum_date=_date_or_none(entry.get("last_erratum_date")),
-        tips=entry.get("tips"),
-    )
+    passcode = _int_or_none(entry.get("passcode", entry.get("id")))
+    return {
+        "passcode": passcode,
+        "source_url": entry.get("source_url"),
+        "name": entry.get("name", ""),
+        "type": entry.get("type"),
+        "human_readable_type": entry.get("humanReadableCardType"),
+        "frame_type": entry.get("frameType"),
+        "desc": entry.get("desc"),
+        "atk": _int_or_none(entry.get("atk")),
+        "def_": _int_or_none(entry.get("def")),
+        "level": _int_or_none(entry.get("level")),
+        "race": entry.get("race"),
+        "attribute": entry.get("attribute"),
+        "archetype": entry.get("archetype"),
+        "linkval": _int_or_none(entry.get("linkval")) or link_rating,
+        "scale": _int_or_none(entry.get("scale")) or pendulum_scale,
+        "category": entry.get("category"),
+        "types": entry.get("types"),
+        "mechanic": entry.get("mechanic"),
+        "rank": _int_or_none(entry.get("rank")),
+        "link_rating": link_rating,
+        "pendulum_scale": pendulum_scale,
+        "link_markers": entry.get("link_markers"),
+        "summoning_condition": entry.get("summoning_condition"),
+        "ygoprodeck_url": entry.get("ygoprodeck_url"),
+        "image_url": img.get("image_url"),
+        "image_url_small": img.get("image_url_small"),
+        "has_errata": bool(entry.get("has_errata")),
+        "last_erratum_date": _date_or_none(entry.get("last_erratum_date")),
+        "tips": entry.get("tips"),
+    }
+
+
+def _card_natural_key(passcode: int | None, source_url: str | None) -> tuple[str, object] | None:
+    """Upsert key: prefer passcode, else source_url; None when unidentifiable."""
+    if passcode is not None:
+        return ("p", passcode)
+    if source_url:
+        return ("u", source_url)
+    return None
 
 
 def _printing_rarity_code(card_set: dict) -> str:
@@ -245,40 +261,99 @@ def import_cards_entries(
 
         _detach_collection_printing_links(session)
 
-        # Cards CASCADE to printings; printings must not be deleted first while
-        # collection_items still reference printing_id (no ON DELETE SET NULL).
-        session.query(Card).delete()
+        # Printings + errata are fully rebuilt from the scrape each run. Delete
+        # them up front (collection links already detached), but KEEP card rows so
+        # surrogate ids survive and the user data that references them
+        # (decks/favorites/tags/preview/banlist/genesys/legality) is preserved.
+        # Cards are upserted by natural key below; cards absent from this scrape are
+        # intentionally not pruned.
+        session.query(Printing).delete()
+        session.query(CardErrataVersion).delete()
         session.commit()
 
-        batch_cards: list[Card] = []
-        batch_printings: list[Printing] = []
-        batch_errata: list[CardErrataVersion] = []
-        tcg_release_cache: dict[str, date | None] = {}
-
-        for entry in tqdm(entries, desc="Importing cards"):
+        # Normalize entries once and compute each card's natural key.
+        prepared: list[tuple[tuple[str, object], dict, dict]] = []
+        seen_keys: set[tuple[str, object]] = set()
+        for entry in entries:
             if "category" not in entry and entry.get("frameType") is not None:
                 from ygo_app.yugipedia.card_import import enrich_ygopro_entry
 
                 entry = enrich_ygopro_entry(entry)
-            card = _card_from_api(entry)
-            batch_cards.append(card)
+            fields = _card_fields_from_api(entry)
+            key = _card_natural_key(fields["passcode"], fields["source_url"])
+            if key is None:
+                continue
+            if key in seen_keys:
+                # Duplicate natural key within a scrape: keep the last occurrence.
+                prepared = [p for p in prepared if p[0] != key]
+            seen_keys.add(key)
+            prepared.append((key, fields, entry))
+
+        def _load_key_to_id() -> dict[tuple[str, object], int]:
+            out: dict[tuple[str, object], int] = {}
+            for cid, passcode, source_url in session.execute(
+                select(Card.id, Card.passcode, Card.source_url)
+            ).all():
+                if passcode is not None:
+                    out[("p", passcode)] = cid
+                if source_url:
+                    out[("u", source_url)] = cid
+            return out
+
+        existing = _load_key_to_id()
+        update_maps: list[dict] = []
+        insert_maps: list[dict] = []
+        for key, fields, _entry in prepared:
+            cid = existing.get(key)
+            if cid is not None:
+                update_maps.append({"id": cid, **fields})
+            else:
+                insert_maps.append(fields)
+
+        for chunk in _chunked(update_maps, batch_size):
+            session.bulk_update_mappings(Card, chunk)
+        for chunk in _chunked(insert_maps, batch_size):
+            session.bulk_insert_mappings(Card, chunk)
+        session.commit()
+        cards_imported = len(update_maps) + len(insert_maps)
+
+        # Reload so newly inserted cards resolve to ids for their printings/errata.
+        keymap = _load_key_to_id()
+
+        batch_printings: list[Printing] = []
+        batch_errata: list[CardErrataVersion] = []
+        tcg_release_cache: dict[str, date | None] = {}
+
+        def _flush_children() -> None:
+            nonlocal printings_imported
+            if batch_printings or batch_errata:
+                session.add_all(batch_printings)
+                session.add_all(batch_errata)
+                session.commit()
+            printings_imported += len(batch_printings)
+            batch_printings.clear()
+            batch_errata.clear()
+
+        for key, _fields, entry in tqdm(prepared, desc="Importing cards"):
+            card_id = keymap.get(key)
+            if card_id is None:
+                continue
             batch_errata.extend(
-                _errata_rows_for_entry(session, card.id, entry, tcg_release_cache)
+                _errata_rows_for_entry(session, card_id, entry, tcg_release_cache)
             )
             seen_printings: set[tuple[str, str]] = set()
-
             for cs in entry.get("card_sets") or []:
                 set_code = cs.get("set_code")
                 if not set_code:
                     continue
                 rarity_code = _printing_rarity_code(cs)
-                key = (set_code, rarity_code)
-                if key in seen_printings:
+                pkey = (set_code, rarity_code)
+                if pkey in seen_printings:
                     continue
-                seen_printings.add(key)
+                seen_printings.add(pkey)
                 batch_printings.append(
                     Printing(
-                        card_id=card.id,
+                        card_id=card_id,
                         set_name=cs.get("set_name"),
                         set_code=set_code,
                         set_rarity=cs.get("set_rarity"),
@@ -286,27 +361,10 @@ def import_cards_entries(
                         set_price=cs.get("set_price"),
                     )
                 )
+            if len(batch_printings) >= batch_size:
+                _flush_children()
 
-            if len(batch_cards) >= batch_size:
-                session.add_all(batch_cards)
-                session.flush()
-                session.add_all(batch_printings)
-                session.add_all(batch_errata)
-                session.commit()
-                cards_imported += len(batch_cards)
-                printings_imported += len(batch_printings)
-                batch_cards.clear()
-                batch_printings.clear()
-                batch_errata.clear()
-
-        if batch_cards:
-            session.add_all(batch_cards)
-            session.flush()
-            session.add_all(batch_printings)
-            session.add_all(batch_errata)
-            session.commit()
-            cards_imported += len(batch_cards)
-            printings_imported += len(batch_printings)
+        _flush_children()
 
         _relink_collection_printing_links(session)
         session.commit()

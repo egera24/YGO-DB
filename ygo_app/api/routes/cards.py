@@ -53,6 +53,7 @@ def _card_summary(card: Card, extra: dict, format_extra: dict | None = None) -> 
     merged = {**extra, **(format_extra or {})}
     return CardSummary(
         id=card.id,
+        passcode=card.passcode,
         name=card.name,
         type=card.type,
         frame_type=card.frame_type,

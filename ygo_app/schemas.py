@@ -31,6 +31,7 @@ class CardSearchPage(BaseModel):
 
 class CardSummary(BaseModel):
     id: int
+    passcode: int | None = None
     name: str
     type: str | None
     frame_type: str | None

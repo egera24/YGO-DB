@@ -334,6 +334,7 @@ def search_cards(
 ) -> tuple[list[Card], int]:
     search_columns = (
         Card.id,
+        Card.passcode,
         Card.name,
         Card.type,
         Card.frame_type,
@@ -372,8 +373,10 @@ def search_cards(
     if q:
         term = q.strip()
         if term.isdigit():
-            stmt = stmt.where(Card.id == int(term))
-            count_stmt = select(func.count()).select_from(Card).where(Card.id == int(term))
+            stmt = stmt.where(Card.passcode == int(term))
+            count_stmt = (
+                select(func.count()).select_from(Card).where(Card.passcode == int(term))
+            )
         else:
             try:
                 filt = text_search_filter(term)

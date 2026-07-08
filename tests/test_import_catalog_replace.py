@@ -41,7 +41,8 @@ class TestImportCatalogReplace(unittest.TestCase):
         session.add(user)
         session.flush()
 
-        card = Card(id=999, name="Old Card")
+        # Surrogate id 999 mapping to passcode 12345 (as a prior import would leave it).
+        card = Card(id=999, passcode=12345, name="Old Card")
         session.add(card)
         session.flush()
 
@@ -79,7 +80,9 @@ class TestImportCatalogReplace(unittest.TestCase):
         self.session_factory_patcher.stop()
         self.engine.dispose()
 
-    def test_import_replaces_catalog_and_preserves_collection_links(self):
+    def test_reimport_upserts_by_passcode_and_preserves_links(self):
+        """Re-importing a card by passcode updates it in place (surrogate id kept),
+        rebuilds its printing, and re-attaches the user's collection link."""
         entries = [
             {
                 "id": 12345,
@@ -106,13 +109,17 @@ class TestImportCatalogReplace(unittest.TestCase):
             self.assertEqual(item.set_code, "LOB-001")
             self.assertIsNotNone(item.printing_id)
 
-            self.assertIsNone(session.get(Card, self.old_card_id))
+            # Card matched by passcode: same surrogate id, updated fields.
+            card = session.get(Card, self.old_card_id)
+            self.assertIsNotNone(card)
+            assert card is not None
+            self.assertEqual(card.name, "New Card")
+            self.assertEqual(card.passcode, 12345)
 
             printing = session.get(Printing, item.printing_id)
             self.assertIsNotNone(printing)
             assert printing is not None
-            # printing_id may reuse the same autoincrement after full replace
-            self.assertEqual(printing.card_id, 12345)
+            self.assertEqual(printing.card_id, self.old_card_id)
             self.assertEqual(printing.set_code, "LOB-001")
             self.assertEqual(printing.set_rarity_code, "(UR)")
         finally:

@@ -61,7 +61,13 @@ class AuthRateLimit(Base):
 class Card(Base):
     __tablename__ = "cards"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Real Konami passcode; NULL for cards printed without a passcode.
+    passcode: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, unique=True, index=True
+    )
+    # Yugipedia page URL; unique natural key (used to match passwordless cards).
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(256), index=True)
     type: Mapped[str | None] = mapped_column(String(64), index=True)
     human_readable_type: Mapped[str | None] = mapped_column(String(128))

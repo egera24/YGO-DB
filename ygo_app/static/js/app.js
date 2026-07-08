@@ -3003,7 +3003,7 @@ function seedModalPreview(seed, imageToken) {
   $("#modal-name").textContent = seed.name || "Loading…";
   $("#modal-meta").textContent = formatModalStats(seed);
   renderModalFormatBadges(seed);
-  renderModalPasscode(seed.id ?? state.currentCardId);
+  renderModalPasscode(seed.passcode ?? null);
   if (seed.is_favorite != null) {
     $("#modal-favorite").textContent = seed.is_favorite ? "★ Favorited" : "☆ Favorite";
   } else {
@@ -3282,24 +3282,25 @@ function renderPrintingsPriceInfo(printings) {
   </span>`;
 }
 
-function formatPasscode(cardId) {
-  if (cardId == null) return "";
-  return String(cardId).padStart(8, "0");
+function formatPasscode(passcode) {
+  if (passcode == null) return "";
+  return String(passcode).padStart(8, "0");
 }
 
-function renderModalPasscode(cardId) {
+function renderModalPasscode(passcode) {
   const wrap = $("#modal-passcode");
   const text = $("#modal-passcode-text");
   const copyBtn = $("#modal-passcode-copy");
   if (!wrap || !text) return;
-  if (cardId == null) {
+  // Cards printed without a passcode have passcode == null -> hide the row.
+  if (passcode == null) {
     wrap.hidden = true;
     wrap.removeAttribute("aria-label");
     text.textContent = "";
     if (copyBtn) copyBtn.hidden = true;
     return;
   }
-  const code = formatPasscode(cardId);
+  const code = formatPasscode(passcode);
   text.textContent = code;
   wrap.setAttribute("aria-label", `Passcode ${code}`);
   wrap.hidden = false;
@@ -3401,7 +3402,7 @@ function renderModalPrintingsList(printings, selectedKey) {
 
 function renderModalCard(card) {
   $("#modal-name").textContent = card.name;
-  renderModalPasscode(card.id);
+  renderModalPasscode(card.passcode ?? null);
   $("#modal-meta").textContent = formatModalStats(card);
   renderModalFormatBadges(card);
   $("#modal-desc").textContent = card.desc || "";
@@ -3450,7 +3451,7 @@ async function openCardModal(cardId, { fromRouter = false } = {}) {
   }
 
   renderModalSkeleton();
-  renderModalPasscode(state.currentCardId);
+  renderModalPasscode(seed?.passcode ?? null);
   setModalLoadingState(true);
   openCardModalOverlay();
   populateDeckSelect();
@@ -6172,8 +6173,9 @@ function wireEvents() {
     if (e.target === $("#card-modal")) closeCardModalOverlay();
   });
   $("#modal-passcode-copy")?.addEventListener("click", async () => {
-    if (state.currentCardId == null) return;
-    const code = formatPasscode(state.currentCardId);
+    const passcode = state.currentCard?.passcode ?? null;
+    if (passcode == null) return;
+    const code = formatPasscode(passcode);
     try {
       await navigator.clipboard.writeText(code);
       showToast("Passcode copied");

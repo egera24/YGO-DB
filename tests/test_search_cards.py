@@ -38,6 +38,7 @@ class TestSearchCards(unittest.TestCase):
         session.add(
             Card(
                 id=1,
+                passcode=88888888,
                 name="Shield of the Millennium Dynasty",
                 desc=(
                     "Cannot be destroyed by Spell/Trap effects. If this card is in your hand: "
@@ -48,6 +49,7 @@ class TestSearchCards(unittest.TestCase):
         session.add(
             Card(
                 id=2,
+                passcode=2,
                 name="Scattered Words",
                 desc="You can. Reveal this card for a different effect.",
             )
@@ -91,7 +93,13 @@ class TestSearchCards(unittest.TestCase):
         self.assertNotIn(2, self._ids("reveal -different"))
 
     def test_passcode_numeric(self):
-        self.assertEqual(self._ids("1"), {1})
+        # Numeric queries match the real passcode, not the surrogate id.
+        self.assertEqual(self._ids("88888888"), {1})
+        self.assertEqual(self._ids("2"), {2})
+
+    def test_passcode_numeric_surrogate_id_not_matched(self):
+        # id 1 has passcode 88888888, so searching "1" must not return it.
+        self.assertEqual(self._ids("1"), set())
 
 
 if __name__ == "__main__":

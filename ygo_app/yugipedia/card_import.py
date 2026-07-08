@@ -6,7 +6,6 @@ import json
 
 from ygo_app.yugipedia.adapter import yugipedia_card_to_api
 from ygo_app.yugipedia.constants import MONSTER_TYPES
-from ygo_app.yugipedia.images import passcode_to_int
 
 CARD_CATEGORIES = frozenset({"Spell", "Trap", "Skill"})
 
@@ -58,11 +57,11 @@ def _tips_json(entry: dict) -> str | None:
 
 
 def yugipedia_entry_to_import(entry: dict) -> dict | None:
-    """Build one import row (Card fields + card_sets + card_images) from scrape JSON."""
-    pid = passcode_to_int(entry.get("id"))
-    if pid is None:
-        return None
+    """Build one import row (Card fields + card_sets + card_images) from scrape JSON.
 
+    Cards printed without a passcode are kept (identified by source_url); only
+    entries the adapter cannot identify at all are dropped.
+    """
     api = yugipedia_card_to_api(entry)
     if api is None:
         return None

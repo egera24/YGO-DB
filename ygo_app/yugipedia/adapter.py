@@ -96,11 +96,17 @@ def _resolve_images(entry: dict, pid: int) -> dict[str, str | None]:
 
 
 def yugipedia_card_to_api(entry: dict) -> dict | None:
-    """Map one Yugipedia card dict to YGOProDeck API card shape."""
+    """Map one Yugipedia card dict to YGOProDeck API card shape.
+
+    Real cards carry an integer passcode; cards printed without a passcode keep
+    ``passcode=None`` and are identified by their Yugipedia ``source_url``.
+    """
     pid = passcode_to_int(entry.get("id"))
-    if pid is None:
+    source_url = entry.get("source_url")
+    if pid is None and not source_url:
         return None
 
+    # pid=None is tolerated: _resolve_images / ygoprodeck_card_url no-op on None.
     images = _resolve_images(entry, pid)
     card_sets = _adapt_card_sets(entry.get("card_sets"))
     card_images = [
@@ -117,6 +123,8 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
         frame = "spell" if kind == "Spell" else "trap" if kind == "Trap" else "skill"
         return {
             "id": pid,
+            "passcode": pid,
+            "source_url": source_url,
             "name": entry.get("name", ""),
             "type": f"{kind} Card",
             "humanReadableCardType": f"{prop} {kind} Card".strip() if prop else f"{kind} Card",
@@ -148,6 +156,8 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
 
     return {
         "id": pid,
+        "passcode": pid,
+        "source_url": source_url,
         "name": entry.get("name", ""),
         "type": _monster_type_label(typeline),
         "humanReadableCardType": _human_readable_monster(typeline, race),

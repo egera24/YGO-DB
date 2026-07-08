@@ -134,7 +134,28 @@ def fetch_all_passcodes(*, max_cards: int | None = None) -> list[dict]:
         if range_num < len(PASSWORD_RANGES):
             time.sleep(5)
 
+    _merge_passwordless_cards(all_cards, max_cards=max_cards)
+
     return limit_passcode_list(all_cards, max_cards)
+
+
+def _merge_passwordless_cards(all_cards: list[dict], *, max_cards: int | None) -> None:
+    """Append cards printed without a passcode (deduped by wiki URL) in place."""
+    if max_cards is not None and len(all_cards) >= max_cards:
+        return
+    from ygo_app.yugipedia.category_members import fetch_passwordless_cards
+
+    seen_urls = {c.get("url") for c in all_cards}
+    added = 0
+    for card in fetch_passwordless_cards():
+        if card["url"] in seen_urls:
+            continue
+        all_cards.append(card)
+        seen_urls.add(card["url"])
+        added += 1
+        if max_cards is not None and len(all_cards) >= max_cards:
+            break
+    print(f"  Added {added} passwordless cards (total {len(all_cards)})")
 
 
 def limit_passcode_list(cards: list[dict], max_cards: int | None) -> list[dict]:

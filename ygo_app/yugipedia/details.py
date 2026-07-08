@@ -40,15 +40,35 @@ def _load_json_list(path: Path) -> list[dict]:
         return json.load(f)
 
 
+def input_card_key(card: dict) -> str:
+    """Stable dedup/checkpoint key for a passcode-list entry.
+
+    Real cards key on the zero-padded password; passwordless cards (no password)
+    key on the wiki URL instead.
+    """
+    pw = str(card.get("password") or "").strip()
+    if pw:
+        return pw.zfill(8)
+    return card.get("url") or ""
+
+
+def saved_card_key(card: dict) -> str:
+    """Matching key for an already-scraped card (id/passcode or source_url)."""
+    pid = card.get("id")
+    if pid not in (None, ""):
+        return str(pid).zfill(8)
+    return card.get("source_url") or ""
+
+
 def _passwords_done(path: Path) -> set[str]:
     if not path.exists():
         return set()
     cards = _load_json_list(path)
     done: set[str] = set()
     for c in cards:
-        pid = c.get("id")
-        if pid is not None:
-            done.add(str(pid).zfill(8))
+        key = saved_card_key(c)
+        if key:
+            done.add(key)
     return done
 
 
@@ -97,12 +117,12 @@ def audit_slice_completion(
     Log [BATCH_RESULT] and return missing passcode count for this slice.
     Raises BatchIncompleteError when batch_index is set and missing > 0.
     """
-    slice_passwords = {str(c["password"]).zfill(8) for c in slice_cards}
+    slice_passwords = {input_card_key(c) for c in slice_cards}
     saved = _passwords_done(output_path)
     rejected_pw = {
-        str(c.get("password", "")).zfill(8)
+        input_card_key(c)
         for c in rejected_cards
-        if c.get("password")
+        if input_card_key(c)
     }
     missing = slice_passwords - saved - rejected_pw
     saved_in_slice = len(slice_passwords & saved)
@@ -308,7 +328,7 @@ def _merge_retry_items(
 ) -> list[tuple[dict, str]]:
     by_password: dict[str, tuple[dict, str]] = {}
     for card, error in pool_items + failure_items:
-        by_password[str(card["password"]).zfill(8)] = (card, error)
+        by_password[input_card_key(card)] = (card, error)
     return list(by_password.values())
 
 
@@ -363,7 +383,7 @@ def scrape_card_details(
         done_passwords = _passwords_done(output_path)
         log_line(f"Resume: {len(done_passwords)} cards already scraped")
 
-    pending = [c for c in slice_cards if c["password"] not in done_passwords]
+    pending = [c for c in slice_cards if input_card_key(c) not in done_passwords]
     rejected_cards: list[dict] = []
     if rejected_path.exists():
         try:

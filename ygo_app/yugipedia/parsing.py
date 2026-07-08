@@ -318,15 +318,62 @@ def extract_archetype(soup: BeautifulSoup) -> list[str] | None:
     return None
 
 
+def extract_card_type_from_page(soup: BeautifulSoup) -> str | None:
+    """Read the 'Card type' infobox row (Monster/Spell/Trap/Skill).
+
+    Used for cards discovered without a card type (passwordless category members),
+    returning the same labels the passcode list carries (e.g. 'Monster Card').
+    """
+    row = find_row_by_header(soup, "Card type")
+    if not row:
+        return None
+    td = row.find("td")
+    if not td:
+        return None
+    text = td.get_text()
+    for key in ("Monster", "Spell", "Trap", "Skill"):
+        if key in text:
+            return f"{key} Card"
+    return None
+
+
+def _init_card_data(input_card: dict, **extra) -> dict:
+    """Seed a card_data dict; passwordless cards carry id=None + a passwordless flag."""
+    passwordless = bool(input_card.get("passwordless"))
+    data: dict = {
+        "id": None if passwordless else input_card["password"],
+        "name": input_card["name"],
+    }
+    if input_card.get("url"):
+        data["source_url"] = input_card["url"]
+    if passwordless:
+        data["passwordless"] = True
+    data.update(extra)
+    return data
+
+
+def _password_mismatch_error(soup: BeautifulSoup, input_card: dict) -> str | None:
+    """Return an error string when the page password disagrees with the input.
+
+    Skipped entirely for passwordless cards (their pages show 'Password: None').
+    """
+    if input_card.get("passwordless"):
+        return None
+    page_password = extract_password_from_page(soup)
+    if page_password != input_card["password"]:
+        return (
+            f"Password mismatch: expected {input_card['password']}, "
+            f"found {page_password}"
+        )
+    return None
+
+
 def parse_monster_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
-    card_data: dict = {"id": input_card["password"], "name": input_card["name"]}
+    card_data: dict = _init_card_data(input_card)
     try:
-        page_password = extract_password_from_page(soup)
-        if page_password != input_card["password"]:
-            return None, (
-                f"Password mismatch: expected {input_card['password']}, "
-                f"found {page_password}"
-            )
+        pw_error = _password_mismatch_error(soup, input_card)
+        if pw_error:
+            return None, pw_error
         typeline = extract_typeline(soup)
         if typeline:
             card_data["typeline"] = typeline
@@ -374,18 +421,11 @@ def parse_monster_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | No
 
 
 def parse_spell_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
-    card_data: dict = {
-        "id": input_card["password"],
-        "name": input_card["name"],
-        "type": "Spell",
-    }
+    card_data: dict = _init_card_data(input_card, type="Spell")
     try:
-        page_password = extract_password_from_page(soup)
-        if page_password != input_card["password"]:
-            return None, (
-                f"Password mismatch: expected {input_card['password']}, "
-                f"found {page_password}"
-            )
+        pw_error = _password_mismatch_error(soup, input_card)
+        if pw_error:
+            return None, pw_error
         property_val = extract_property(soup)
         if property_val:
             card_data["property"] = property_val
@@ -406,18 +446,11 @@ def parse_spell_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
 
 
 def parse_trap_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
-    card_data: dict = {
-        "id": input_card["password"],
-        "name": input_card["name"],
-        "type": "Trap",
-    }
+    card_data: dict = _init_card_data(input_card, type="Trap")
     try:
-        page_password = extract_password_from_page(soup)
-        if page_password != input_card["password"]:
-            return None, (
-                f"Password mismatch: expected {input_card['password']}, "
-                f"found {page_password}"
-            )
+        pw_error = _password_mismatch_error(soup, input_card)
+        if pw_error:
+            return None, pw_error
         property_val = extract_property(soup)
         if property_val:
             card_data["property"] = property_val
@@ -438,18 +471,11 @@ def parse_trap_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None,
 
 
 def parse_skill_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
-    card_data: dict = {
-        "id": input_card["password"],
-        "name": input_card["name"],
-        "type": "Skill",
-    }
+    card_data: dict = _init_card_data(input_card, type="Skill")
     try:
-        page_password = extract_password_from_page(soup)
-        if page_password != input_card["password"]:
-            return None, (
-                f"Password mismatch: expected {input_card['password']}, "
-                f"found {page_password}"
-            )
+        pw_error = _password_mismatch_error(soup, input_card)
+        if pw_error:
+            return None, pw_error
         property_val = extract_property(soup)
         if property_val:
             card_data["property"] = property_val
@@ -472,6 +498,9 @@ def parse_skill_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
 def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | None]:
     soup = BeautifulSoup(html, "html.parser")
     card_type = input_card.get("card_type", "")
+    # Passwordless category members arrive without a card type; read it off the page.
+    if not card_type:
+        card_type = extract_card_type_from_page(soup) or ""
     if card_type == "Monster Card":
         return parse_monster_card(soup, input_card)
     if card_type == "Spell Card":
@@ -480,4 +509,4 @@ def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | Non
         return parse_trap_card(soup, input_card)
     if card_type == "Skill Card":
         return parse_skill_card(soup, input_card)
-    return None, f"Unknown card type: {card_type}"
+    return None, f"Unknown card type: {card_type or '(none)'}"

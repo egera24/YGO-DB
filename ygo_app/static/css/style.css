@@ -1171,6 +1171,9 @@ button:disabled {
 }
 .card-tile:hover { transform: translateY(-2px); border-color: var(--accent); }
 .card-tile.owned { border-color: var(--owned); }
+.card-tile-image-wrap {
+  position: relative;
+}
 .card-tile img { width: 100%; aspect-ratio: 59/86; object-fit: cover; display: block; background: #000; }
 .card-tile .info { padding: 0.4rem 0.5rem; font-size: 0.75rem; }
 .card-tile .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2832,6 +2835,75 @@ tr:hover td { background: var(--surface); }
 }
 .format-badge--semi {
   background: color-mix(in srgb, #ffb400 22%, transparent);
+}
+.format-badges {
+  margin: 0.25rem 0 0;
+}
+.format-badges .format-badge {
+  margin-top: 0;
+  margin-right: 0.35rem;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.5rem;
+  font-weight: 600;
+}
+.format-badges .format-badge--forbidden {
+  background: color-mix(in srgb, var(--danger) 45%, #1e293b);
+}
+.format-badges .format-badge--limited {
+  background: color-mix(in srgb, #ff6e00 45%, #1e293b);
+}
+.format-badges .format-badge--semi {
+  background: color-mix(in srgb, #ffb400 45%, #1e293b);
+}
+.format-badges .format-badge--points {
+  background: color-mix(in srgb, var(--accent) 40%, #1e293b);
+  color: #e2e8f0;
+}
+.format-context-label {
+  display: block;
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+}
+.deck-card-format-badge,
+.card-tile-format-badge {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: calc(100% - 4px);
+  pointer-events: none;
+}
+.deck-card-format-badge .format-badge,
+.card-tile-format-badge .format-badge {
+  margin-top: 0;
+  font-size: 0.62rem;
+  padding: 0.05rem 0.35rem;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #f8fafc;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(15, 23, 42, 0.92);
+}
+.deck-card-format-badge .format-badge--forbidden,
+.card-tile-format-badge .format-badge--forbidden {
+  background: rgba(127, 29, 29, 0.95);
+}
+.deck-card-format-badge .format-badge--limited,
+.card-tile-format-badge .format-badge--limited {
+  background: rgba(154, 52, 18, 0.95);
+}
+.deck-card-format-badge .format-badge--semi,
+.card-tile-format-badge .format-badge--semi {
+  background: rgba(161, 98, 7, 0.95);
+}
+.deck-card-format-badge .format-badge--points,
+.card-tile-format-badge .format-badge--points {
+  background: rgba(15, 23, 42, 0.92);
+  color: #7dd3fc;
 }
 .filter-banlist-status-dot {
   display: inline-block;

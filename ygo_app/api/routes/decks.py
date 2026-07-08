@@ -25,6 +25,7 @@ from ygo_app.services import (
     clear_deck_preview_if_removed,
     compute_deck_preview_cards,
     deck_counts,
+    enrich_cards_for_format,
     list_decks_enriched,
     update_deck,
     validate_deck_for_api,
@@ -40,7 +41,8 @@ def _deck_out_from_base(base: dict) -> DeckOut:
     return DeckOut(**payload, preview_cards=previews)
 
 
-def _deck_card_out(dc: DeckCard) -> DeckCardOut:
+def _deck_card_out(dc: DeckCard, *, format_extras: dict | None = None) -> DeckCardOut:
+    extras = format_extras or {}
     return DeckCardOut(
         card_id=dc.card_id,
         name=dc.card.name,
@@ -50,6 +52,8 @@ def _deck_card_out(dc: DeckCard) -> DeckCardOut:
         zone=dc.zone,
         quantity=dc.quantity,
         sort_order=dc.sort_order,
+        banlist_status=extras.get("banlist_status"),
+        genesys_points=extras.get("genesys_points"),
     )
 
 
@@ -75,7 +79,20 @@ def _deck_detail_from_deck(deck: Deck, db: Session) -> DeckDetail:
     previews = compute_deck_preview_cards(deck.preview_card_id, entries)
     validation = validate_deck_for_api(db, deck)
     base = build_deck_out(deck, counts, previews, validation=validation)
-    cards = [_deck_card_out(dc) for dc in _sorted_deck_cards(deck)]
+    sorted_cards = _sorted_deck_cards(deck)
+    card_models = [dc.card for dc in sorted_cards]
+    format_extras = enrich_cards_for_format(
+        db,
+        card_models,
+        format_code=deck.format_code,
+        banlist_revision_id=deck.banlist_revision_id,
+        genesys_point_list_id=deck.genesys_point_list_id,
+        for_search=True,
+    )
+    cards = [
+        _deck_card_out(dc, format_extras=format_extras.get(dc.card_id))
+        for dc in sorted_cards
+    ]
     out = _deck_out_from_base(base)
     return DeckDetail(**out.model_dump(), cards=cards, validation=_validation_out(validation))
 

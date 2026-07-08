@@ -303,6 +303,8 @@ class DeckCardOut(BaseModel):
     zone: str
     quantity: int
     sort_order: int = 0
+    banlist_status: str | None = None
+    genesys_points: int | None = None
 
     model_config = {"from_attributes": True}
 

@@ -2200,19 +2200,22 @@ function renderSearchResults(cards) {
     state.searchResultsById[c.id] = c;
   }
   grid.innerHTML = cards
-      .map(
-        (c) => `
+      .map((c) => {
+        const formatBadge = formatBadgeHtml(c);
+        return `
       <article class="card-tile ${c.owned ? "owned" : ""}" data-id="${c.id}">
         ${c.owned ? `<span class="badge badge-owned">×${c.owned_quantity}</span>` : ""}
         ${c.trade_quantity > 0 ? `<span class="badge badge-trade">×${c.trade_quantity}</span>` : ""}
-        ${cardImgTag(c.image_url_small)}
+        <div class="card-tile-image-wrap">
+          ${cardImgTag(c.image_url_small)}
+          ${formatBadge ? `<div class="card-tile-format-badge">${formatBadge}</div>` : ""}
+        </div>
         <div class="info">
           <div class="name">${escapeHtml(c.name)}</div>
           <div class="muted">${escapeHtml(c.type || "")}</div>
-          ${formatBadgeHtml(c)}
         </div>
-      </article>`
-      )
+      </article>`;
+      })
       .join("");
   renderSearchResultsSummary();
 }
@@ -2716,6 +2719,8 @@ function findModalSeed(cardId) {
         image_url_small: deckCard.image_url_small,
         image_url: deckCard.image_url,
         type: deckCard.type,
+        banlist_status: deckCard.banlist_status ?? null,
+        genesys_points: deckCard.genesys_points ?? null,
       };
     }
   }
@@ -2738,6 +2743,13 @@ function findModalSeed(cardId) {
 function renderModalSkeleton() {
   resetModalSupplements();
   renderModalPasscode(null);
+  const contextEl = $("#modal-format-context");
+  if (contextEl) {
+    contextEl.textContent = "";
+    contextEl.hidden = true;
+  }
+  const badgesEl = $("#modal-format-badges");
+  if (badgesEl) badgesEl.innerHTML = "";
   $("#modal-desc").innerHTML = `
     <div class="skeleton skeleton-line"></div>
     <div class="skeleton skeleton-line"></div>
@@ -2772,6 +2784,7 @@ function setModalLoadingState(loading) {
 function seedModalPreview(seed, imageToken) {
   $("#modal-name").textContent = seed.name || "Loading…";
   $("#modal-meta").textContent = formatModalStats(seed);
+  renderModalFormatBadges(seed);
   renderModalPasscode(seed.id ?? state.currentCardId);
   if (seed.is_favorite != null) {
     $("#modal-favorite").textContent = seed.is_favorite ? "★ Favorited" : "☆ Favorite";
@@ -3172,6 +3185,7 @@ function renderModalCard(card) {
   $("#modal-name").textContent = card.name;
   renderModalPasscode(card.id);
   $("#modal-meta").textContent = formatModalStats(card);
+  renderModalFormatBadges(card);
   $("#modal-desc").textContent = card.desc || "";
   $("#modal-desc").classList.remove("modal-load-error");
   $("#modal-favorite").textContent = card.is_favorite ? "★ Favorited" : "☆ Favorite";
@@ -3188,7 +3202,7 @@ function renderModalCard(card) {
 async function refreshModalCard() {
   if (!state.currentCardId) return;
   const cardId = state.currentCardId;
-  const card = await api(`/cards/${cardId}`);
+  const card = await api(`/cards/${cardId}${buildCardDetailQuery()}`);
   if (state.currentCardId !== cardId) return;
   state.currentCard = card;
   renderModalCard(card);
@@ -5041,6 +5055,8 @@ function addCardToActiveDraft(cardId, zone, cardMeta) {
     image_url_small: cardMeta.image_url_small ?? cardMeta.image_url ?? null,
     zone,
     quantity: 1,
+    banlist_status: cardMeta.banlist_status ?? null,
+    genesys_points: cardMeta.genesys_points ?? null,
   });
   refreshDraftCounts();
   markDeckDirty();
@@ -5316,9 +5332,11 @@ function setupDeckZoneInfoDelegation() {
 function renderDeckCardSlot(deck, card, zone, slotIndex) {
   const imgUrl = card.image_url || card.image_url_small || null;
   const isCover = deck.preview_card_id === card.card_id;
+  const formatBadge = formatBadgeHtml(card);
   return `
     <div class="deck-card-slot${isCover ? " is-cover" : ""}" data-card="${card.card_id}" data-zone="${zone}" data-slot-index="${slotIndex}" draggable="true">
       ${cardImgTag(imgUrl)}
+      ${formatBadge ? `<div class="deck-card-format-badge">${formatBadge}</div>` : ""}
       <div class="deck-card-actions">
         <button type="button" class="deck-cover-btn${isCover ? " is-active" : ""}" title="Set as deck cover" aria-label="Set as deck cover">★</button>
         <button type="button" class="deck-minus-btn" title="Remove one" aria-label="Remove one">−</button>
@@ -6122,6 +6140,8 @@ function wireEvents() {
         type: card.type,
         image_url: card.image_url,
         image_url_small: card.image_url_small,
+        banlist_status: card.banlist_status ?? null,
+        genesys_points: card.genesys_points ?? null,
       });
       showToast(`Added to ${zoneLabel} deck (unsaved)`, { durationMs: 3000 });
       return;
@@ -6239,24 +6259,114 @@ function formatBadgeHtml(card) {
     parts.push(`<span class="format-badge ${cls}">${escapeHtml(card.banlist_status)}</span>`);
   }
   if (card.genesys_points != null) {
-    parts.push(`<span class="format-badge">${card.genesys_points} pts</span>`);
+    parts.push(
+      `<span class="format-badge format-badge--points">${escapeHtml(String(card.genesys_points))} pts</span>`
+    );
   }
   return parts.join("");
 }
 
+function resolveCardDetailFormatContext() {
+  if (state.decksDetailOpen && state.activeDeckDetail?.format_code) {
+    const deck = state.activeDeckDetail;
+    const banlist =
+      $("#deck-banlist")?.value ||
+      (deck.banlist_revision_id != null ? String(deck.banlist_revision_id) : "");
+    const genesys =
+      $("#deck-genesys-list")?.value ||
+      (deck.genesys_point_list_id != null ? String(deck.genesys_point_list_id) : "");
+    return {
+      format: $("#deck-format")?.value || deck.format_code,
+      banlist_revision_id: banlist || null,
+      genesys_point_list_id: genesys || null,
+    };
+  }
+
+  const searchFormat = $("#search-format")?.value;
+  if (searchFormat) {
+    return {
+      format: searchFormat,
+      banlist_revision_id: $("#search-banlist")?.value || null,
+      genesys_point_list_id: $("#search-genesys-list")?.value || null,
+    };
+  }
+
+  const deckTargetId = Number($("#deck-target")?.value);
+  if (deckTargetId) {
+    const decks = state.decksListCache?.decks || [];
+    const deck = decks.find((d) => d.id === deckTargetId);
+    if (deck?.format_code) {
+      return {
+        format: deck.format_code,
+        banlist_revision_id:
+          deck.banlist_revision_id != null ? String(deck.banlist_revision_id) : null,
+        genesys_point_list_id:
+          deck.genesys_point_list_id != null ? String(deck.genesys_point_list_id) : null,
+      };
+    }
+  }
+
+  return {
+    format: "advanced",
+    banlist_revision_id: null,
+    genesys_point_list_id: null,
+  };
+}
+
+function formatContextLabel(ctx) {
+  const fmt = state.formatsList.find((f) => f.code === ctx.format);
+  const formatName = fmt?.name || ctx.format;
+  const parts = [formatName];
+
+  if (fmt?.uses_point_list) {
+    if (ctx.genesys_point_list_id) {
+      const list = state.genesysPointLists.find(
+        (g) => String(g.id) === String(ctx.genesys_point_list_id)
+      );
+      parts.push(list?.label || "Point list");
+    } else {
+      parts.push("Latest point list");
+    }
+  } else if (fmt?.uses_banlist && fmt?.banlist_selectable) {
+    const lists = state.banlistsByFormat[ctx.format] || [];
+    let banlistLabel = "Latest banlist";
+    if (ctx.banlist_revision_id) {
+      const rev = lists.find((b) => String(b.id) === String(ctx.banlist_revision_id));
+      banlistLabel = rev?.label || banlistLabel;
+    } else {
+      const current = lists.find((b) => b.is_current);
+      banlistLabel = current?.label || lists[0]?.label || banlistLabel;
+    }
+    parts.push(banlistLabel);
+  } else if (fmt?.fixed_banlist_label) {
+    parts.push(fmt.fixed_banlist_label);
+  }
+
+  return parts.join(" · ");
+}
+
+function renderModalFormatBadges(card) {
+  const ctx = resolveCardDetailFormatContext();
+  const label = formatContextLabel(ctx);
+  const contextEl = $("#modal-format-context");
+  if (contextEl) {
+    contextEl.textContent = label;
+    contextEl.hidden = !label;
+  }
+  const badgesEl = $("#modal-format-badges");
+  if (badgesEl) badgesEl.innerHTML = formatBadgeHtml(card);
+}
+
 function buildCardDetailQuery() {
-  const format = $("#search-format")?.value || state.activeDeckDetail?.format_code;
-  if (!format) return "";
-  const params = new URLSearchParams({ format });
-  const fmt = state.formatsList.find((f) => f.code === format);
-  const banlist =
-    $("#search-banlist")?.value || state.activeDeckDetail?.banlist_revision_id;
-  const genesys =
-    $("#deck-genesys-list")?.value ||
-    $("#search-genesys-list")?.value ||
-    state.activeDeckDetail?.genesys_point_list_id;
-  if (fmt?.banlist_selectable && banlist) params.set("banlist_revision_id", String(banlist));
-  if (genesys) params.set("genesys_point_list_id", String(genesys));
+  const ctx = resolveCardDetailFormatContext();
+  const params = new URLSearchParams({ format: ctx.format });
+  const fmt = state.formatsList.find((f) => f.code === ctx.format);
+  if (fmt?.banlist_selectable && ctx.banlist_revision_id) {
+    params.set("banlist_revision_id", String(ctx.banlist_revision_id));
+  }
+  if (ctx.genesys_point_list_id) {
+    params.set("genesys_point_list_id", String(ctx.genesys_point_list_id));
+  }
   return `?${params}`;
 }
 

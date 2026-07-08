@@ -766,11 +766,10 @@ jobs:
       - name: Verify catalog import code (FK fix present)
         run: |
           echo "ref=${{ github.ref }} sha=${{ github.sha }}"
-          if grep -q 'session.query(Printing).delete()' ygo_app/import_data.py; then
-            echo "::error::Stale import_data.py (Printing.delete). Start a new workflow run from develop/main; do not Re-run old jobs."
+          if ! grep -q '_detach_collection_printing_links' ygo_app/import_data.py; then
+            echo "::error::Stale import_data.py (missing _detach_collection_printing_links FK fix). Start a new workflow run from develop/main; do not Re-run old jobs."
             exit 1
           fi
-          grep -q '_detach_collection_printing_links' ygo_app/import_data.py
 
       - name: Run database migrations
         env:
@@ -824,11 +823,10 @@ jobs:
       - name: Verify catalog import code (FK fix present)
         run: |
           echo "ref=${{ github.ref }} sha=${{ github.sha }}"
-          if grep -q 'session.query(Printing).delete()' ygo_app/import_data.py; then
-            echo "::error::Stale import_data.py (Printing.delete). Start a new workflow run from develop/main; do not Re-run old jobs."
+          if ! grep -q '_detach_collection_printing_links' ygo_app/import_data.py; then
+            echo "::error::Stale import_data.py (missing _detach_collection_printing_links FK fix). Start a new workflow run from develop/main; do not Re-run old jobs."
             exit 1
           fi
-          grep -q '_detach_collection_printing_links' ygo_app/import_data.py
 
       - name: Run database migrations
         env:

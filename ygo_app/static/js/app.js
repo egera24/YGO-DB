@@ -3245,6 +3245,76 @@ function buildCollectionParams(offset = 0) {
   return params;
 }
 
+const COLLECTION_TABLE_SKELETON_ROWS = 8;
+const COLLECTION_SIDEBAR_SKELETON_ITEMS = 5;
+
+function setCollectionBusy(busy) {
+  const main = $("#collection-main");
+  if (main) {
+    if (busy) main.setAttribute("aria-busy", "true");
+    else main.removeAttribute("aria-busy");
+  }
+}
+
+function renderCollectionTableSkeletonRow() {
+  return `
+    <tr class="collection-row collection-row--skeleton" aria-hidden="true">
+      <td class="collection-thumb"><div class="skeleton collection-skel-thumb"></div></td>
+      <td>
+        <div class="skeleton skeleton-line collection-skel-line"></div>
+        <div class="skeleton skeleton-line skeleton-line--short collection-skel-line"></div>
+      </td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--notes"></div></td>
+      <td><div class="skeleton collection-skel-actions"></div></td>
+    </tr>`;
+}
+
+function renderCollectionTableLoadingSkeleton() {
+  const rows = Array.from({ length: COLLECTION_TABLE_SKELETON_ROWS }, () =>
+    renderCollectionTableSkeletonRow()
+  ).join("");
+  return `<tr class="collection-skel-sr-only"><td colspan="10"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
+}
+
+function showCollectionTableLoading() {
+  const tbody = $("#collection-tbody");
+  if (!tbody) return;
+  $("#collection-empty")?.classList.add("hidden");
+  document.querySelector(".collection-table-wrap")?.classList.remove("hidden");
+  tbody.innerHTML = renderCollectionTableLoadingSkeleton();
+  setCollectionBusy(true);
+}
+
+function showCollectionStatsLoading() {
+  const el = $("#collection-stats-line");
+  if (!el) return;
+  el.innerHTML =
+    '<div class="skeleton skeleton-line collection-skel-stats" aria-hidden="true"></div>';
+}
+
+function renderCollectionSidebarLoadingSkeleton() {
+  const list = $("#collection-folder-list");
+  if (!list) return;
+  list.innerHTML = Array.from({ length: COLLECTION_SIDEBAR_SKELETON_ITEMS }, () => `
+    <li class="collection-folder-skeleton" aria-hidden="true">
+      <div class="skeleton skeleton-line collection-skel-folder-label"></div>
+      <div class="skeleton skeleton-line collection-skel-folder-count"></div>
+    </li>`).join("");
+}
+
+function showCollectionViewLoading() {
+  showCollectionStatsLoading();
+  renderCollectionSidebarLoadingSkeleton();
+  showCollectionTableLoading();
+  $("#collection-pagination")?.classList.add("hidden");
+}
+
 function renderCollectionStatsLine() {
   const el = $("#collection-stats-line");
   if (!el || !state.collectionStats) return;
@@ -4154,7 +4224,7 @@ async function saveCollectionEdit() {
 function renderCollectionTable(items) {
   const tbody = $("#collection-tbody");
   const emptyEl = $("#collection-empty");
-  const tableWrap = $(".collection-table-wrap");
+  const tableWrap = document.querySelector(".collection-table-wrap");
   if (!tbody) return;
 
   const inFolder = Boolean(state.collectionFolder);
@@ -4170,6 +4240,7 @@ function renderCollectionTable(items) {
     emptyEl?.classList.remove("hidden");
     tableWrap?.classList.add("hidden");
     $("#collection-pagination")?.classList.add("hidden");
+    setCollectionBusy(false);
     return;
   }
 
@@ -4211,6 +4282,7 @@ function renderCollectionTable(items) {
     .join("");
 
   state.collectionLastItems = items;
+  setCollectionBusy(false);
 }
 
 function setupCollectionTableDelegation() {
@@ -4281,7 +4353,7 @@ async function loadCollectionPage(pageIndex) {
   const seq = ++collectionRequestSeq;
   state.collectionPage = pageIndex;
   const tbody = $("#collection-tbody");
-  if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="empty-msg">Loading…</td></tr>';
+  showCollectionTableLoading();
   $("#collection-pagination")?.classList.add("hidden");
 
   try {
@@ -4300,6 +4372,7 @@ async function loadCollectionPage(pageIndex) {
     };
   } catch (err) {
     if (seq !== collectionRequestSeq) return;
+    setCollectionBusy(false);
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
@@ -4326,6 +4399,7 @@ async function loadCollectionView({ background = false } = {}) {
 
   if (background && applyCollectionViewCache(state.collectionViewCache)) {
     loadCollectionViewFresh().catch((err) => {
+      setCollectionBusy(false);
       const tbody = $("#collection-tbody");
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
@@ -4337,6 +4411,7 @@ async function loadCollectionView({ background = false } = {}) {
   try {
     await loadCollectionViewFresh();
   } catch (err) {
+    setCollectionBusy(false);
     const tbody = $("#collection-tbody");
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
@@ -4345,6 +4420,7 @@ async function loadCollectionView({ background = false } = {}) {
 }
 
 async function loadCollectionViewFresh() {
+  showCollectionViewLoading();
   await loadCollectionStats();
   renderCollectionStatsLine();
   renderCollectionSidebar();

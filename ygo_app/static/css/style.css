@@ -1564,6 +1564,79 @@ tr:hover td { background: var(--surface); }
 }
 .collection-delete-btn { font-size: 0.8rem; padding: 0.25rem 0.5rem; }
 
+.collection-row--skeleton {
+  pointer-events: none;
+}
+.collection-row--skeleton:hover td {
+  background: transparent;
+}
+.collection-skel-sr-only td {
+  padding: 0;
+  border: none;
+  height: 0;
+  line-height: 0;
+}
+.collection-skel-sr-only p {
+  margin: 0;
+}
+.collection-skel-thumb {
+  width: 36px;
+  height: 52px;
+  border-radius: 3px;
+}
+.collection-skel-line {
+  margin-bottom: 0.35rem;
+  max-width: 100%;
+}
+.collection-skel-line:last-child {
+  margin-bottom: 0;
+}
+.collection-skel-line--narrow {
+  width: 5rem;
+  max-width: 100%;
+}
+.collection-skel-line--notes {
+  width: 7rem;
+  max-width: 100%;
+}
+.collection-skel-cell {
+  width: 2rem;
+  height: 0.85rem;
+}
+.collection-skel-badge {
+  width: 3.5rem;
+  height: 1.25rem;
+  border-radius: 4px;
+}
+.collection-skel-actions {
+  width: 3.5rem;
+  height: 1.5rem;
+  margin: 0 auto;
+  border-radius: 4px;
+}
+.collection-skel-stats {
+  width: min(320px, 100%);
+  margin-bottom: 0;
+}
+.collection-folder-skeleton {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  pointer-events: none;
+}
+.collection-skel-folder-label {
+  flex: 1;
+  margin-bottom: 0;
+  max-width: 8rem;
+}
+.collection-skel-folder-count {
+  width: 2rem;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
 .decks-toolbar {
   display: flex;
   flex-wrap: wrap;

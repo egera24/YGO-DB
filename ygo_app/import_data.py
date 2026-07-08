@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import date
 
 from sqlalchemy import select, text, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from tqdm import tqdm
 
 from ygo_app.catalog import fetch_card_entries, load_card_entries
@@ -367,9 +367,40 @@ def _match_printing(
     return None, f"Set code '{set_code}' not found in catalog"
 
 
+def _nonempty(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _match_printing_cached(
+    set_code: str,
+    rarity_code: str,
+    printing_by_key: dict[tuple[str, str], int],
+    catalog_set_codes: set[str],
+) -> tuple[int | None, str | None]:
+    if not set_code:
+        return None, "Missing card number"
+    printing_id = printing_by_key.get((set_code, rarity_code))
+    if printing_id is not None:
+        return printing_id, None
+    if set_code in catalog_set_codes:
+        return None, (
+            f"Rarity '{rarity_display(rarity_code)}' not found for set code '{set_code}'"
+        )
+    return None, f"Set code '{set_code}' not found in catalog"
+
+
+def _chunked(items: list, size: int):
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
 @dataclass
 class CollectionImportResult:
     imported: int
+    merged: int = 0
     rejected: list[dict] = field(default_factory=list)
     fieldnames: list[str] = field(default_factory=list)
 
@@ -381,33 +412,168 @@ def import_collection_csv(
     replace: bool = True,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> CollectionImportResult:
+    from ygo_app.models import CollectionItemFolder
+
     path = Path(path)
     init_db()
-    session = SessionLocal()
+    # expire_on_commit=False keeps preloaded lookup objects usable after the
+    # periodic mid-loop commits, so append does not re-query the DB per row.
+    session = SessionLocal(expire_on_commit=False)
     imported = 0
+    merged = 0
     rejected: list[dict] = []
     output_fieldnames: list[str] = []
 
+    # Per-user caches populated before the row loop to avoid per-row round-trips
+    # (critical on remote Postgres where each query is a network hop).
+    existing_by_key: dict[tuple[str, str], CollectionItem] = {}
+    printing_by_key: dict[tuple[str, str], int] = {}
+    catalog_set_codes: set[str] = set()
+    folder_cache: dict[str, "object"] = {}
+
+    # New items created during this import (pending ORM, mutated in memory for
+    # CSV-internal dedup; inserted in one batched flush at the end).
+    new_by_key: dict[tuple[str, str], CollectionItem] = {}
+    # Bulk-write accumulators for merges into pre-existing DB rows, applied once
+    # after the loop so remote Postgres sees batched statements, not per-row I/O.
+    alloc_index: dict[tuple[int, int | None], CollectionItemFolder] = {}
+    item_update_final: dict[int, dict] = {}
+    alloc_update_final: dict[int, int] = {}
+    alloc_insert_final: dict[tuple[int, int | None], int] = {}
+
+    _ITEM_MERGE_FIELDS = (
+        "quantity",
+        "trade_quantity",
+        "condition",
+        "edition",
+        "language",
+        "price_bought",
+        "date_bought",
+        "notes",
+    )
+
+    def _item_state(item: CollectionItem) -> dict:
+        state = item_update_final.get(item.id)
+        if state is None:
+            state = {field: getattr(item, field) for field in _ITEM_MERGE_FIELDS}
+            item_update_final[item.id] = state
+        return state
+
+    def _folder_for(name_raw: str):
+        from ygo_app.services import get_or_create_folder
+
+        if name_raw in folder_cache:
+            return folder_cache[name_raw]
+        try:
+            folder = get_or_create_folder(session, user_id, name_raw)
+        except ValueError:
+            folder = None
+        folder_cache[name_raw] = folder
+        return folder
+
+    def _merge_folder_allocation(
+        item: CollectionItem,
+        *,
+        folder,
+        quantity: int,
+    ) -> None:
+        folder_id = folder.id if folder else None
+        for alloc in item.folder_allocations:
+            if alloc.folder_id == folder_id:
+                alloc.quantity += quantity
+                return
+        item.folder_allocations.append(
+            CollectionItemFolder(folder_id=folder_id, quantity=quantity)
+        )
+
+    def _merge_existing_item(
+        item: CollectionItem,
+        row: dict,
+        *,
+        quantity: int,
+        folder,
+    ) -> None:
+        item.quantity += quantity
+        item.trade_quantity += int(row.get("Trade Quantity") or 0)
+        if condition := _nonempty(row.get("Condition")):
+            item.condition = condition
+        if edition := _nonempty(row.get("Printing")):
+            item.edition = edition
+        if language := _nonempty(row.get("Language")):
+            item.language = language
+        if price_bought := _float_or_none(row.get("Price Bought")):
+            item.price_bought = price_bought
+        if date_bought := _nonempty(row.get("Date Bought")):
+            item.date_bought = date_bought
+        if notes := _nonempty(row.get("Notes")):
+            item.notes = notes
+        folder_raw = (row.get("Folder Name") or "").strip()
+        if folder_raw:
+            _merge_folder_allocation(item, folder=folder, quantity=quantity)
+
+    def _merge_existing_bulk(
+        item: CollectionItem,
+        row: dict,
+        *,
+        quantity: int,
+        folder,
+    ) -> None:
+        state = _item_state(item)
+        state["quantity"] += quantity
+        state["trade_quantity"] += int(row.get("Trade Quantity") or 0)
+        if condition := _nonempty(row.get("Condition")):
+            state["condition"] = condition
+        if edition := _nonempty(row.get("Printing")):
+            state["edition"] = edition
+        if language := _nonempty(row.get("Language")):
+            state["language"] = language
+        if price_bought := _float_or_none(row.get("Price Bought")):
+            state["price_bought"] = price_bought
+        if date_bought := _nonempty(row.get("Date Bought")):
+            state["date_bought"] = date_bought
+        if notes := _nonempty(row.get("Notes")):
+            state["notes"] = notes
+        folder_raw = (row.get("Folder Name") or "").strip()
+        if not folder_raw:
+            return
+        folder_id = folder.id if folder else None
+        alloc = alloc_index.get((item.id, folder_id))
+        if alloc is not None:
+            alloc_update_final[alloc.id] = (
+                alloc_update_final.get(alloc.id, alloc.quantity) + quantity
+            )
+        else:
+            key = (item.id, folder_id)
+            alloc_insert_final[key] = alloc_insert_final.get(key, 0) + quantity
+
     def _process_row(row: dict) -> None:
-        nonlocal imported
+        nonlocal imported, merged
         set_code = (row.get("Card Number") or "").strip()
         rarity_code = normalize_rarity_code(row.get("Rarity") or "")
-        printing_id, reason = _match_printing(session, set_code, rarity_code)
+        printing_id, reason = _match_printing_cached(
+            set_code, rarity_code, printing_by_key, catalog_set_codes
+        )
         if reason:
             rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
             return
 
-        from ygo_app.models import CollectionItemFolder
-        from ygo_app.services import get_or_create_folder
-
         quantity = int(row.get("Quantity") or 1)
         folder_raw = (row.get("Folder Name") or "").strip()
-        folder = None
-        if folder_raw:
-            try:
-                folder = get_or_create_folder(session, user_id, folder_raw)
-            except ValueError:
-                folder = None
+        folder = _folder_for(folder_raw) if folder_raw else None
+        key = (set_code, rarity_code)
+
+        if not replace:
+            existing = existing_by_key.get(key)
+            if existing is not None:
+                _merge_existing_bulk(existing, row, quantity=quantity, folder=folder)
+                merged += 1
+                return
+
+        pending = new_by_key.get(key)
+        if pending is not None:
+            _merge_existing_item(pending, row, quantity=quantity, folder=folder)
+            merged += 1
+            return
 
         item = CollectionItem(
             user_id=user_id,
@@ -423,22 +589,19 @@ def import_collection_csv(
             language=row.get("Language"),
             price_bought=_float_or_none(row.get("Price Bought")),
             date_bought=row.get("Date Bought"),
+            notes=_nonempty(row.get("Notes")),
             sell_price=None,
             printing_id=printing_id,
         )
-        session.add(item)
-        session.flush()
-        session.add(
+        item.folder_allocations.append(
             CollectionItemFolder(
-                collection_item_id=item.id,
                 folder_id=folder.id if folder else None,
                 quantity=quantity,
             )
         )
+        session.add(item)
+        new_by_key[key] = item
         imported += 1
-
-        if imported % 500 == 0:
-            session.commit()
 
     try:
         if replace:
@@ -461,6 +624,41 @@ def import_collection_csv(
         output_fieldnames = list(reader.fieldnames or []) + [IMPORT_ERROR_COLUMN]
         rows = list(reader)
         total = len(rows)
+
+        # Preload printing match map for every set code referenced in the CSV.
+        wanted_set_codes = sorted(
+            {
+                (row.get("Card Number") or "").strip()
+                for row in rows
+                if (row.get("Card Number") or "").strip()
+            }
+        )
+        for chunk in _chunked(wanted_set_codes, 1000):
+            for sc, rc, pid in session.execute(
+                select(Printing.set_code, Printing.set_rarity_code, Printing.id).where(
+                    Printing.set_code.in_(chunk)
+                )
+            ).all():
+                printing_by_key.setdefault((sc, rc), pid)
+                catalog_set_codes.add(sc)
+
+        # Preload the user's existing collection (with folder allocations) so
+        # append merges happen in memory instead of one query per row.
+        if not replace:
+            for item in (
+                session.execute(
+                    select(CollectionItem)
+                    .options(joinedload(CollectionItem.folder_allocations))
+                    .where(CollectionItem.user_id == user_id)
+                    .order_by(CollectionItem.id)
+                )
+                .unique()
+                .scalars()
+                .all()
+            ):
+                existing_by_key.setdefault((item.set_code, item.rarity_code), item)
+                for alloc in item.folder_allocations:
+                    alloc_index[(item.id, alloc.folder_id)] = alloc
         if progress_callback is not None and total > 0:
             progress_callback(0, total)
         throttle = ProgressThrottle() if progress_callback else None
@@ -482,12 +680,36 @@ def import_collection_csv(
             if progress_callback is not None:
                 _emit_progress(index)
 
+        # Insert all new items (and their allocations) in one batched flush.
+        session.flush()
+
+        # Apply merges into pre-existing rows as batched bulk statements.
+        if item_update_final:
+            session.bulk_update_mappings(
+                CollectionItem,
+                [{"id": item_id, **values} for item_id, values in item_update_final.items()],
+            )
+        if alloc_update_final:
+            session.bulk_update_mappings(
+                CollectionItemFolder,
+                [{"id": alloc_id, "quantity": qty} for alloc_id, qty in alloc_update_final.items()],
+            )
+        if alloc_insert_final:
+            session.bulk_insert_mappings(
+                CollectionItemFolder,
+                [
+                    {"collection_item_id": item_id, "folder_id": folder_id, "quantity": qty}
+                    for (item_id, folder_id), qty in alloc_insert_final.items()
+                ],
+            )
+
         if progress_callback is not None and total > 0:
             progress_callback(total, total)
 
         session.commit()
         return CollectionImportResult(
             imported=imported,
+            merged=merged,
             rejected=rejected,
             fieldnames=output_fieldnames,
         )

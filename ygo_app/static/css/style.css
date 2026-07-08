@@ -57,6 +57,36 @@ body.modal-open {
 }
 .import-progress[hidden] { display: none; }
 
+.import-progress-card { min-width: min(420px, 92vw); }
+.import-progress-phase {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+.import-progress-modal-bar {
+  display: block;
+  width: 100%;
+  height: 0.75rem;
+  margin: 0 0 0.5rem;
+}
+.import-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+.import-progress-percent { font-weight: 600; color: var(--accent); }
+.import-progress-summary {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+}
+.import-progress-summary.hidden { display: none; }
+
 .tabs { display: flex; gap: 0.5rem; }
 .tab {
   background: var(--surface);

@@ -7,6 +7,8 @@ from ygo_app.config import DATABASE_URL
 _connect_args: dict = {}
 _engine_url = DATABASE_URL
 
+_engine_kwargs: dict = {}
+
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
 elif DATABASE_URL.startswith("postgresql"):
@@ -15,12 +17,18 @@ elif DATABASE_URL.startswith("postgresql"):
     if "sslmode" not in query:
         # Neon and most cloud Postgres require TLS
         _connect_args["sslmode"] = "require"
+    # Batch executemany INSERT/UPDATE/DELETE into few round-trips. Critical for
+    # bulk collection imports against high-latency cloud Postgres (Neon), where
+    # per-row statements would otherwise cost one network hop each.
+    _engine_kwargs["executemany_mode"] = "values_plus_batch"
+    _engine_kwargs["executemany_batch_page_size"] = 1000
 
 engine = create_engine(
     _engine_url,
     connect_args=_connect_args,
     pool_pre_ping=True,
     pool_recycle=300,
+    **_engine_kwargs,
 )
 
 

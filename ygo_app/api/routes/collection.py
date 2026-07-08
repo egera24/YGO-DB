@@ -346,6 +346,7 @@ async def import_csv(
                     {
                         "type": "done",
                         "imported": result.imported,
+                        "merged": result.merged,
                         "rejected_count": len(result.rejected),
                         "rejected_csv": _rejected_csv_text(result),
                     },

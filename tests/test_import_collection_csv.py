@@ -85,13 +85,75 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.session_factory_patcher.stop()
         self.engine.dispose()
 
-    def _write_csv(self, path: Path, rows: list[dict]) -> None:
-        fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity"]
+    def _write_csv(self, path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
+        if fieldnames is None:
+            fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity"]
         with path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
+
+    def _seed_collection_item(
+        self,
+        *,
+        set_code: str = "LOB-001",
+        rarity_code: str = "(UR)",
+        quantity: int = 1,
+        trade_quantity: int = 0,
+        condition: str | None = "NM",
+        edition: str = "Unlimited",
+        language: str | None = "English",
+        price_bought: float | None = 1.0,
+        date_bought: str | None = "2020-01-01",
+        notes: str | None = "existing note",
+        sell_price: float | None = 5.0,
+        folder_name: str | None = None,
+        folder_qty: int | None = None,
+    ) -> CollectionItem:
+        session = self.Session()
+        printing = session.execute(
+            select(Printing)
+            .where(Printing.set_code == set_code)
+            .where(Printing.set_rarity_code == rarity_code)
+        ).scalar_one()
+        folder = None
+        if folder_name is not None:
+            folder = CollectionFolder(
+                user_id=self.user_id,
+                name=folder_name,
+                name_key=folder_name.casefold(),
+            )
+            session.add(folder)
+            session.flush()
+        item = CollectionItem(
+            user_id=self.user_id,
+            set_code=set_code,
+            rarity_code=rarity_code,
+            card_name="Blue-Eyes White Dragon",
+            quantity=quantity,
+            trade_quantity=trade_quantity,
+            condition=condition,
+            edition=edition,
+            language=language,
+            price_bought=price_bought,
+            date_bought=date_bought,
+            notes=notes,
+            sell_price=sell_price,
+            printing_id=printing.id,
+        )
+        session.add(item)
+        session.flush()
+        session.add(
+            CollectionItemFolder(
+                collection_item_id=item.id,
+                folder_id=folder.id if folder else None,
+                quantity=folder_qty if folder_qty is not None else quantity,
+            )
+        )
+        session.commit()
+        session.close()
+        return item
 
     def test_import_with_progress_callback(self):
         csv_path = Path(self._tmp.name).with_suffix(".csv")
@@ -277,6 +339,212 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertEqual(len(folders), 1)
         self.assertEqual(folders[0].name, "Binder A")
         self.assertEqual(len(allocations), 2)
+
+    def test_overwrite_wipes_existing(self):
+        self._seed_collection_item(quantity=3)
+        csv_path = Path(self._tmp.name).with_suffix(".overwrite.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "LOB-001", "Rarity": "(SR)", "Card Name": "B", "Quantity": "2"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1)
+        self.assertEqual(result.merged, 0)
+
+        session = self.Session()
+        items = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalars().all()
+        session.close()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].set_code, "LOB-001")
+        self.assertEqual(items[0].rarity_code, "(SR)")
+        self.assertEqual(items[0].quantity, 2)
+
+    def test_append_merges_quantity(self):
+        self._seed_collection_item(quantity=2, trade_quantity=1, sell_price=5.0)
+        csv_path = Path(self._tmp.name).with_suffix(".append-merge.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "Blue-Eyes White Dragon",
+                    "Quantity": "3",
+                    "Trade Quantity": "2",
+                    "Condition": "LP",
+                    "Printing": "1st Edition",
+                    "Language": "German",
+                    "Price Bought": "2.5",
+                    "Date Bought": "2024-06-01",
+                    "Notes": "updated note",
+                }
+            ],
+            fieldnames=[
+                "Card Number",
+                "Rarity",
+                "Card Name",
+                "Quantity",
+                "Trade Quantity",
+                "Condition",
+                "Printing",
+                "Language",
+                "Price Bought",
+                "Date Bought",
+                "Notes",
+            ],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=False)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(result.merged, 1)
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.quantity, 5)
+        self.assertEqual(item.trade_quantity, 3)
+        self.assertEqual(item.condition, "LP")
+        self.assertEqual(item.edition, "1st Edition")
+        self.assertEqual(item.language, "German")
+        self.assertAlmostEqual(item.price_bought, 2.5)
+        self.assertEqual(item.date_bought, "2024-06-01")
+        self.assertEqual(item.notes, "updated note")
+        self.assertAlmostEqual(item.sell_price, 5.0)
+
+    def test_append_preserves_fields_when_csv_cells_empty(self):
+        self._seed_collection_item(
+            quantity=2,
+            condition="NM",
+            edition="Unlimited",
+            language="English",
+            price_bought=1.0,
+            date_bought="2020-01-01",
+            notes="keep me",
+        )
+        csv_path = Path(self._tmp.name).with_suffix(".append-preserve.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "Blue-Eyes White Dragon",
+                    "Quantity": "1",
+                    "Trade Quantity": "0",
+                    "Condition": "",
+                    "Printing": "",
+                    "Language": "",
+                    "Price Bought": "",
+                    "Date Bought": "",
+                    "Notes": "",
+                }
+            ],
+            fieldnames=[
+                "Card Number",
+                "Rarity",
+                "Card Name",
+                "Quantity",
+                "Trade Quantity",
+                "Condition",
+                "Printing",
+                "Language",
+                "Price Bought",
+                "Date Bought",
+                "Notes",
+            ],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=False)
+        self.assertEqual(result.merged, 1)
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.quantity, 3)
+        self.assertEqual(item.condition, "NM")
+        self.assertEqual(item.edition, "Unlimited")
+        self.assertEqual(item.language, "English")
+        self.assertAlmostEqual(item.price_bought, 1.0)
+        self.assertEqual(item.date_bought, "2020-01-01")
+        self.assertEqual(item.notes, "keep me")
+
+    def test_append_adds_unmatched(self):
+        self._seed_collection_item(quantity=1)
+        csv_path = Path(self._tmp.name).with_suffix(".append-new.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "LOB-001", "Rarity": "(SR)", "Card Name": "B", "Quantity": "2"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=False)
+        self.assertEqual(result.imported, 1)
+        self.assertEqual(result.merged, 0)
+
+        session = self.Session()
+        items = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalars().all()
+        session.close()
+        self.assertEqual(len(items), 2)
+
+    def test_append_merges_folder_allocation(self):
+        self._seed_collection_item(
+            quantity=2,
+            folder_name="Binder A",
+            folder_qty=2,
+        )
+        csv_path = Path(self._tmp.name).with_suffix(".append-folder.csv")
+        fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity", "Folder Name"]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "A",
+                    "Quantity": "3",
+                    "Folder Name": "binder a",
+                }
+            )
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "A",
+                    "Quantity": "1",
+                    "Folder Name": "Binder B",
+                }
+            )
+
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=False)
+        self.assertEqual(result.merged, 2)
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        folders = session.execute(
+            select(CollectionFolder).where(CollectionFolder.user_id == self.user_id)
+        ).scalars().all()
+        allocations = session.execute(
+            select(CollectionItemFolder).where(
+                CollectionItemFolder.collection_item_id == item.id
+            )
+        ).scalars().all()
+        session.close()
+
+        self.assertEqual(item.quantity, 6)
+        self.assertEqual(len(folders), 2)
+        self.assertEqual(len(allocations), 2)
+        by_folder = {alloc.folder_id: alloc.quantity for alloc in allocations}
+        binder_a = next(folder for folder in folders if folder.name == "Binder A")
+        binder_b = next(folder for folder in folders if folder.name == "Binder B")
+        self.assertEqual(by_folder[binder_a.id], 5)
+        self.assertEqual(by_folder[binder_b.id], 1)
 
 
 if __name__ == "__main__":

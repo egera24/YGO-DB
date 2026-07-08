@@ -1922,6 +1922,10 @@ let presetSaveChoiceResolve = null;
 let presetSaveChoiceTrigger = null;
 let presetNameResolve = null;
 let presetNameTrigger = null;
+let importModeResolve = null;
+let importModeTrigger = null;
+let importProgressCanClose = false;
+let importProgressDonePayload = null;
 
 function closeSearchPresetNameModal(result = null) {
   const dlg = $("#search-preset-name-modal");
@@ -2000,6 +2004,220 @@ function promptPresetSaveChoice(presetName) {
     syncModalOpenClass();
     $("#search-preset-save-overwrite")?.focus();
   });
+}
+
+function closeImportModeModal(choice = null) {
+  const dlg = $("#import-mode-modal");
+  if (!dlg || dlg.hidden) {
+    if (importModeResolve) {
+      const resolve = importModeResolve;
+      importModeResolve = null;
+      resolve(choice);
+    }
+    return;
+  }
+  dlg.hidden = true;
+  syncModalOpenClass();
+  (importModeTrigger ?? $("#import-collection-btn"))?.focus();
+  importModeTrigger = null;
+  if (importModeResolve) {
+    const resolve = importModeResolve;
+    importModeResolve = null;
+    resolve(choice);
+  }
+}
+
+function promptImportModeChoice(fileName) {
+  const dlg = $("#import-mode-modal");
+  if (!dlg) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    importModeResolve = resolve;
+    importModeTrigger = $("#import-collection-btn");
+    const titleEl = $("#import-mode-title");
+    if (titleEl) titleEl.textContent = `Import ${fileName}`;
+    dlg.hidden = false;
+    syncModalOpenClass();
+    $("#import-mode-append")?.focus();
+  });
+}
+
+function formatImportResultMessage(done) {
+  const parts = [];
+  if (done.imported > 0) parts.push(`${done.imported} new`);
+  if (done.merged > 0) parts.push(`${done.merged} merged`);
+  const summary = parts.length ? parts.join(", ") : "No rows imported";
+  if (done.rejected_count > 0) {
+    return `${summary}. ${done.rejected_count} could not be matched — downloaded as rejected_cards.csv.`;
+  }
+  return `${summary}.`;
+}
+
+function openImportProgressModal() {
+  importProgressCanClose = false;
+  importProgressDonePayload = null;
+  const dlg = $("#import-progress-modal");
+  if (!dlg) return;
+  const title = $("#import-progress-title");
+  if (title) title.textContent = "Importing collection";
+  const phase = $("#import-progress-phase");
+  if (phase) phase.textContent = "Preparing…";
+  const pctEl = $("#import-progress-percent");
+  if (pctEl) pctEl.textContent = "";
+  const etaEl = $("#import-progress-eta");
+  if (etaEl) etaEl.textContent = "";
+  const summary = $("#import-progress-summary");
+  if (summary) {
+    summary.textContent = "";
+    summary.classList.add("hidden");
+  }
+  const bar = $("#import-progress-bar");
+  if (bar) {
+    bar.removeAttribute("value");
+    bar.max = 100;
+  }
+  const closeBtn = $("#import-progress-close");
+  if (closeBtn) {
+    closeBtn.hidden = true;
+    closeBtn.disabled = true;
+  }
+  const actions = $("#import-progress-actions");
+  if (actions) actions.hidden = true;
+  dlg.hidden = false;
+  syncModalOpenClass();
+}
+
+function updateImportProgress(ev) {
+  if (ev.type !== "progress") return;
+  const phase = $("#import-progress-phase");
+  const bar = $("#import-progress-bar");
+  const pctEl = $("#import-progress-percent");
+  const etaEl = $("#import-progress-eta");
+  const total = ev.total || 0;
+  const current = ev.current || 0;
+  if (!total) {
+    if (phase) phase.textContent = "Preparing…";
+    if (bar) bar.removeAttribute("value");
+    if (pctEl) pctEl.textContent = "";
+    if (etaEl) etaEl.textContent = "";
+    setImportStatusLine(0, 0, null);
+    return;
+  }
+  const pct = ev.percent ?? Math.round((current / total) * 100);
+  const eta = formatEta(ev.eta_seconds);
+  if (phase) {
+    phase.textContent = `Importing… ${current.toLocaleString()} / ${total.toLocaleString()}`;
+  }
+  if (bar) {
+    bar.max = total;
+    bar.value = current;
+  }
+  if (pctEl) pctEl.textContent = `${pct}%`;
+  if (etaEl) etaEl.textContent = eta ? `About ${eta} left` : "";
+  setImportStatusLine(current, total, ev.eta_seconds);
+}
+
+function showImportProgressResult(done) {
+  importProgressCanClose = true;
+  importProgressDonePayload = done;
+  const title = $("#import-progress-title");
+  if (title) title.textContent = "Import complete";
+  const phase = $("#import-progress-phase");
+  if (phase) phase.textContent = "";
+  const bar = $("#import-progress-bar");
+  if (bar && bar.max) bar.value = bar.max;
+  const summary = $("#import-progress-summary");
+  if (summary) {
+    summary.textContent = formatImportResultMessage(done);
+    summary.classList.remove("hidden");
+  }
+  const pctEl = $("#import-progress-percent");
+  if (pctEl) pctEl.textContent = "100%";
+  const etaEl = $("#import-progress-eta");
+  if (etaEl) etaEl.textContent = "";
+  const closeBtn = $("#import-progress-close");
+  if (closeBtn) {
+    closeBtn.hidden = false;
+    closeBtn.disabled = false;
+    closeBtn.focus();
+  }
+  const actions = $("#import-progress-actions");
+  if (actions) actions.hidden = false;
+}
+
+function showImportProgressError(message) {
+  importProgressCanClose = true;
+  importProgressDonePayload = null;
+  const title = $("#import-progress-title");
+  if (title) title.textContent = "Import failed";
+  const phase = $("#import-progress-phase");
+  if (phase) phase.textContent = message;
+  const summary = $("#import-progress-summary");
+  if (summary) {
+    summary.textContent = "";
+    summary.classList.add("hidden");
+  }
+  const pctEl = $("#import-progress-percent");
+  if (pctEl) pctEl.textContent = "";
+  const etaEl = $("#import-progress-eta");
+  if (etaEl) etaEl.textContent = "";
+  const closeBtn = $("#import-progress-close");
+  if (closeBtn) {
+    closeBtn.hidden = false;
+    closeBtn.disabled = false;
+    closeBtn.focus();
+  }
+  const actions = $("#import-progress-actions");
+  if (actions) actions.hidden = false;
+}
+
+async function closeImportProgressModal() {
+  const dlg = $("#import-progress-modal");
+  if (!dlg || dlg.hidden || !importProgressCanClose) return;
+  dlg.hidden = true;
+  syncModalOpenClass();
+  importProgressCanClose = false;
+  const payload = importProgressDonePayload;
+  importProgressDonePayload = null;
+  $("#import-collection-btn")?.focus();
+  if (payload) {
+    await loadStatus();
+    await refreshOwnedSearchState();
+    await refreshCollectionIfActive();
+  }
+}
+
+async function runCollectionImport(file, replace) {
+  const form = new FormData();
+  form.append("file", file);
+  const importBtn = $("#import-collection-btn");
+  if (importBtn) importBtn.disabled = true;
+  openImportProgressModal();
+  setImportStatusLine(0, 0, null);
+  try {
+    const res = await fetch(`${API}/collection/import-csv?replace=${replace ? "true" : "false"}`, {
+      method: "POST",
+      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || res.statusText);
+    }
+    const done = await readNdjsonStream(res, (ev) => {
+      updateImportProgress(ev);
+    });
+    if (!done) throw new Error("Import finished without confirmation");
+    if (done.rejected_count > 0 && done.rejected_csv) {
+      downloadRejectedCsv(done.rejected_csv);
+    }
+    showImportProgressResult(done);
+  } catch (err) {
+    showImportProgressError(err.message);
+    await loadStatus();
+  } finally {
+    clearImportStatusLine();
+    if (importBtn) importBtn.disabled = false;
+  }
 }
 
 async function finishPresetSave(preset) {
@@ -5846,6 +6064,23 @@ function wireEvents() {
     if (e.target === $("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
   });
 
+  $("#import-mode-cancel")?.addEventListener("click", () => closeImportModeModal(null));
+  $("#import-mode-close")?.addEventListener("click", () => closeImportModeModal(null));
+  $("#import-mode-append")?.addEventListener("click", () => closeImportModeModal("append"));
+  $("#import-mode-overwrite")?.addEventListener("click", () => closeImportModeModal("overwrite"));
+  $("#import-mode-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#import-mode-modal")) closeImportModeModal(null);
+  });
+
+  $("#import-progress-close")?.addEventListener("click", () => {
+    void closeImportProgressModal();
+  });
+  $("#import-progress-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#import-progress-modal") && importProgressCanClose) {
+      void closeImportProgressModal();
+    }
+  });
+
   $("#search-preset-name-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const name = $("#search-preset-name-input")?.value?.trim();
@@ -5918,50 +6153,10 @@ function wireEvents() {
   $("#collection-csv-file")?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!confirm(`Import ${file.name}? This replaces your collection.`)) {
-      e.target.value = "";
-      return;
-    }
-    const form = new FormData();
-    form.append("file", file);
-    const importBtn = $("#import-collection-btn");
-    if (importBtn) importBtn.disabled = true;
-    setImportStatusLine(0, 0, null);
-    try {
-      const res = await fetch(`${API}/collection/import-csv?replace=true`, {
-        method: "POST",
-        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
-        body: form,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || res.statusText);
-      }
-      const done = await readNdjsonStream(res, (ev) => {
-        if (ev.type === "progress") {
-          setImportStatusLine(ev.current, ev.total, ev.eta_seconds);
-        }
-      });
-      if (!done) throw new Error("Import finished without confirmation");
-      if (done.rejected_count > 0 && done.rejected_csv) {
-        downloadRejectedCsv(done.rejected_csv);
-        alert(
-          `Imported ${done.imported} rows. ${done.rejected_count} could not be matched — downloaded as rejected_cards.csv.`
-        );
-      } else {
-        alert(`Imported ${done.imported} rows.`);
-      }
-      await loadStatus();
-      await refreshOwnedSearchState();
-      await refreshCollectionIfActive();
-    } catch (err) {
-      alert(err.message);
-      await loadStatus();
-    } finally {
-      clearImportStatusLine();
-      if (importBtn) importBtn.disabled = false;
-      e.target.value = "";
-    }
+    const mode = await promptImportModeChoice(file.name);
+    e.target.value = "";
+    if (!mode) return;
+    await runCollectionImport(file, mode === "overwrite");
   });
 
   $("#collection-new-folder-btn")?.addEventListener("click", createCollectionFolder);
@@ -6011,6 +6206,10 @@ function wireEvents() {
     else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
     else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
+    else if (isModalVisible("#import-mode-modal")) closeImportModeModal(null);
+    else if (isModalVisible("#import-progress-modal") && importProgressCanClose) {
+      void closeImportProgressModal();
+    }
     else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();

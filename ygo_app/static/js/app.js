@@ -6130,9 +6130,23 @@ function wireEvents() {
       return;
     }
     const zone = $("#deck-zone").value;
-    const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1);
     const card = state.currentCard;
     if (!card || !state.currentCardId) return;
+
+    let deckName = "";
+    if (deckId === state.activeDeckId && state.decksDetailOpen) {
+      deckName = state.activeDeckDetail?.name || "";
+    }
+    if (!deckName) {
+      const decks = state.decksListCache?.decks || [];
+      deckName = decks.find((d) => d.id === deckId)?.name || "";
+    }
+    if (!deckName) {
+      const optionText = $("#deck-target")?.selectedOptions?.[0]?.textContent?.trim() || "";
+      deckName = optionText.replace(/\s*\(#\d+\)\s*$/, "").trim();
+    }
+    if (!deckName) deckName = "deck";
+    const addedMessage = `${card.name} added to ${zone} zone of ${deckName} deck.`;
 
     if (deckId === state.activeDeckId && state.decksDetailOpen) {
       addCardToActiveDraft(state.currentCardId, zone, {
@@ -6143,7 +6157,7 @@ function wireEvents() {
         banlist_status: card.banlist_status ?? null,
         genesys_points: card.genesys_points ?? null,
       });
-      showToast(`Added to ${zoneLabel} deck (unsaved)`, { durationMs: 3000 });
+      showToast(`${addedMessage} (unsaved)`, { durationMs: 3000 });
       return;
     }
 
@@ -6159,7 +6173,7 @@ function wireEvents() {
           });
           invalidateDecksCache();
         },
-        { busyLabel: "Adding…", successMessage: `Added to ${zoneLabel} deck` }
+        { busyLabel: "Adding…", successMessage: addedMessage }
       );
     } catch {
       // runModalAction already surfaced the error toast

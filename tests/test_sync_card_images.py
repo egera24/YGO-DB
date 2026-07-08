@@ -10,7 +10,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ygo_app.image_mirror import load_images_manifest
+from ygo_app.image_mirror import (
+    load_images_manifest,
+    load_passwordless_manifest,
+    passwordless_image_stem,
+)
 from ygo_app.jobs import sync_card_images
 from ygo_app.jobs.sync_card_images import FAILURES_FILENAME, manifest_from_bucket, sync_images
 
@@ -107,6 +111,43 @@ class TestSyncImages(unittest.TestCase):
         self.assertEqual(scraper.requested, [])
         self.assertEqual(manifest, set())
 
+    def test_passwordless_card_mirrored_under_pw_stem(self):
+        source_url = "https://yugipedia.com/wiki/Obelisk_the_Tormentor"
+        stem = passwordless_image_stem(source_url)
+        entries = [
+            {
+                "id": None,
+                "source_url": source_url,
+                "image_url": "https://ms.yugipedia.com//o/b/Obelisk.png",
+            }
+        ]
+        s3 = FakeS3()
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            scraper = FakeScraper(_png_bytes())
+            with mock.patch.object(sync_card_images, "create_scraper", return_value=scraper), \
+                    mock.patch.object(sync_card_images._rate_limiter, "min_interval", 0):
+                counters = sync_images(
+                    entries, s3, "bucket", manifest_path=manifest_path, workers=1
+                )
+            passwordless = load_passwordless_manifest(manifest_path)
+            passcodes = load_images_manifest(manifest_path)
+
+        self.assertEqual(counters["uploaded"], 1)
+        self.assertIn(f"cards/{stem}.webp", s3.objects)
+        self.assertIn(f"cards/{stem}-small.webp", s3.objects)
+        self.assertEqual(passwordless, {stem})
+        # Passwordless stems never leak into the numeric passcode manifest.
+        self.assertEqual(passcodes, set())
+
+    def test_entry_without_id_or_source_url_skipped(self):
+        counters, scraper, manifest = self._run(
+            [{"id": None, "image_url": "https://ms.yugipedia.com//x.png"}], FakeS3()
+        )
+        self.assertEqual(counters, {"skipped_existing": 0, "uploaded": 0, "no_image": 0, "failed": 0})
+        self.assertEqual(scraper.requested, [])
+        self.assertEqual(manifest, set())
+
     def test_uploaded_objects_are_webp(self):
         from PIL import Image
 
@@ -181,7 +222,7 @@ class TestSyncImages(unittest.TestCase):
             self.assertTrue(failures_path.exists())
             failures = json.loads(failures_path.read_text(encoding="utf-8"))
             self.assertEqual(len(failures), 1)
-            self.assertEqual(failures[0]["passcode"], 66666666)
+            self.assertEqual(failures[0]["stem"], "66666666")
             self.assertEqual(failures[0]["stage"], "download")
 
     def test_parallel_workers_upload_all_cards(self):
@@ -250,7 +291,7 @@ class TestSyncImages(unittest.TestCase):
         self.assertEqual(counters["failed"], 1)
         self.assertEqual(counters["uploaded"], 1)
         self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0]["passcode"], 77777777)
+        self.assertEqual(failures[0]["stem"], "77777777")
 
     def test_main_returns_1_when_sync_has_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -284,13 +325,17 @@ class TestManifestFromBucket(unittest.TestCase):
                 "cards/11111111-small.webp",
                 "cards/22222222.webp",  # missing small -> excluded
                 "cards/not-a-card.webp",
+                "cards/pw-abc123def4567890.webp",
+                "cards/pw-abc123def4567890-small.webp",
+                "cards/pw-deadbeef.webp",  # missing small -> excluded
             }
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "manifest.json"
             mirrored = manifest_from_bucket(s3, "bucket", path)
-            self.assertEqual(mirrored, {11111111})
+            self.assertEqual(mirrored, {"11111111", "pw-abc123def4567890"})
             self.assertEqual(load_images_manifest(path), {11111111})
+            self.assertEqual(load_passwordless_manifest(path), {"pw-abc123def4567890"})
 
 
 if __name__ == "__main__":

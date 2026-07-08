@@ -77,7 +77,7 @@ def _adapt_card_sets(card_sets: list[dict] | None) -> list[dict]:
     return out
 
 
-def _resolve_images(entry: dict, pid: int) -> dict[str, str | None]:
+def _resolve_images(entry: dict, pid: int | None) -> dict[str, str | None]:
     """Use Yugipedia URLs from scrape JSON; no YGOPRODeck CDN fallback.
 
     When IMAGE_BASE_URL is set and the passcode is in the image-mirror
@@ -87,7 +87,9 @@ def _resolve_images(entry: dict, pid: int) -> dict[str, str | None]:
     image_url_small = entry.get("image_url_small")
     if image_url and not image_url_small:
         image_url_small = image_url
-    image_url, image_url_small = rewrite_image_urls(pid, image_url, image_url_small)
+    image_url, image_url_small = rewrite_image_urls(
+        pid, image_url, image_url_small, source_url=entry.get("source_url")
+    )
     return {
         "ygoprodeck_url": ygoprodeck_card_url(pid),
         "image_url": image_url,

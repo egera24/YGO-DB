@@ -11,8 +11,11 @@ from unittest import mock
 from ygo_app import image_mirror
 from ygo_app.image_mirror import (
     full_image_key,
+    image_stem,
     load_images_manifest,
+    load_passwordless_manifest,
     mirrored_image_urls,
+    passwordless_image_stem,
     rewrite_image_urls,
     save_images_manifest,
     small_image_key,
@@ -33,14 +36,45 @@ class TestImageKeys(unittest.TestCase):
         self.assertEqual(urls["image_url_small"], "https://img.example.com/cards/123-small.webp")
 
 
+class TestImageStem(unittest.TestCase):
+    def test_passcode_wins(self):
+        self.assertEqual(image_stem(85087012, "https://x/y"), "85087012")
+
+    def test_source_url_when_no_passcode(self):
+        url = "https://yugipedia.com/wiki/Obelisk_the_Tormentor"
+        self.assertEqual(image_stem(None, url), passwordless_image_stem(url))
+
+    def test_none_when_no_keys(self):
+        self.assertIsNone(image_stem(None, None))
+
+    def test_passwordless_stem_is_deterministic_and_prefixed(self):
+        url = "https://yugipedia.com/wiki/Obelisk_the_Tormentor"
+        stem = passwordless_image_stem(url)
+        self.assertTrue(stem.startswith("pw-"))
+        self.assertEqual(stem, passwordless_image_stem(url))
+        self.assertNotEqual(stem, passwordless_image_stem(url + "_alt"))
+
+
 class TestManifestRoundTrip(unittest.TestCase):
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "manifest.json"
-            save_images_manifest({3, 1, 2}, path)
+            save_images_manifest({3, 1, 2}, path=path)
             self.assertEqual(load_images_manifest(path), {1, 2, 3})
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data["count"], 3)
+
+    def test_save_and_load_passwordless(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            save_images_manifest({1, 2}, {"pw-aaa", "pw-bbb"}, path)
+            self.assertEqual(load_images_manifest(path), {1, 2})
+            self.assertEqual(load_passwordless_manifest(path), {"pw-aaa", "pw-bbb"})
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["count"], 4)
+
+    def test_passwordless_absent_is_empty(self):
+        self.assertEqual(load_passwordless_manifest(Path("does/not/exist.json")), set())
 
     def test_missing_file_is_empty(self):
         self.assertEqual(load_images_manifest(Path("does/not/exist.json")), set())
@@ -84,6 +118,53 @@ class TestRewriteImageUrls(unittest.TestCase):
         )
         self.assertEqual(url, "https://img.example.com/cards/42.webp")
         self.assertEqual(small, "https://img.example.com/cards/42-small.webp")
+
+    def test_passwordless_mirrored_by_source_url(self):
+        source_url = "https://yugipedia.com/wiki/Obelisk_the_Tormentor"
+        stem = passwordless_image_stem(source_url)
+        url, small = rewrite_image_urls(
+            None,
+            YUGI_FULL,
+            YUGI_SMALL,
+            source_url=source_url,
+            base_url="https://img.example.com",
+            passwordless_manifest={stem},
+        )
+        self.assertEqual(url, f"https://img.example.com/cards/{stem}.webp")
+        self.assertEqual(small, f"https://img.example.com/cards/{stem}-small.webp")
+
+    def test_passwordless_unmirrored_kept(self):
+        url, small = rewrite_image_urls(
+            None,
+            YUGI_FULL,
+            YUGI_SMALL,
+            source_url="https://yugipedia.com/wiki/Some_Token",
+            base_url="https://img.example.com",
+            passwordless_manifest=set(),
+        )
+        self.assertEqual(url, YUGI_FULL)
+        self.assertEqual(small, YUGI_SMALL)
+
+    def test_passcode_takes_precedence_over_source_url(self):
+        # A card with both keys mirrors by passcode, ignoring source_url.
+        url, small = rewrite_image_urls(
+            42,
+            YUGI_FULL,
+            YUGI_SMALL,
+            source_url="https://yugipedia.com/wiki/Card_Trooper",
+            base_url="https://img.example.com",
+            manifest={42},
+            passwordless_manifest=set(),
+        )
+        self.assertEqual(url, "https://img.example.com/cards/42.webp")
+        self.assertEqual(small, "https://img.example.com/cards/42-small.webp")
+
+    def test_no_keys_kept(self):
+        url, small = rewrite_image_urls(
+            None, YUGI_FULL, YUGI_SMALL, base_url="https://img.example.com"
+        )
+        self.assertEqual(url, YUGI_FULL)
+        self.assertEqual(small, YUGI_SMALL)
 
 
 class TestAdapterRewrite(unittest.TestCase):

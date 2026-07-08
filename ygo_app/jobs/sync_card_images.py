@@ -2,9 +2,11 @@
 
 Reads data/catalog/yugipedia_all_cards.json, downloads each card's full image
 once, converts to WebP (full + 300px thumbnail), and uploads with immutable
-cache headers. Incremental: passcodes whose objects already exist are skipped
-(use --force to re-mirror). Writes data/catalog/images_manifest.json listing
-mirrored passcodes, consumed by the catalog import to rewrite image URLs.
+cache headers. Cards with a passcode use cards/{passcode}.webp keys; cards
+printed without one use a source_url-derived cards/pw-{hash}.webp key.
+Incremental: stems whose objects already exist are skipped (use --force to
+re-mirror). Writes data/catalog/images_manifest.json listing mirrored passcodes
+and passwordless stems, consumed by the catalog import to rewrite image URLs.
 
 Required env vars: S3_ENDPOINT_URL, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
 S3_BUCKET (IMAGE_BASE_URL is used at import time, not here).
@@ -26,8 +28,11 @@ from pathlib import Path
 
 from ygo_app import config
 from ygo_app.image_mirror import (
+    PASSWORDLESS_STEM_PREFIX,
     full_image_key,
+    image_stem,
     load_images_manifest,
+    load_passwordless_manifest,
     save_images_manifest,
     small_image_key,
 )
@@ -97,23 +102,39 @@ def list_existing_keys(s3, bucket: str, *, prefix: str = KEY_PREFIX) -> set[str]
     return keys
 
 
-_FULL_KEY_RE = re.compile(r"^cards/(\d+)\.webp$")
-_SMALL_KEY_RE = re.compile(r"^cards/(\d+)-small\.webp$")
+_FULL_KEY_RE = re.compile(r"^cards/([0-9]+|pw-[0-9a-f]+)\.webp$")
+_SMALL_KEY_RE = re.compile(r"^cards/([0-9]+|pw-[0-9a-f]+)-small\.webp$")
 
 
-def manifest_from_bucket(s3, bucket: str, manifest_path: Path = IMAGES_MANIFEST_PATH) -> set[int]:
+def _partition_stems(stems: set[str]) -> tuple[set[int], set[str]]:
+    """Split object-key stems into numeric passcodes and passwordless stems."""
+    passcodes: set[int] = set()
+    passwordless: set[str] = set()
+    for stem in stems:
+        if stem.startswith(PASSWORDLESS_STEM_PREFIX):
+            passwordless.add(stem)
+        elif stem.isdigit():
+            passcodes.add(int(stem))
+    return passcodes, passwordless
+
+
+def manifest_from_bucket(s3, bucket: str, manifest_path: Path = IMAGES_MANIFEST_PATH) -> set[str]:
     """Rebuild the manifest purely from a bucket listing (no downloads)."""
     existing = list_existing_keys(s3, bucket)
-    fulls: set[int] = set()
-    smalls: set[int] = set()
+    fulls: set[str] = set()
+    smalls: set[str] = set()
     for key in existing:
         if m := _FULL_KEY_RE.match(key):
-            fulls.add(int(m.group(1)))
+            fulls.add(m.group(1))
         elif m := _SMALL_KEY_RE.match(key):
-            smalls.add(int(m.group(1)))
+            smalls.add(m.group(1))
     mirrored = fulls & smalls
-    save_images_manifest(mirrored, manifest_path)
-    log_line(f"Manifest rebuilt from bucket: {manifest_path} ({len(mirrored)} passcodes)")
+    passcodes, passwordless = _partition_stems(mirrored)
+    save_images_manifest(passcodes, passwordless, manifest_path)
+    log_line(
+        f"Manifest rebuilt from bucket: {manifest_path} "
+        f"({len(passcodes)} passcodes, {len(passwordless)} passwordless)"
+    )
     return mirrored
 
 
@@ -176,14 +197,14 @@ def _upload_pair(s3, bucket: str, full_key: str, full_webp: bytes, small_key: st
 
 @dataclass
 class MirrorResult:
-    pid: int
+    stem: str
     status: str  # skipped_existing | no_image | uploaded | failed
     mirrored: bool = False
     failure: dict | None = None
 
 
 def _mirror_one_card(
-    pid: int,
+    stem: str,
     source_url: str | None,
     *,
     scraper,
@@ -193,24 +214,24 @@ def _mirror_one_card(
     force: bool,
     thread_local_s3: bool = False,
 ) -> MirrorResult:
-    full_key = full_image_key(pid)
-    small_key = small_image_key(pid)
+    full_key = full_image_key(stem)
+    small_key = small_image_key(stem)
     already = full_key in existing and small_key in existing
 
     if already and not force:
-        return MirrorResult(pid=pid, status="skipped_existing", mirrored=True)
+        return MirrorResult(stem=stem, status="skipped_existing", mirrored=True)
 
     if not source_url:
-        return MirrorResult(pid=pid, status="no_image", mirrored=already)
+        return MirrorResult(stem=stem, status="no_image", mirrored=already)
 
     data, download_error = fetch_image_bytes(scraper, source_url)
     if data is None:
         return MirrorResult(
-            pid=pid,
+            stem=stem,
             status="failed",
             mirrored=already,
             failure={
-                "passcode": pid,
+                "stem": stem,
                 "stage": "download",
                 "reason": download_error or "download failed",
                 "url": source_url[:200],
@@ -221,28 +242,28 @@ def _mirror_one_card(
         full_webp, small_webp = convert_to_webp(data)
     except Exception as e:
         reason = f"{type(e).__name__}: {str(e)[:120]}"
-        log_line(f"[FAIL] convert pid={pid} ({reason})")
+        log_line(f"[FAIL] convert stem={stem} ({reason})")
         return MirrorResult(
-            pid=pid,
+            stem=stem,
             status="failed",
             mirrored=already,
-            failure={"passcode": pid, "stage": "convert", "reason": reason},
+            failure={"stem": stem, "stage": "convert", "reason": reason},
         )
 
     upload_s3 = _get_thread_s3() if thread_local_s3 else s3
     _upload_pair(upload_s3, bucket, full_key, full_webp, small_key, small_webp)
-    return MirrorResult(pid=pid, status="uploaded", mirrored=True)
+    return MirrorResult(stem=stem, status="uploaded", mirrored=True)
 
 
 def _apply_result(
     result: MirrorResult,
     *,
-    mirrored: set[int],
+    mirrored: set[str],
     counters: dict[str, int],
     failed_items: list[dict],
 ) -> None:
     if result.mirrored:
-        mirrored.add(result.pid)
+        mirrored.add(result.stem)
     if result.status == "skipped_existing":
         counters["skipped_existing"] += 1
     elif result.status == "no_image":
@@ -256,7 +277,7 @@ def _apply_result(
 
 
 def _sync_images_parallel(
-    candidates: list[tuple[int, str | None]],
+    candidates: list[tuple[str, str | None]],
     s3,
     bucket: str,
     *,
@@ -266,7 +287,7 @@ def _sync_images_parallel(
     progress: ProgressThrottle,
     total: int,
     started: float,
-    mirrored: set[int],
+    mirrored: set[str],
     counters: dict[str, int],
     failed_items: list[dict],
 ) -> None:
@@ -275,9 +296,9 @@ def _sync_images_parallel(
     completed = 0
     work_index = 0
 
-    def worker_task(worker_id: int, pid: int, source_url: str | None) -> MirrorResult:
+    def worker_task(worker_id: int, stem: str, source_url: str | None) -> MirrorResult:
         return _mirror_one_card(
-            pid,
+            stem,
             source_url,
             scraper=scrapers[worker_id % len(scrapers)],
             s3=s3,
@@ -293,8 +314,8 @@ def _sync_images_parallel(
         def submit_next() -> None:
             nonlocal work_index
             while work_index < total and len(in_flight) < workers:
-                pid, source_url = candidates[work_index]
-                fut = executor.submit(worker_task, work_index, pid, source_url)
+                stem, source_url = candidates[work_index]
+                fut = executor.submit(worker_task, work_index, stem, source_url)
                 in_flight[fut] = work_index
                 work_index += 1
 
@@ -348,15 +369,15 @@ def sync_images(
     existing = list_existing_keys(s3, bucket)
     log_line(f"Found {len(existing)} existing objects")
 
-    mirrored: set[int] = set()
+    mirrored: set[str] = set()
     counters = {"skipped_existing": 0, "uploaded": 0, "no_image": 0, "failed": 0}
     failed_items: list[dict] = []
-    candidates = []
+    candidates: list[tuple[str, str | None]] = []
     for entry in entries:
-        pid = passcode_to_int(entry.get("id"))
-        if pid is None:
+        stem = image_stem(passcode_to_int(entry.get("id")), entry.get("source_url"))
+        if stem is None:
             continue
-        candidates.append((pid, entry.get("image_url")))
+        candidates.append((stem, entry.get("image_url")))
     if limit is not None:
         candidates = candidates[:limit]
 
@@ -368,9 +389,9 @@ def sync_images(
 
     if worker_count == 1:
         scraper = create_scraper()
-        for index, (pid, source_url) in enumerate(candidates, start=1):
+        for index, (stem, source_url) in enumerate(candidates, start=1):
             result = _mirror_one_card(
-                pid,
+                stem,
                 source_url,
                 scraper=scraper,
                 s3=s3,
@@ -404,14 +425,19 @@ def sync_images(
             failed_items=failed_items,
         )
 
-    # Preserve previously mirrored passcodes not present in this JSON slice
+    # Preserve previously mirrored stems not present in this JSON slice
     # (e.g. test/limit runs) so the manifest never shrinks accidentally.
-    previous = load_images_manifest(manifest_path)
-    candidate_pids = {pid for pid, _ in candidates}
-    mirrored |= previous - candidate_pids
+    previous = {str(p) for p in load_images_manifest(manifest_path)}
+    previous |= load_passwordless_manifest(manifest_path)
+    candidate_stems = {stem for stem, _ in candidates}
+    mirrored |= previous - candidate_stems
 
-    save_images_manifest(mirrored, manifest_path)
-    log_line(f"Manifest written: {manifest_path} ({len(mirrored)} passcodes)")
+    passcodes, passwordless = _partition_stems(mirrored)
+    save_images_manifest(passcodes, passwordless, manifest_path)
+    log_line(
+        f"Manifest written: {manifest_path} "
+        f"({len(passcodes)} passcodes, {len(passwordless)} passwordless)"
+    )
     _write_failures(failed_items, manifest_path)
     log_line(
         f"[RESULT] total={total} uploaded={counters['uploaded']} "

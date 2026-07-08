@@ -106,9 +106,48 @@ class TestDecksApi(unittest.TestCase):
 
         session.add_all(
             [
-                DeckCard(deck_id=deck_a.id, card_id=1001, zone="main", quantity=3),
-                DeckCard(deck_id=deck_a.id, card_id=1002, zone="main", quantity=1),
-                DeckCard(deck_id=deck_b.id, card_id=1003, zone="main", quantity=2),
+                DeckCard(
+                    deck_id=deck_a.id,
+                    card_id=1001,
+                    zone="main",
+                    quantity=1,
+                    sort_order=0,
+                ),
+                DeckCard(
+                    deck_id=deck_a.id,
+                    card_id=1001,
+                    zone="main",
+                    quantity=1,
+                    sort_order=1,
+                ),
+                DeckCard(
+                    deck_id=deck_a.id,
+                    card_id=1001,
+                    zone="main",
+                    quantity=1,
+                    sort_order=2,
+                ),
+                DeckCard(
+                    deck_id=deck_a.id,
+                    card_id=1002,
+                    zone="main",
+                    quantity=1,
+                    sort_order=3,
+                ),
+                DeckCard(
+                    deck_id=deck_b.id,
+                    card_id=1003,
+                    zone="main",
+                    quantity=1,
+                    sort_order=0,
+                ),
+                DeckCard(
+                    deck_id=deck_b.id,
+                    card_id=1003,
+                    zone="main",
+                    quantity=1,
+                    sort_order=1,
+                ),
             ]
         )
         session.commit()
@@ -186,8 +225,9 @@ class TestDecksApi(unittest.TestCase):
                 DeckCard.deck_id == self.deck_b_id,
                 DeckCard.card_id == 1003,
             )
-        ).scalar_one()
-        session.delete(row)
+        ).scalars().all()
+        for deck_card in row:
+            session.delete(deck_card)
         clear_deck_preview_if_removed(session, self.deck_b_id, 1003)
         session.commit()
         deck = session.get(Deck, self.deck_b_id)
@@ -198,16 +238,25 @@ class TestDecksApi(unittest.TestCase):
         session = self.Session()
         deck = session.get(Deck, self.deck_a_id)
         deck.preview_card_id = 1001
-        session.add(DeckCard(deck_id=self.deck_a_id, card_id=1001, zone="side", quantity=1))
+        session.add(
+            DeckCard(
+                deck_id=self.deck_a_id,
+                card_id=1001,
+                zone="side",
+                quantity=1,
+                sort_order=0,
+            )
+        )
         session.commit()
-        main_row = session.execute(
+        main_rows = session.execute(
             select(DeckCard).where(
                 DeckCard.deck_id == self.deck_a_id,
                 DeckCard.card_id == 1001,
                 DeckCard.zone == "main",
             )
-        ).scalar_one()
-        session.delete(main_row)
+        ).scalars().all()
+        for deck_card in main_rows:
+            session.delete(deck_card)
         clear_deck_preview_if_removed(session, self.deck_a_id, 1001)
         session.commit()
         deck = session.get(Deck, self.deck_a_id)
@@ -243,9 +292,110 @@ class TestDecksApi(unittest.TestCase):
         rows = session.execute(
             select(DeckCard).where(DeckCard.deck_id == self.deck_a_id)
         ).scalars().all()
-        by_key = {(r.card_id, r.zone): r.quantity for r in rows}
-        self.assertEqual(by_key, {(1001, "main"): 2, (1003, "side"): 1})
+        counts: dict[tuple[int, str], int] = {}
+        for row in rows:
+            key = (row.card_id, row.zone)
+            counts[key] = counts.get(key, 0) + row.quantity
+        self.assertEqual(counts, {(1001, "main"): 2, (1003, "side"): 1})
+        self.assertTrue(all(row.quantity == 1 for row in rows))
         self.assertEqual(deck.preview_card_id, 1001)
+        session.close()
+
+    def test_reconcile_preserves_card_order(self):
+        session = self.Session()
+        deck = session.get(Deck, self.deck_a_id)
+        apply_deck_save(
+            session,
+            deck,
+            {
+                "name": deck.name,
+                "description": deck.description,
+                "format_code": deck.format_code,
+                "banlist_revision_id": deck.banlist_revision_id,
+                "genesys_point_list_id": deck.genesys_point_list_id,
+                "preview_card_id": deck.preview_card_id,
+                "cards": [
+                    {"card_id": 1002, "zone": "main", "quantity": 1},
+                    {"card_id": 1001, "zone": "main", "quantity": 1},
+                    {"card_id": 1001, "zone": "main", "quantity": 1},
+                ],
+            },
+        )
+        session.commit()
+        rows = session.execute(
+            select(DeckCard)
+            .where(DeckCard.deck_id == self.deck_a_id, DeckCard.zone == "main")
+            .order_by(DeckCard.sort_order.asc())
+        ).scalars().all()
+        self.assertEqual([row.card_id for row in rows], [1002, 1001, 1001])
+        self.assertEqual([row.sort_order for row in rows], [0, 1, 2])
+        session.close()
+
+    def test_reconcile_interleaved_duplicates(self):
+        session = self.Session()
+        deck = session.get(Deck, self.deck_a_id)
+        apply_deck_save(
+            session,
+            deck,
+            {
+                "name": deck.name,
+                "description": deck.description,
+                "format_code": deck.format_code,
+                "banlist_revision_id": deck.banlist_revision_id,
+                "genesys_point_list_id": deck.genesys_point_list_id,
+                "preview_card_id": deck.preview_card_id,
+                "cards": [
+                    {"card_id": 1001, "zone": "main", "quantity": 1},
+                    {"card_id": 1002, "zone": "main", "quantity": 1},
+                    {"card_id": 1001, "zone": "main", "quantity": 1},
+                ],
+            },
+        )
+        session.commit()
+        rows = session.execute(
+            select(DeckCard)
+            .where(DeckCard.deck_id == self.deck_a_id, DeckCard.zone == "main")
+            .order_by(DeckCard.sort_order.asc())
+        ).scalars().all()
+        self.assertEqual([row.card_id for row in rows], [1001, 1002, 1001])
+        session.close()
+
+    def test_reconcile_cross_zone_order(self):
+        session = self.Session()
+        deck = session.get(Deck, self.deck_a_id)
+        apply_deck_save(
+            session,
+            deck,
+            {
+                "name": deck.name,
+                "description": deck.description,
+                "format_code": deck.format_code,
+                "banlist_revision_id": deck.banlist_revision_id,
+                "genesys_point_list_id": deck.genesys_point_list_id,
+                "preview_card_id": deck.preview_card_id,
+                "cards": [
+                    {"card_id": 1001, "zone": "main", "quantity": 1},
+                    {"card_id": 1002, "zone": "side", "quantity": 1},
+                    {"card_id": 1001, "zone": "main", "quantity": 1},
+                ],
+            },
+        )
+        session.commit()
+        main_rows = session.execute(
+            select(DeckCard)
+            .where(DeckCard.deck_id == self.deck_a_id, DeckCard.zone == "main")
+            .order_by(DeckCard.sort_order.asc())
+        ).scalars().all()
+        side_rows = session.execute(
+            select(DeckCard)
+            .where(DeckCard.deck_id == self.deck_a_id, DeckCard.zone == "side")
+            .order_by(DeckCard.sort_order.asc())
+        ).scalars().all()
+        self.assertEqual([row.card_id for row in main_rows], [1001, 1001])
+        self.assertEqual([row.card_id for row in side_rows], [1002])
+        counts = deck_counts(session, self.deck_a_id)
+        self.assertEqual(counts["main"], 2)
+        self.assertEqual(counts["side"], 1)
         session.close()
 
     def test_apply_deck_save_clears_preview_when_cover_removed(self):

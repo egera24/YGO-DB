@@ -4697,7 +4697,7 @@ function renderDeckTimeHtml(iso, prefix = "Edited") {
 
 function deckCardCount(deck) {
   if (deck.card_count != null) return deck.card_count;
-  return (deck.cards || []).reduce((sum, c) => sum + c.quantity, 0);
+  return (deck.cards || []).length;
 }
 
 function renderDeckStack(previewCards) {
@@ -4890,11 +4890,26 @@ function cloneDeck(deck) {
 }
 
 function setDeckDraftFromServer(deck) {
-  state.deckSaved = cloneDeck(deck);
-  state.deckDraft = cloneDeck(deck);
+  const normalized = {
+    ...deck,
+    cards: normalizeDeckCardsForDraft(deck.cards),
+  };
+  state.deckSaved = cloneDeck(normalized);
+  state.deckDraft = cloneDeck(normalized);
   state.deckDirty = false;
   state.activeDeckDetail = state.deckDraft;
   updateDeckActionBar();
+}
+
+function normalizeDeckCardsForDraft(cards) {
+  const result = [];
+  for (const card of cards || []) {
+    const qty = Math.max(Number(card.quantity) || 1, 1);
+    for (let i = 0; i < qty; i += 1) {
+      result.push({ ...card, quantity: 1 });
+    }
+  }
+  return result;
 }
 
 function markDeckDirty() {
@@ -4923,7 +4938,7 @@ function deckToSavePayload(draft) {
     cards: (draft.cards || []).map((c) => ({
       card_id: c.card_id,
       zone: c.zone,
-      quantity: c.quantity,
+      quantity: 1,
     })),
   };
 }
@@ -4944,38 +4959,57 @@ function syncDraftFormatFromForm() {
 function refreshDraftCounts() {
   if (!state.deckDraft) return;
   const cards = state.deckDraft.cards || [];
-  state.deckDraft.card_count = deckCardCount(state.deckDraft);
-  state.deckDraft.main_count = cards
-    .filter((c) => c.zone === "main")
-    .reduce((sum, c) => sum + c.quantity, 0);
-  state.deckDraft.extra_count = cards
-    .filter((c) => c.zone === "extra")
-    .reduce((sum, c) => sum + c.quantity, 0);
-  state.deckDraft.side_count = cards
-    .filter((c) => c.zone === "side")
-    .reduce((sum, c) => sum + c.quantity, 0);
+  state.deckDraft.card_count = cards.length;
+  state.deckDraft.main_count = cards.filter((c) => c.zone === "main").length;
+  state.deckDraft.extra_count = cards.filter((c) => c.zone === "extra").length;
+  state.deckDraft.side_count = cards.filter((c) => c.zone === "side").length;
 }
 
-function mutateDraftCardQuantity(deckId, cardId, zone, delta) {
+function removeDraftCardAtSlot(deckId, slotIndex) {
   if (!state.deckDraft || state.deckDraft.id !== deckId) return;
-  const card = state.deckDraft.cards.find((c) => c.card_id === cardId && c.zone === zone);
-  if (!card) return;
-  const newQty = card.quantity + delta;
-  if (newQty <= 0) {
-    state.deckDraft.cards = state.deckDraft.cards.filter(
-      (c) => !(c.card_id === cardId && c.zone === zone)
-    );
-    if (state.deckDraft.preview_card_id === cardId) {
-      const stillHasCard = state.deckDraft.cards.some((c) => c.card_id === cardId);
-      if (!stillHasCard) state.deckDraft.preview_card_id = null;
-    }
-  } else {
-    card.quantity = newQty;
+  const cards = state.deckDraft.cards;
+  if (slotIndex < 0 || slotIndex >= cards.length) return;
+  const removed = cards[slotIndex];
+  cards.splice(slotIndex, 1);
+  if (state.deckDraft.preview_card_id === removed.card_id) {
+    const stillHasCard = cards.some((c) => c.card_id === removed.card_id);
+    if (!stillHasCard) state.deckDraft.preview_card_id = null;
   }
   refreshDraftCounts();
   markDeckDirty();
   renderDeckDetail(deckId);
   runDraftValidationPreview();
+}
+
+function insertDraftCardCopy(deckId, slotIndex, card) {
+  if (!state.deckDraft || state.deckDraft.id !== deckId) return;
+  const cards = state.deckDraft.cards;
+  const insertAt = Math.min(Math.max(slotIndex + 1, 0), cards.length);
+  cards.splice(insertAt, 0, {
+    card_id: card.card_id,
+    name: card.name,
+    type: card.type ?? null,
+    image_url: card.image_url ?? card.image_url_small ?? null,
+    image_url_small: card.image_url_small ?? card.image_url ?? null,
+    zone: card.zone,
+    quantity: 1,
+  });
+  refreshDraftCounts();
+  markDeckDirty();
+  renderDeckDetail(deckId);
+  runDraftValidationPreview();
+}
+
+function mutateDraftCardQuantity(deckId, slotIndex, delta) {
+  if (!state.deckDraft || state.deckDraft.id !== deckId) return;
+  const cards = state.deckDraft.cards;
+  const card = cards[slotIndex];
+  if (!card) return;
+  if (delta < 0) {
+    removeDraftCardAtSlot(deckId, slotIndex);
+    return;
+  }
+  insertDraftCardCopy(deckId, slotIndex, card);
 }
 
 function setDraftCover(deckId, cardId) {
@@ -4991,20 +5025,23 @@ function setDraftCover(deckId, cardId) {
 function addCardToActiveDraft(cardId, zone, cardMeta) {
   if (!state.deckDraft || !state.decksDetailOpen) return false;
   const deckId = state.deckDraft.id;
-  const existing = state.deckDraft.cards.find((c) => c.card_id === cardId && c.zone === zone);
-  if (existing) {
-    existing.quantity += 1;
-  } else {
-    state.deckDraft.cards.push({
-      card_id: cardId,
-      name: cardMeta.name,
-      type: cardMeta.type ?? null,
-      image_url: cardMeta.image_url ?? cardMeta.image_url_small ?? null,
-      image_url_small: cardMeta.image_url_small ?? cardMeta.image_url ?? null,
-      zone,
-      quantity: 1,
-    });
+  const cards = state.deckDraft.cards;
+  let insertAt = cards.length;
+  for (let i = cards.length - 1; i >= 0; i -= 1) {
+    if (cards[i].zone === zone) {
+      insertAt = i + 1;
+      break;
+    }
   }
+  cards.splice(insertAt, 0, {
+    card_id: cardId,
+    name: cardMeta.name,
+    type: cardMeta.type ?? null,
+    image_url: cardMeta.image_url ?? cardMeta.image_url_small ?? null,
+    image_url_small: cardMeta.image_url_small ?? cardMeta.image_url ?? null,
+    zone,
+    quantity: 1,
+  });
   refreshDraftCounts();
   markDeckDirty();
   renderDeckDetail(deckId);
@@ -5276,11 +5313,11 @@ function setupDeckZoneInfoDelegation() {
     ?.addEventListener("click", closeDeckZoneInfo);
 }
 
-function renderDeckCardSlot(deck, card, zone) {
+function renderDeckCardSlot(deck, card, zone, slotIndex) {
   const imgUrl = card.image_url || card.image_url_small || null;
   const isCover = deck.preview_card_id === card.card_id;
   return `
-    <div class="deck-card-slot${isCover ? " is-cover" : ""}" data-card="${card.card_id}" data-zone="${zone}">
+    <div class="deck-card-slot${isCover ? " is-cover" : ""}" data-card="${card.card_id}" data-zone="${zone}" data-slot-index="${slotIndex}" draggable="true">
       ${cardImgTag(imgUrl)}
       <div class="deck-card-actions">
         <button type="button" class="deck-cover-btn${isCover ? " is-active" : ""}" title="Set as deck cover" aria-label="Set as deck cover">★</button>
@@ -5290,6 +5327,94 @@ function renderDeckCardSlot(deck, card, zone) {
         <button type="button" class="deck-plus-btn" title="Add one" aria-label="Add one">+</button>
       </div>
     </div>`;
+}
+
+function getDeckZoneInsertIndex(cards, zone, beforeSlotIndex = null) {
+  if (beforeSlotIndex != null) return beforeSlotIndex;
+  let lastIdx = -1;
+  cards.forEach((c, i) => {
+    if (c.zone === zone) lastIdx = i;
+  });
+  return lastIdx + 1;
+}
+
+function reorderDraftCard(deckId, fromIndex, toIndex, toZone) {
+  if (!state.deckDraft || state.deckDraft.id !== deckId) return;
+  const cards = state.deckDraft.cards;
+  if (fromIndex < 0 || fromIndex >= cards.length) return;
+  if (toIndex < 0) toIndex = 0;
+  if (toIndex > cards.length) toIndex = cards.length;
+
+  const [moved] = cards.splice(fromIndex, 1);
+  moved.zone = toZone;
+  if (fromIndex < toIndex) toIndex -= 1;
+  cards.splice(toIndex, 0, moved);
+
+  refreshDraftCounts();
+  markDeckDirty();
+  renderDeckDetail(deckId);
+  runDraftValidationPreview();
+}
+
+let deckDragFromIndex = null;
+
+function bindDeckZoneDragDrop(deckId) {
+  const zonesEl = $("#deck-zones");
+  if (!zonesEl) return;
+
+  zonesEl.querySelectorAll(".deck-card-slot").forEach((slot) => {
+    slot.addEventListener("dragstart", (e) => {
+      if (e.target.closest("button")) {
+        e.preventDefault();
+        return;
+      }
+      deckDragFromIndex = Number(slot.dataset.slotIndex);
+      slot.classList.add("is-dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(deckDragFromIndex));
+    });
+    slot.addEventListener("dragend", () => {
+      slot.classList.remove("is-dragging");
+      zonesEl.querySelectorAll(".deck-zone-cards").forEach((zoneEl) => {
+        zoneEl.classList.remove("is-drop-target");
+      });
+      deckDragFromIndex = null;
+    });
+  });
+
+  zonesEl.querySelectorAll(".deck-zone-cards").forEach((zoneEl) => {
+    const zone = zoneEl.dataset.zone;
+    if (!zone) return;
+
+    zoneEl.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      zoneEl.classList.add("is-drop-target");
+    });
+    zoneEl.addEventListener("dragleave", (e) => {
+      if (!zoneEl.contains(e.relatedTarget)) {
+        zoneEl.classList.remove("is-drop-target");
+      }
+    });
+    zoneEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zoneEl.classList.remove("is-drop-target");
+      const fromIndex = deckDragFromIndex ?? Number(e.dataTransfer.getData("text/plain"));
+      if (Number.isNaN(fromIndex)) return;
+
+      const slotTarget = e.target.closest(".deck-card-slot");
+      let toIndex;
+      if (slotTarget) {
+        toIndex = Number(slotTarget.dataset.slotIndex);
+        const rect = slotTarget.getBoundingClientRect();
+        const after = e.clientX > rect.left + rect.width / 2;
+        if (after) toIndex += 1;
+      } else {
+        toIndex = getDeckZoneInsertIndex(state.deckDraft.cards, zone);
+      }
+      reorderDraftCard(deckId, fromIndex, toIndex, zone);
+    });
+  });
 }
 
 async function loadDecks({ background = false, force = false } = {}) {
@@ -5336,27 +5461,25 @@ function renderDeckDetail(deckId) {
   updateRouteDocumentTitle();
   updateDeckActionBar();
 
-  const zones = { main: [], extra: [], side: [] };
-  deck.cards.forEach((c) => zones[c.zone]?.push(c));
+  const cards = deck.cards || [];
 
   $("#deck-zones").innerHTML = ["main", "extra", "side"]
     .map((zone) => {
-      const cards = zones[zone];
-      const zoneCount = cards.reduce((sum, c) => sum + c.quantity, 0);
+      const zoneEntries = cards
+        .map((c, slotIndex) => ({ card: c, slotIndex }))
+        .filter((entry) => entry.card.zone === zone);
+      const zoneCount = zoneEntries.length;
       const zoneCountLabel = zoneCount === 1 ? "1 card" : `${zoneCount} cards`;
-      const slots = [];
-      cards.forEach((c) => {
-        for (let i = 0; i < c.quantity; i += 1) {
-          slots.push(renderDeckCardSlot(deck, c, zone));
-        }
-      });
+      const slots = zoneEntries.map(({ card, slotIndex }) =>
+        renderDeckCardSlot(deck, card, zone, slotIndex)
+      );
       return `
         <section class="deck-zone-row">
           <div class="deck-zone-header">
             <h3 class="deck-zone-label">${deckZoneLabelHtml(zone)}</h3>
             <span class="deck-zone-count">${escapeHtml(zoneCountLabel)}</span>
           </div>
-          <div class="deck-zone-cards">
+          <div class="deck-zone-cards" data-zone="${zone}">
             ${
               slots.length
                 ? slots.join("")
@@ -5369,14 +5492,14 @@ function renderDeckDetail(deckId) {
 
   $("#deck-zones").querySelectorAll(".deck-card-slot").forEach((slot) => {
     const cardId = Number(slot.dataset.card);
-    const zone = slot.dataset.zone;
+    const slotIndex = Number(slot.dataset.slotIndex);
     slot.querySelector(".deck-minus-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      mutateDraftCardQuantity(deckId, cardId, zone, -1);
+      mutateDraftCardQuantity(deckId, slotIndex, -1);
     });
     slot.querySelector(".deck-plus-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      mutateDraftCardQuantity(deckId, cardId, zone, 1);
+      mutateDraftCardQuantity(deckId, slotIndex, 1);
     });
     slot.querySelector(".deck-cover-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -5384,6 +5507,8 @@ function renderDeckDetail(deckId) {
     });
     slot.querySelector("img")?.addEventListener("click", () => openCardModal(cardId));
   });
+
+  bindDeckZoneDragDrop(deckId);
 
   $("#decks-detail-view")?.removeAttribute("aria-busy");
 }

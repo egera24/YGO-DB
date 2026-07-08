@@ -1367,7 +1367,7 @@ def _deck_card_entries_for_decks(
         grouped[dc.deck_id].append((dc, card))
     for deck_id in deck_ids:
         grouped[deck_id].sort(
-            key=lambda t: (_deck_zone_sort_key(t[0].zone), t[0].card_id)
+            key=lambda t: (_deck_zone_sort_key(t[0].zone), t[0].sort_order)
         )
     return grouped
 
@@ -1508,10 +1508,12 @@ def _apply_deck_settings(session: Session, deck: Deck, updates: dict) -> None:
         preview_card_id = updates["preview_card_id"]
         if preview_card_id is not None:
             in_deck = session.execute(
-                select(DeckCard.id).where(
+                select(DeckCard.id)
+                .where(
                     DeckCard.deck_id == deck.id,
                     DeckCard.card_id == preview_card_id,
                 )
+                .limit(1)
             ).scalar_one_or_none()
             if not in_deck:
                 raise ValueError("Preview card must be in the deck")
@@ -1525,7 +1527,13 @@ def _apply_deck_settings(session: Session, deck: Deck, updates: dict) -> None:
 
 
 def reconcile_deck_cards(session: Session, deck_id: int, cards: list[dict]) -> None:
-    desired: dict[tuple[int, str], int] = {}
+    existing_rows = session.execute(
+        select(DeckCard).where(DeckCard.deck_id == deck_id)
+    ).scalars().all()
+    old_card_ids = {row.card_id for row in existing_rows}
+
+    new_entries: list[dict] = []
+    zone_counters = {"main": 0, "extra": 0, "side": 0}
     for item in cards:
         zone = item.get("zone", "main")
         if zone not in VALID_DECK_ZONES:
@@ -1536,32 +1544,37 @@ def reconcile_deck_cards(session: Session, deck_id: int, cards: list[dict]) -> N
             continue
         if session.get(Card, card_id) is None:
             continue
-        key = (card_id, zone)
-        desired[key] = desired.get(key, 0) + quantity
-
-    existing_rows = session.execute(
-        select(DeckCard).where(DeckCard.deck_id == deck_id)
-    ).scalars().all()
-    existing_map = {(row.card_id, row.zone): row for row in existing_rows}
-
-    for (card_id, zone), quantity in desired.items():
-        row = existing_map.get((card_id, zone))
-        if row:
-            row.quantity = quantity
-        else:
-            session.add(
-                DeckCard(
-                    deck_id=deck_id,
-                    card_id=card_id,
-                    zone=zone,
-                    quantity=quantity,
-                )
+        for _ in range(quantity):
+            new_entries.append(
+                {
+                    "card_id": card_id,
+                    "zone": zone,
+                    "sort_order": zone_counters[zone],
+                }
             )
+            zone_counters[zone] += 1
 
-    for key, row in existing_map.items():
-        if key not in desired:
-            session.delete(row)
-            clear_deck_preview_if_removed(session, deck_id, row.card_id)
+    new_card_ids = {entry["card_id"] for entry in new_entries}
+    removed_card_ids = old_card_ids - new_card_ids
+
+    for row in existing_rows:
+        session.delete(row)
+
+    for entry in new_entries:
+        session.add(
+            DeckCard(
+                deck_id=deck_id,
+                card_id=entry["card_id"],
+                zone=entry["zone"],
+                quantity=1,
+                sort_order=entry["sort_order"],
+            )
+        )
+
+    session.flush()
+
+    for card_id in removed_card_ids:
+        clear_deck_preview_if_removed(session, deck_id, card_id)
 
 
 def apply_deck_save(session: Session, deck: Deck, body: dict) -> None:

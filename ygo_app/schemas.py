@@ -302,6 +302,7 @@ class DeckCardOut(BaseModel):
     image_url: str | None = None
     zone: str
     quantity: int
+    sort_order: int = 0
 
     model_config = {"from_attributes": True}
 

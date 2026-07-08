@@ -1911,10 +1911,25 @@ tr:hover td { background: var(--surface); }
   flex-wrap: wrap;
   gap: 0.55rem;
   align-items: flex-start;
+  min-height: 2.5rem;
+  border-radius: var(--radius);
+  transition: background-color 0.15s ease, outline-color 0.15s ease;
+}
+.deck-zone-cards.is-drop-target {
+  background: rgba(56, 189, 248, 0.08);
+  outline: 2px dashed rgba(56, 189, 248, 0.45);
+  outline-offset: 2px;
 }
 .deck-card-slot {
   position: relative;
   flex-shrink: 0;
+}
+.deck-card-slot[draggable="true"] {
+  cursor: grab;
+}
+.deck-card-slot.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
 }
 .deck-card-slot img,
 .deck-card-skeleton {

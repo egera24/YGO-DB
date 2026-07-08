@@ -377,7 +377,9 @@ class Deck(Base):
 
     user: Mapped["User"] = relationship(back_populates="decks")
     cards: Mapped[list["DeckCard"]] = relationship(
-        back_populates="deck", cascade="all, delete-orphan"
+        back_populates="deck",
+        cascade="all, delete-orphan",
+        order_by="DeckCard.sort_order",
     )
     format: Mapped["Format"] = relationship()
     banlist_revision: Mapped["BanlistRevision | None"] = relationship()
@@ -386,15 +388,13 @@ class Deck(Base):
 
 class DeckCard(Base):
     __tablename__ = "deck_cards"
-    __table_args__ = (
-        UniqueConstraint("deck_id", "card_id", "zone", name="uq_deck_card_zone"),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     deck_id: Mapped[int] = mapped_column(ForeignKey("decks.id", ondelete="CASCADE"), index=True)
     card_id: Mapped[int] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
     zone: Mapped[str] = mapped_column(String(16), index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, index=True)
 
     deck: Mapped["Deck"] = relationship(back_populates="cards")
     card: Mapped["Card"] = relationship(back_populates="deck_entries")

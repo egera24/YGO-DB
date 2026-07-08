@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ygo_app.auth import get_current_user
@@ -49,6 +49,17 @@ def _deck_card_out(dc: DeckCard) -> DeckCardOut:
         image_url=dc.card.image_url,
         zone=dc.zone,
         quantity=dc.quantity,
+        sort_order=dc.sort_order,
+    )
+
+
+def _sorted_deck_cards(deck: Deck) -> list[DeckCard]:
+    return sorted(
+        deck.cards,
+        key=lambda dc: (
+            {"main": 0, "extra": 1, "side": 2}.get(dc.zone, 99),
+            dc.sort_order,
+        ),
     )
 
 
@@ -64,7 +75,7 @@ def _deck_detail_from_deck(deck: Deck, db: Session) -> DeckDetail:
     previews = compute_deck_preview_cards(deck.preview_card_id, entries)
     validation = validate_deck_for_api(db, deck)
     base = build_deck_out(deck, counts, previews, validation=validation)
-    cards = [_deck_card_out(dc) for dc in deck.cards]
+    cards = [_deck_card_out(dc) for dc in _sorted_deck_cards(deck)]
     out = _deck_out_from_base(base)
     return DeckDetail(**out.model_dump(), cards=cards, validation=_validation_out(validation))
 
@@ -226,23 +237,21 @@ def add_card_to_deck(
         raise HTTPException(404, "Card not found")
 
     zone = body.zone if body.zone in ("main", "extra", "side") else "main"
-    existing = db.execute(
-        select(DeckCard).where(
+    max_sort = db.execute(
+        select(func.coalesce(func.max(DeckCard.sort_order), -1)).where(
             DeckCard.deck_id == deck_id,
-            DeckCard.card_id == body.card_id,
             DeckCard.zone == zone,
         )
-    ).scalar_one_or_none()
+    ).scalar_one()
 
-    if existing:
-        existing.quantity += body.quantity
-    else:
+    for offset in range(body.quantity):
         db.add(
             DeckCard(
                 deck_id=deck_id,
                 card_id=body.card_id,
                 zone=zone,
-                quantity=body.quantity,
+                quantity=1,
+                sort_order=max_sort + 1 + offset,
             )
         )
     deck.updated_at = datetime.utcnow()
@@ -261,20 +270,45 @@ def update_deck_card(
 ):
     if not _get_user_deck(db, deck_id, user.id):
         raise HTTPException(404, "Deck not found")
-    row = db.execute(
-        select(DeckCard).where(
-            DeckCard.deck_id == deck_id,
-            DeckCard.card_id == card_id,
-            DeckCard.zone == zone,
+    rows = list(
+        db.execute(
+            select(DeckCard)
+            .where(
+                DeckCard.deck_id == deck_id,
+                DeckCard.card_id == card_id,
+                DeckCard.zone == zone,
+            )
+            .order_by(DeckCard.sort_order.asc(), DeckCard.id.asc())
         )
-    ).scalar_one_or_none()
-    if not row:
+        .scalars()
+        .all()
+    )
+    if not rows and quantity > 0:
         raise HTTPException(404, "Card not in deck")
     if quantity <= 0:
-        db.delete(row)
+        for row in rows:
+            db.delete(row)
         clear_deck_preview_if_removed(db, deck_id, card_id)
-    else:
-        row.quantity = quantity
+    elif quantity < len(rows):
+        for row in rows[quantity:]:
+            db.delete(row)
+    elif quantity > len(rows):
+        max_sort = db.execute(
+            select(func.coalesce(func.max(DeckCard.sort_order), -1)).where(
+                DeckCard.deck_id == deck_id,
+                DeckCard.zone == zone,
+            )
+        ).scalar_one()
+        for offset in range(quantity - len(rows)):
+            db.add(
+                DeckCard(
+                    deck_id=deck_id,
+                    card_id=card_id,
+                    zone=zone,
+                    quantity=1,
+                    sort_order=max_sort + 1 + offset,
+                )
+            )
     deck = db.get(Deck, deck_id)
     if deck:
         deck.updated_at = datetime.utcnow()
@@ -292,15 +326,20 @@ def remove_from_deck(
 ):
     if not _get_user_deck(db, deck_id, user.id):
         raise HTTPException(404, "Deck not found")
-    row = db.execute(
-        select(DeckCard).where(
-            DeckCard.deck_id == deck_id,
-            DeckCard.card_id == card_id,
-            DeckCard.zone == zone,
+    rows = list(
+        db.execute(
+            select(DeckCard).where(
+                DeckCard.deck_id == deck_id,
+                DeckCard.card_id == card_id,
+                DeckCard.zone == zone,
+            )
         )
-    ).scalar_one_or_none()
-    if row:
-        db.delete(row)
+        .scalars()
+        .all()
+    )
+    if rows:
+        for row in rows:
+            db.delete(row)
         clear_deck_preview_if_removed(db, deck_id, card_id)
         deck = db.get(Deck, deck_id)
         if deck:

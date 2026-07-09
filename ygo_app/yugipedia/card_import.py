@@ -8,6 +8,7 @@ from ygo_app.yugipedia.adapter import yugipedia_card_to_api
 from ygo_app.yugipedia.constants import MONSTER_TYPES
 
 CARD_CATEGORIES = frozenset({"Spell", "Trap", "Skill"})
+MONSTER_LIKE_CATEGORIES = frozenset({"Monster", "Token"})
 
 
 def _int_field(value) -> int | None:
@@ -34,6 +35,9 @@ def _normalize_typeline(entry: dict) -> list[str]:
 
 
 def _category_from_entry(entry: dict) -> str:
+    category = entry.get("category")
+    if category:
+        return str(category)
     kind = entry.get("type")
     if kind in CARD_CATEGORIES:
         return kind
@@ -78,7 +82,7 @@ def yugipedia_entry_to_import(entry: dict) -> dict | None:
     summoning_condition = None
     attribute = None
 
-    if category == "Monster":
+    if category in MONSTER_LIKE_CATEGORIES:
         mechanic = entry.get("mechanic")
         if mechanic is not None:
             mechanic = str(mechanic).strip() or None
@@ -94,23 +98,24 @@ def yugipedia_entry_to_import(entry: dict) -> dict | None:
         attribute = entry.get("attribute")
 
     level = _int_field(entry.get("level"))
-    if category == "Monster" and level is None:
+    if category in MONSTER_LIKE_CATEGORIES and level is None:
         level = _int_field(api.get("level"))
-    if category == "Monster" and rank is None:
+    if category in MONSTER_LIKE_CATEGORIES and rank is None:
         rank = _int_field(entry.get("rank"))
 
     race = entry.get("type")
-    if category == "Monster" and race not in MONSTER_TYPES:
+    if category in MONSTER_LIKE_CATEGORIES and race not in MONSTER_TYPES:
         race = next((t for t in typeline if t in MONSTER_TYPES), race)
 
+    monster_like = category in MONSTER_LIKE_CATEGORIES
     return {
         **api,
         "category": category,
         "types": _json_list(types_list),
         "mechanic": mechanic,
-        "attribute": attribute if category == "Monster" else api.get("attribute"),
-        "race": race if category == "Monster" else api.get("race"),
-        "level": level if category == "Monster" else None,
+        "attribute": attribute if monster_like else api.get("attribute"),
+        "race": race if monster_like else api.get("race"),
+        "level": level if monster_like else None,
         "rank": rank,
         "link_rating": link_rating,
         "linkval": link_rating if link_rating is not None else api.get("linkval"),
@@ -118,8 +123,8 @@ def yugipedia_entry_to_import(entry: dict) -> dict | None:
         "scale": pendulum_scale if pendulum_scale is not None else api.get("scale"),
         "link_markers": link_markers_json,
         "summoning_condition": summoning_condition,
-        "atk": _int_field(entry.get("atk")) if category == "Monster" else api.get("atk"),
-        "def": _int_field(entry.get("def")) if category == "Monster" else api.get("def"),
+        "atk": _int_field(entry.get("atk")) if monster_like else api.get("atk"),
+        "def": _int_field(entry.get("def")) if monster_like else api.get("def"),
         "has_errata": bool(entry.get("has_errata")),
         "last_erratum_date": entry.get("last_erratum_date"),
         "errata": entry.get("errata") or [],

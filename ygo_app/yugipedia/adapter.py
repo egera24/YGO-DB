@@ -118,6 +118,40 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
         }
     ]
 
+    # Token (Yugipedia card type — monster stats, not a Monster card)
+    if entry.get("category") == "Token":
+        typeline = entry.get("typeline") or []
+        if isinstance(typeline, str):
+            typeline = [t.strip() for t in typeline.split(",")]
+        race = entry.get("type")
+        if race not in MONSTER_TYPES:
+            race = next((t for t in typeline if t in MONSTER_TYPES), race)
+        level = _int_field(entry.get("level"))
+        race_label = race or "Token"
+        return {
+            "id": pid,
+            "passcode": pid,
+            "source_url": source_url,
+            "name": entry.get("name", ""),
+            "type": "Token",
+            "humanReadableCardType": (
+                f"{race_label} Token" if race_label != "Token" else "Token"
+            ),
+            "frameType": "token",
+            "desc": entry.get("description"),
+            "atk": _int_field(entry.get("atk")),
+            "def": _int_field(entry.get("def")),
+            "level": level,
+            "race": race,
+            "attribute": entry.get("attribute"),
+            "archetype": entry.get("archetype"),
+            "linkval": _int_field(entry.get("link_rating")),
+            "scale": _int_field(entry.get("pendulum_scale")),
+            "ygoprodeck_url": images["ygoprodeck_url"],
+            "card_images": card_images,
+            "card_sets": card_sets,
+        }
+
     # Spell / Trap / Skill
     if entry.get("type") in ("Spell", "Trap", "Skill"):
         prop = entry.get("property") or ""

@@ -112,7 +112,44 @@ class TestParsePasswordless(unittest.TestCase):
         self.assertIsNone(error)
         assert card_data is not None
         self.assertIsNone(card_data["id"])
+        self.assertEqual(card_data["category"], "Token")
         self.assertIn("TOKEN-EN001", [cs["set_code"] for cs in card_data.get("card_sets", [])])
+
+    def test_hippo_token_card_type_row_is_token(self):
+        """Yugipedia token pages list Card type as Token (not Monster)."""
+        html = (FIXTURES / "hippo_token.html").read_text(encoding="utf-8")
+        self.assertEqual(extract_card_type_from_page(_soup(html)), "Token Card")
+        input_card = {
+            "name": "Hippo Token",
+            "card_type": "",
+            "password": "",
+            "url": "https://yugipedia.com/wiki/Hippo_Token",
+            "passwordless": True,
+        }
+        card_data, error = parse_card_page(html, input_card)
+        self.assertIsNone(error)
+        assert card_data is not None
+        self.assertEqual(card_data["category"], "Token")
+        self.assertEqual(card_data["type"], "Beast")
+        self.assertIn("Token", card_data.get("typeline", []))
+        self.assertIn("YS16-ENT01", [cs["set_code"] for cs in card_data.get("card_sets", [])])
+
+    def test_token_card_type_labels_from_passcode_list(self):
+        """SMW/page labels like Token or Monster Token must route to token parsing."""
+        html = (FIXTURES / "hippo_token.html").read_text(encoding="utf-8")
+        base = {
+            "name": "Hippo Token",
+            "password": "",
+            "url": "https://yugipedia.com/wiki/Hippo_Token",
+            "passwordless": True,
+        }
+        for card_type in ("Token", "Monster Token", "Token Card"):
+            with self.subTest(card_type=card_type):
+                card_data, error = parse_card_page(html, {**base, "card_type": card_type})
+                self.assertIsNone(error, msg=f"failed for card_type={card_type!r}")
+                assert card_data is not None
+                self.assertEqual(card_data["category"], "Token")
+                self.assertEqual(card_data["type"], "Beast")
 
 
 class TestAdapterPasswordless(unittest.TestCase):

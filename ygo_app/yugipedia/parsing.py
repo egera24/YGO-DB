@@ -318,23 +318,73 @@ def extract_archetype(soup: BeautifulSoup) -> list[str] | None:
     return None
 
 
+def normalize_passcode_card_type(card_type: str) -> str:
+    """Map Yugipedia/SMW card-type labels to parse_card_page routing labels.
+
+    SMW passcode rows use values like ``Monster Card``. Passwordless token pages
+    may use ``Token`` or ``Monster Token`` when a type is present on the input row.
+    """
+    text = (card_type or "").strip()
+    if not text:
+        return ""
+    if text in ("Monster Card", "Spell Card", "Trap Card", "Skill Card", "Token Card"):
+        return text
+    lower = text.lower()
+    if "token" in lower:
+        return "Token Card"
+    for key in ("Monster", "Spell", "Trap", "Skill"):
+        if text == key:
+            return f"{key} Card"
+    return text
+
+
 def extract_card_type_from_page(soup: BeautifulSoup) -> str | None:
-    """Read the 'Card type' infobox row (Monster/Spell/Trap/Skill).
+    """Read the 'Card type' infobox row (Monster/Spell/Trap/Skill/Token).
 
     Used for cards discovered without a card type (passwordless category members),
     returning the same labels the passcode list carries (e.g. 'Monster Card').
     """
     row = find_row_by_header(soup, "Card type")
     if not row:
+        # #region agent log
+        import json, time
+        with open("debug-8cf9c8.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps({"sessionId": "8cf9c8", "hypothesisId": "B", "location": "parsing.py:extract_card_type_from_page", "message": "no Card type row", "data": {}, "timestamp": int(time.time() * 1000)}) + "\n")
+        # #endregion
         return None
     td = row.find("td")
     if not td:
         return None
     text = td.get_text()
+    # #region agent log
+    import json, time
+    with open("debug-8cf9c8.log", "a", encoding="utf-8") as _f:
+        _f.write(json.dumps({"sessionId": "8cf9c8", "hypothesisId": "A", "location": "parsing.py:extract_card_type_from_page", "message": "Card type row text", "data": {"text": text.strip()}, "timestamp": int(time.time() * 1000)}) + "\n")
+    # #endregion
     for key in ("Monster", "Spell", "Trap", "Skill"):
         if key in text:
             return f"{key} Card"
+    if "Token" in text:
+        return "Token Card"
     return None
+
+
+def _apply_token_category(card_data: dict) -> None:
+    """Mark scrape JSON as a Token card (Yugipedia card type, not Monster)."""
+    card_data["category"] = "Token"
+    typeline = list(card_data.get("typeline") or [])
+    if "Token" not in typeline:
+        typeline.append("Token")
+    card_data["typeline"] = typeline
+
+
+def parse_token_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
+    """Parse a Token card page (monster stats + Token card type)."""
+    card_data, error = parse_monster_card(soup, input_card)
+    if error or card_data is None:
+        return card_data, error
+    _apply_token_category(card_data)
+    return card_data, None
 
 
 def _init_card_data(input_card: dict, **extra) -> dict:
@@ -497,12 +547,24 @@ def parse_skill_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
 
 def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | None]:
     soup = BeautifulSoup(html, "html.parser")
-    card_type = input_card.get("card_type", "")
+    card_type = normalize_passcode_card_type(input_card.get("card_type", ""))
     # Passwordless category members arrive without a card type; read it off the page.
     if not card_type:
         card_type = extract_card_type_from_page(soup) or ""
+    # #region agent log
+    import json, time
+    with open("debug-8cf9c8.log", "a", encoding="utf-8") as _f:
+        _f.write(json.dumps({"sessionId": "8cf9c8", "hypothesisId": "C", "location": "parsing.py:parse_card_page", "message": "resolved card_type", "data": {"name": input_card.get("name"), "card_type": card_type or "(none)", "passwordless": bool(input_card.get("passwordless"))}, "timestamp": int(time.time() * 1000), "runId": "post-fix"}) + "\n")
+    # #endregion
     if card_type == "Monster Card":
-        return parse_monster_card(soup, input_card)
+        card_data, error = parse_monster_card(soup, input_card)
+        if error or card_data is None:
+            return card_data, error
+        if "Token" in (card_data.get("typeline") or []):
+            _apply_token_category(card_data)
+        return card_data, None
+    if card_type == "Token Card":
+        return parse_token_card(soup, input_card)
     if card_type == "Spell Card":
         return parse_spell_card(soup, input_card)
     if card_type == "Trap Card":

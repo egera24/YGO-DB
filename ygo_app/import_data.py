@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,33 +26,6 @@ from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code, rarity_display
 
 IMPORT_ERROR_COLUMN = "Import Error"
-_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "debug-c911ae.log"
-
-
-def _debug_log(
-    *,
-    location: str,
-    message: str,
-    data: dict,
-    hypothesis_id: str,
-    run_id: str = "pre-fix",
-) -> None:
-    # region agent log
-    try:
-        payload = {
-            "sessionId": "c911ae",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-    # endregion
 
 
 def _legacy_passcode_id(card_id: int | None) -> int | None:
@@ -96,33 +67,13 @@ def _resolve_existing_id(
     if key[0] == "p":
         passcode = int(key[1])
         if passcode in by_legacy_id:
-            resolved = by_legacy_id[passcode]
-            match_kind = "legacy_id"
-        elif passcode in by_passcode_col:
-            resolved = by_passcode_col[passcode]
-            match_kind = "passcode_col"
-        elif fields.get("source_url") and fields["source_url"] in by_source_url:
-            resolved = by_source_url[fields["source_url"]]
-            match_kind = "source_url"
-        else:
-            resolved = None
-            match_kind = "none"
-        # region agent log
-        if passcode in (4731783, 6850209) or match_kind == "none":
-            _debug_log(
-                location="import_data.py:_resolve_existing_id",
-                message="passcode resolve",
-                data={
-                    "passcode": passcode,
-                    "matchKind": match_kind,
-                    "resolvedId": resolved,
-                    "inLegacyId": passcode in by_legacy_id,
-                    "legacyDetect": _legacy_passcode_id(passcode),
-                },
-                hypothesis_id="H1",
-            )
-        # endregion
-        return resolved
+            return by_legacy_id[passcode]
+        if passcode in by_passcode_col:
+            return by_passcode_col[passcode]
+        source_url = fields.get("source_url")
+        if source_url and source_url in by_source_url:
+            return by_source_url[source_url]
+        return None
     source_url = str(key[1])
     return by_source_url.get(source_url)
 
@@ -244,14 +195,6 @@ def _prune_surrogate_passcode_duplicates(session: Session) -> int:
         _prune_surrogate_passcode_duplicates_sqlite(session, pairs_sql)
 
     session.commit()
-    # region agent log
-    _debug_log(
-        location="import_data.py:_prune_surrogate_passcode_duplicates",
-        message="bulk pruned surrogate duplicates",
-        data={"removed": removed},
-        hypothesis_id="H3",
-    )
-    # endregion
     print(f"Pruned {removed} surrogate duplicate card rows.", flush=True)
     return removed
 
@@ -611,24 +554,6 @@ def import_cards_entries(
             prepared.append((key, fields, entry))
 
         by_passcode_col, by_legacy_id, by_source_url = _load_card_key_maps(session)
-        existing = {
-            **{("p", k): v for k, v in by_passcode_col.items()},
-            **{("p", k): v for k, v in by_legacy_id.items()},
-            **{("u", k): v for k, v in by_source_url.items()},
-        }
-        # region agent log
-        _debug_log(
-            location="import_data.py:import_cards_entries",
-            message="existing key map loaded",
-            data={
-                "existingKeyCount": len(existing),
-                "legacyIdCount": len(by_legacy_id),
-                "passcodeColCount": len(by_passcode_col),
-                "preparedCount": len(prepared),
-            },
-            hypothesis_id="H1",
-        )
-        # endregion
         update_maps: list[dict] = []
         insert_maps: list[dict] = []
         for key, fields, _entry in prepared:
@@ -643,17 +568,6 @@ def import_cards_entries(
                 update_maps.append({"id": cid, **fields})
             else:
                 insert_maps.append(fields)
-        # region agent log
-        _debug_log(
-            location="import_data.py:import_cards_entries",
-            message="card upsert batches prepared",
-            data={
-                "updates": len(update_maps),
-                "inserts": len(insert_maps),
-            },
-            hypothesis_id="H2",
-        )
-        # endregion
         print(
             f"Upserting {len(update_maps)} cards (update) and {len(insert_maps)} cards (insert)...",
             flush=True,

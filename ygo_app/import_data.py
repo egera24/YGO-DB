@@ -106,83 +106,224 @@ def _resolve_existing_id(
     return by_source_url.get(source_url)
 
 
-def _repoint_card_fks(session: Session, *, from_id: int, to_id: int) -> None:
-    """Move user/catalog references from a duplicate surrogate row to the keeper."""
-    from ygo_app.models import (
-        BanlistEntry,
-        CardErrataVersion,
-        CardFormatLegality,
-        Deck,
-        DeckCard,
-        GenesysPointEntry,
-        Printing,
-        UserCardTag,
-        UserFavorite,
-    )
-
-    if from_id == to_id:
-        return
-    session.execute(
-        update(Printing).where(Printing.card_id == from_id).values(card_id=to_id)
-    )
-    session.execute(
-        update(CardErrataVersion)
-        .where(CardErrataVersion.card_id == from_id)
-        .values(card_id=to_id)
-    )
-    session.execute(
-        update(UserFavorite).where(UserFavorite.card_id == from_id).values(card_id=to_id)
-    )
-    session.execute(
-        update(UserCardTag).where(UserCardTag.card_id == from_id).values(card_id=to_id)
-    )
-    session.execute(
-        update(DeckCard).where(DeckCard.card_id == from_id).values(card_id=to_id)
-    )
-    session.execute(
-        update(BanlistEntry).where(BanlistEntry.card_id == from_id).values(card_id=to_id)
-    )
-    session.execute(
-        update(GenesysPointEntry)
-        .where(GenesysPointEntry.card_id == from_id)
-        .values(card_id=to_id)
-    )
-    session.execute(
-        update(CardFormatLegality)
-        .where(CardFormatLegality.card_id == from_id)
-        .values(card_id=to_id)
-    )
-    session.execute(
-        update(Deck).where(Deck.preview_card_id == from_id).values(preview_card_id=to_id)
-    )
+def _duplicate_pair_subquery() -> str:
+    """SQL subquery: surrogate_id, legacy_id for legacy id==passcode duplicates."""
+    return """
+        SELECT c.id AS surrogate_id, c.passcode AS legacy_id
+        FROM cards c
+        INNER JOIN cards legacy ON legacy.id = c.passcode
+        WHERE c.passcode IS NOT NULL
+          AND c.id <> c.passcode
+          AND legacy.passcode IS NULL
+    """
 
 
 def _prune_surrogate_passcode_duplicates(session: Session) -> int:
     """Drop surrogate rows when a legacy id==passcode row exists for the same card."""
-    pairs = session.execute(
-        select(Card.id, Card.passcode).where(Card.passcode.isnot(None))
-    ).all()
-    removed = 0
-    for surrogate_id, passcode in pairs:
-        if surrogate_id == passcode:
-            continue
-        legacy = session.get(Card, passcode)
-        if legacy is None or legacy.passcode is not None:
-            continue
-        _repoint_card_fks(session, from_id=surrogate_id, to_id=passcode)
-        session.delete(session.get(Card, surrogate_id))
-        removed += 1
-        # region agent log
-        _debug_log(
-            location="import_data.py:_prune_surrogate_passcode_duplicates",
-            message="pruned surrogate duplicate",
-            data={"surrogateId": surrogate_id, "legacyId": passcode},
-            hypothesis_id="H3",
-        )
-        # endregion
-    if removed:
-        session.commit()
+    pairs_sql = _duplicate_pair_subquery()
+    removed = session.execute(
+        text(f"SELECT COUNT(*) FROM ({pairs_sql}) AS pairs")
+    ).scalar_one()
+    if not removed:
+        return 0
+
+    print(f"Pruning {removed} surrogate duplicate card rows...", flush=True)
+
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        repoint_steps = [
+            f"""
+            UPDATE printings AS p
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE p.card_id = pairs.surrogate_id
+            """,
+            f"""
+            UPDATE card_errata_versions AS e
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE e.card_id = pairs.surrogate_id
+            """,
+            f"""
+            DELETE FROM user_favorites AS uf
+            USING ({pairs_sql}) AS pairs,
+                  user_favorites AS uf_leg
+            WHERE uf.card_id = pairs.surrogate_id
+              AND uf_leg.user_id = uf.user_id
+              AND uf_leg.card_id = pairs.legacy_id
+            """,
+            f"""
+            UPDATE user_favorites AS uf
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE uf.card_id = pairs.surrogate_id
+            """,
+            f"""
+            DELETE FROM user_card_tags AS t
+            USING ({pairs_sql}) AS pairs,
+                  user_card_tags AS t_leg
+            WHERE t.card_id = pairs.surrogate_id
+              AND t_leg.user_id = t.user_id
+              AND t_leg.card_id = pairs.legacy_id
+              AND t_leg.tag = t.tag
+            """,
+            f"""
+            UPDATE user_card_tags AS t
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE t.card_id = pairs.surrogate_id
+            """,
+            f"""
+            UPDATE deck_cards AS dc
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE dc.card_id = pairs.surrogate_id
+            """,
+            f"""
+            UPDATE banlist_entries AS be
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE be.card_id = pairs.surrogate_id
+            """,
+            f"""
+            UPDATE genesys_point_entries AS gpe
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE gpe.card_id = pairs.surrogate_id
+            """,
+            f"""
+            DELETE FROM card_format_legality AS cfl
+            USING ({pairs_sql}) AS pairs,
+                  card_format_legality AS cfl_leg
+            WHERE cfl.card_id = pairs.surrogate_id
+              AND cfl_leg.card_id = pairs.legacy_id
+              AND cfl_leg.format_code = cfl.format_code
+            """,
+            f"""
+            UPDATE card_format_legality AS cfl
+            SET card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE cfl.card_id = pairs.surrogate_id
+            """,
+            f"""
+            UPDATE decks AS d
+            SET preview_card_id = pairs.legacy_id
+            FROM ({pairs_sql}) AS pairs
+            WHERE d.preview_card_id = pairs.surrogate_id
+            """,
+            f"""
+            DELETE FROM cards AS c
+            USING ({pairs_sql}) AS pairs
+            WHERE c.id = pairs.surrogate_id
+            """,
+        ]
+        for stmt in repoint_steps:
+            session.execute(text(stmt))
+    else:
+        _prune_surrogate_passcode_duplicates_sqlite(session, pairs_sql)
+
+    session.commit()
+    # region agent log
+    _debug_log(
+        location="import_data.py:_prune_surrogate_passcode_duplicates",
+        message="bulk pruned surrogate duplicates",
+        data={"removed": removed},
+        hypothesis_id="H3",
+    )
+    # endregion
+    print(f"Pruned {removed} surrogate duplicate card rows.", flush=True)
     return removed
+
+
+def _prune_surrogate_passcode_duplicates_sqlite(session: Session, pairs_sql: str) -> None:
+    """SQLite lacks UPDATE ... FROM; use per-pair statements (test DBs are small)."""
+    rows = session.execute(text(f"SELECT surrogate_id, legacy_id FROM ({pairs_sql})")).all()
+    for surrogate_id, legacy_id in rows:
+        session.execute(
+            text("UPDATE printings SET card_id = :legacy_id WHERE card_id = :surrogate_id"),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text(
+                "UPDATE card_errata_versions SET card_id = :legacy_id WHERE card_id = :surrogate_id"
+            ),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text(
+                """
+                DELETE FROM user_favorites
+                WHERE card_id = :surrogate_id
+                  AND user_id IN (
+                    SELECT user_id FROM user_favorites WHERE card_id = :legacy_id
+                  )
+                """
+            ),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text("UPDATE user_favorites SET card_id = :legacy_id WHERE card_id = :surrogate_id"),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text(
+                """
+                DELETE FROM user_card_tags
+                WHERE card_id = :surrogate_id
+                  AND EXISTS (
+                    SELECT 1 FROM user_card_tags AS leg
+                    WHERE leg.user_id = user_card_tags.user_id
+                      AND leg.card_id = :legacy_id
+                      AND leg.tag = user_card_tags.tag
+                  )
+                """
+            ),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text("UPDATE user_card_tags SET card_id = :legacy_id WHERE card_id = :surrogate_id"),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text("UPDATE deck_cards SET card_id = :legacy_id WHERE card_id = :surrogate_id"),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text("UPDATE banlist_entries SET card_id = :legacy_id WHERE card_id = :surrogate_id"),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text(
+                "UPDATE genesys_point_entries SET card_id = :legacy_id WHERE card_id = :surrogate_id"
+            ),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text(
+                """
+                DELETE FROM card_format_legality
+                WHERE card_id = :surrogate_id
+                  AND format_code IN (
+                    SELECT format_code FROM card_format_legality WHERE card_id = :legacy_id
+                  )
+                """
+            ),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text(
+                "UPDATE card_format_legality SET card_id = :legacy_id WHERE card_id = :surrogate_id"
+            ),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text("UPDATE decks SET preview_card_id = :legacy_id WHERE preview_card_id = :surrogate_id"),
+            {"legacy_id": legacy_id, "surrogate_id": surrogate_id},
+        )
+        session.execute(
+            text("DELETE FROM cards WHERE id = :surrogate_id"),
+            {"surrogate_id": surrogate_id},
+        )
 
 
 def _detach_collection_printing_links(session: Session) -> int:
@@ -477,25 +618,25 @@ def import_cards_entries(
                 by_legacy_id=by_legacy_id,
                 by_source_url=by_source_url,
             )
-            # region agent log
-            _debug_log(
-                location="import_data.py:import_cards_entries",
-                message="card upsert resolution",
-                data={
-                    "name": fields.get("name"),
-                    "key": list(key),
-                    "passcode": fields.get("passcode"),
-                    "sourceUrl": fields.get("source_url"),
-                    "resolvedId": cid,
-                    "action": "update" if cid is not None else "insert",
-                },
-                hypothesis_id="H2",
-            )
-            # endregion
             if cid is not None:
                 update_maps.append({"id": cid, **fields})
             else:
                 insert_maps.append(fields)
+        # region agent log
+        _debug_log(
+            location="import_data.py:import_cards_entries",
+            message="card upsert batches prepared",
+            data={
+                "updates": len(update_maps),
+                "inserts": len(insert_maps),
+            },
+            hypothesis_id="H2",
+        )
+        # endregion
+        print(
+            f"Upserting {len(update_maps)} cards (update) and {len(insert_maps)} cards (insert)...",
+            flush=True,
+        )
 
         for chunk in _chunked(update_maps, batch_size):
             session.bulk_update_mappings(Card, chunk)

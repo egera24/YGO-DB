@@ -238,6 +238,116 @@ class TestImportUpsertPasswordless(unittest.TestCase):
         finally:
             session.close()
 
+    def _case_for_k9_entry(self):
+        return {
+            "passcode": 80181649,
+            "source_url": "https://yugipedia.com/wiki/%22A_Case_for_K9%22",
+            "name": '"A Case for K9"',
+            "category": "Spell",
+            "card_sets": [
+                {
+                    "set_code": "DOOD-EN061",
+                    "set_name": "Doom of Dimensions",
+                    "set_rarity": "Common",
+                    "set_rarity_code": "C",
+                }
+            ],
+        }
+
+    def test_legacy_id_row_reused_when_passcode_imported(self):
+        """Pre-migration row (id=passcode, passcode NULL) must not spawn a surrogate duplicate."""
+        session = self.Session()
+        try:
+            session.add(
+                Card(
+                    id=80181649,
+                    passcode=None,
+                    source_url="https://yugipedia.com/wiki/%22A_Case_for_K9%22",
+                    name='"A Case for K9"',
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        cards, _ = import_cards_entries([self._case_for_k9_entry()])
+        self.assertEqual(cards, 1)
+
+        session = self.Session()
+        try:
+            rows = session.query(Card).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].id, 80181649)
+            self.assertEqual(rows[0].passcode, 80181649)
+        finally:
+            session.close()
+
+    def test_surrogate_duplicate_pruned_when_legacy_row_exists(self):
+        """Existing surrogate+legacy pair for the same passcode collapses on reimport."""
+        session = self.Session()
+        try:
+            session.add(
+                Card(
+                    id=80181649,
+                    passcode=None,
+                    source_url="https://yugipedia.com/wiki/%22A_Case_for_K9%22",
+                    name='"A Case for K9"',
+                )
+            )
+            session.add(
+                Card(
+                    id=100006785,
+                    passcode=80181649,
+                    name='"A Case for K9"',
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        cards, _ = import_cards_entries([self._case_for_k9_entry()])
+        self.assertEqual(cards, 1)
+
+        session = self.Session()
+        try:
+            rows = session.query(Card).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].id, 80181649)
+            self.assertEqual(rows[0].passcode, 80181649)
+            self.assertIsNone(session.get(Card, 100006785))
+        finally:
+            session.close()
+
+    def test_passcode_import_matches_prior_passwordless_row(self):
+        import_cards_entries([self._obelisk_entry()])
+        session = self.Session()
+        try:
+            first_id = session.query(Card).filter(Card.name == "Obelisk the Tormentor").one().id
+        finally:
+            session.close()
+
+        cards, _ = import_cards_entries(
+            [
+                {
+                    "passcode": 11037980,
+                    "source_url": "https://yugipedia.com/wiki/Obelisk_the_Tormentor",
+                    "name": "Obelisk the Tormentor",
+                    "category": "Monster",
+                    "card_sets": self._obelisk_entry()["card_sets"],
+                }
+            ]
+        )
+        self.assertEqual(cards, 1)
+
+        session = self.Session()
+        try:
+            rows = session.query(Card).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].id, first_id)
+            self.assertEqual(rows[0].passcode, 11037980)
+        finally:
+            session.close()
+
 
 def _soup(html):
     from bs4 import BeautifulSoup

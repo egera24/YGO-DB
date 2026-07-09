@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +28,161 @@ from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code, rarity_display
 
 IMPORT_ERROR_COLUMN = "Import Error"
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "debug-e825ac.log"
+
+
+def _debug_log(
+    *,
+    location: str,
+    message: str,
+    data: dict,
+    hypothesis_id: str,
+    run_id: str = "pre-fix",
+) -> None:
+    # region agent log
+    try:
+        payload = {
+            "sessionId": "e825ac",
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    # endregion
+
+
+def _legacy_passcode_id(card_id: int | None) -> int | None:
+    """Pre-migration rows used cards.id as the Konami passcode."""
+    if card_id is None or card_id < 10_000_000 or card_id > 99_999_999:
+        return None
+    return card_id
+
+
+def _load_card_key_maps(
+    session: Session,
+) -> tuple[dict[int, int], dict[int, int], dict[str, int]]:
+    """Build passcode/legacy-id/source_url lookup maps for upsert matching."""
+    by_passcode_col: dict[int, int] = {}
+    by_legacy_id: dict[int, int] = {}
+    by_source_url: dict[str, int] = {}
+    for cid, passcode, source_url in session.execute(
+        select(Card.id, Card.passcode, Card.source_url)
+    ).all():
+        if passcode is not None:
+            by_passcode_col[passcode] = cid
+        elif legacy := _legacy_passcode_id(cid):
+            by_legacy_id[legacy] = cid
+        if source_url:
+            by_source_url[source_url] = cid
+    return by_passcode_col, by_legacy_id, by_source_url
+
+
+def _resolve_existing_id(
+    *,
+    key: tuple[str, object],
+    fields: dict,
+    by_passcode_col: dict[int, int],
+    by_legacy_id: dict[int, int],
+    by_source_url: dict[str, int],
+) -> int | None:
+    """Match an import row to an existing card, preferring legacy id==passcode rows."""
+    if key[0] == "p":
+        passcode = int(key[1])
+        if passcode in by_legacy_id:
+            return by_legacy_id[passcode]
+        if passcode in by_passcode_col:
+            return by_passcode_col[passcode]
+        source_url = fields.get("source_url")
+        if source_url and source_url in by_source_url:
+            return by_source_url[source_url]
+        return None
+    source_url = str(key[1])
+    return by_source_url.get(source_url)
+
+
+def _repoint_card_fks(session: Session, *, from_id: int, to_id: int) -> None:
+    """Move user/catalog references from a duplicate surrogate row to the keeper."""
+    from ygo_app.models import (
+        BanlistEntry,
+        CardErrataVersion,
+        CardFormatLegality,
+        Deck,
+        DeckCard,
+        GenesysPointEntry,
+        Printing,
+        UserCardTag,
+        UserFavorite,
+    )
+
+    if from_id == to_id:
+        return
+    session.execute(
+        update(Printing).where(Printing.card_id == from_id).values(card_id=to_id)
+    )
+    session.execute(
+        update(CardErrataVersion)
+        .where(CardErrataVersion.card_id == from_id)
+        .values(card_id=to_id)
+    )
+    session.execute(
+        update(UserFavorite).where(UserFavorite.card_id == from_id).values(card_id=to_id)
+    )
+    session.execute(
+        update(UserCardTag).where(UserCardTag.card_id == from_id).values(card_id=to_id)
+    )
+    session.execute(
+        update(DeckCard).where(DeckCard.card_id == from_id).values(card_id=to_id)
+    )
+    session.execute(
+        update(BanlistEntry).where(BanlistEntry.card_id == from_id).values(card_id=to_id)
+    )
+    session.execute(
+        update(GenesysPointEntry)
+        .where(GenesysPointEntry.card_id == from_id)
+        .values(card_id=to_id)
+    )
+    session.execute(
+        update(CardFormatLegality)
+        .where(CardFormatLegality.card_id == from_id)
+        .values(card_id=to_id)
+    )
+    session.execute(
+        update(Deck).where(Deck.preview_card_id == from_id).values(preview_card_id=to_id)
+    )
+
+
+def _prune_surrogate_passcode_duplicates(session: Session) -> int:
+    """Drop surrogate rows when a legacy id==passcode row exists for the same card."""
+    pairs = session.execute(
+        select(Card.id, Card.passcode).where(Card.passcode.isnot(None))
+    ).all()
+    removed = 0
+    for surrogate_id, passcode in pairs:
+        if surrogate_id == passcode:
+            continue
+        legacy = session.get(Card, passcode)
+        if legacy is None or legacy.passcode is not None:
+            continue
+        _repoint_card_fks(session, from_id=surrogate_id, to_id=passcode)
+        session.delete(session.get(Card, surrogate_id))
+        removed += 1
+        # region agent log
+        _debug_log(
+            location="import_data.py:_prune_surrogate_passcode_duplicates",
+            message="pruned surrogate duplicate",
+            data={"surrogateId": surrogate_id, "legacyId": passcode},
+            hypothesis_id="H3",
+        )
+        # endregion
+    if removed:
+        session.commit()
+    return removed
 
 
 def _detach_collection_printing_links(session: Session) -> int:
@@ -271,6 +428,8 @@ def import_cards_entries(
         session.query(CardErrataVersion).delete()
         session.commit()
 
+        _prune_surrogate_passcode_duplicates(session)
+
         # Normalize entries once and compute each card's natural key.
         prepared: list[tuple[tuple[str, object], dict, dict]] = []
         seen_keys: set[tuple[str, object]] = set()
@@ -289,22 +448,50 @@ def import_cards_entries(
             seen_keys.add(key)
             prepared.append((key, fields, entry))
 
-        def _load_key_to_id() -> dict[tuple[str, object], int]:
-            out: dict[tuple[str, object], int] = {}
-            for cid, passcode, source_url in session.execute(
-                select(Card.id, Card.passcode, Card.source_url)
-            ).all():
-                if passcode is not None:
-                    out[("p", passcode)] = cid
-                if source_url:
-                    out[("u", source_url)] = cid
-            return out
-
-        existing = _load_key_to_id()
+        by_passcode_col, by_legacy_id, by_source_url = _load_card_key_maps(session)
+        existing = {
+            **{("p", k): v for k, v in by_passcode_col.items()},
+            **{("p", k): v for k, v in by_legacy_id.items()},
+            **{("u", k): v for k, v in by_source_url.items()},
+        }
+        # region agent log
+        _debug_log(
+            location="import_data.py:import_cards_entries",
+            message="existing key map loaded",
+            data={
+                "existingKeyCount": len(existing),
+                "legacyIdCount": len(by_legacy_id),
+                "passcodeColCount": len(by_passcode_col),
+                "preparedCount": len(prepared),
+            },
+            hypothesis_id="H1",
+        )
+        # endregion
         update_maps: list[dict] = []
         insert_maps: list[dict] = []
         for key, fields, _entry in prepared:
-            cid = existing.get(key)
+            cid = _resolve_existing_id(
+                key=key,
+                fields=fields,
+                by_passcode_col=by_passcode_col,
+                by_legacy_id=by_legacy_id,
+                by_source_url=by_source_url,
+            )
+            # region agent log
+            _debug_log(
+                location="import_data.py:import_cards_entries",
+                message="card upsert resolution",
+                data={
+                    "name": fields.get("name"),
+                    "key": list(key),
+                    "passcode": fields.get("passcode"),
+                    "sourceUrl": fields.get("source_url"),
+                    "resolvedId": cid,
+                    "action": "update" if cid is not None else "insert",
+                },
+                hypothesis_id="H2",
+            )
+            # endregion
             if cid is not None:
                 update_maps.append({"id": cid, **fields})
             else:
@@ -318,7 +505,12 @@ def import_cards_entries(
         cards_imported = len(update_maps) + len(insert_maps)
 
         # Reload so newly inserted cards resolve to ids for their printings/errata.
-        keymap = _load_key_to_id()
+        by_passcode_col, by_legacy_id, by_source_url = _load_card_key_maps(session)
+        keymap = {
+            **{("p", k): v for k, v in by_passcode_col.items()},
+            **{("p", k): v for k, v in by_legacy_id.items()},
+            **{("u", k): v for k, v in by_source_url.items()},
+        }
 
         batch_printings: list[Printing] = []
         batch_errata: list[CardErrataVersion] = []

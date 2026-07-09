@@ -28,7 +28,7 @@ from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code, rarity_display
 
 IMPORT_ERROR_COLUMN = "Import Error"
-_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "debug-e825ac.log"
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "debug-c911ae.log"
 
 
 def _debug_log(
@@ -42,7 +42,7 @@ def _debug_log(
     # region agent log
     try:
         payload = {
-            "sessionId": "e825ac",
+            "sessionId": "c911ae",
             "runId": run_id,
             "hypothesisId": hypothesis_id,
             "location": location,
@@ -59,7 +59,8 @@ def _debug_log(
 
 def _legacy_passcode_id(card_id: int | None) -> int | None:
     """Pre-migration rows used cards.id as the Konami passcode."""
-    if card_id is None or card_id < 10_000_000 or card_id > 99_999_999:
+    # Konami passcodes are 7–8 digits; surrogate autoincrement ids are 100M+.
+    if card_id is None or card_id <= 0 or card_id > 99_999_999:
         return None
     return card_id
 
@@ -95,13 +96,33 @@ def _resolve_existing_id(
     if key[0] == "p":
         passcode = int(key[1])
         if passcode in by_legacy_id:
-            return by_legacy_id[passcode]
-        if passcode in by_passcode_col:
-            return by_passcode_col[passcode]
-        source_url = fields.get("source_url")
-        if source_url and source_url in by_source_url:
-            return by_source_url[source_url]
-        return None
+            resolved = by_legacy_id[passcode]
+            match_kind = "legacy_id"
+        elif passcode in by_passcode_col:
+            resolved = by_passcode_col[passcode]
+            match_kind = "passcode_col"
+        elif fields.get("source_url") and fields["source_url"] in by_source_url:
+            resolved = by_source_url[fields["source_url"]]
+            match_kind = "source_url"
+        else:
+            resolved = None
+            match_kind = "none"
+        # region agent log
+        if passcode in (4731783, 6850209) or match_kind == "none":
+            _debug_log(
+                location="import_data.py:_resolve_existing_id",
+                message="passcode resolve",
+                data={
+                    "passcode": passcode,
+                    "matchKind": match_kind,
+                    "resolvedId": resolved,
+                    "inLegacyId": passcode in by_legacy_id,
+                    "legacyDetect": _legacy_passcode_id(passcode),
+                },
+                hypothesis_id="H1",
+            )
+        # endregion
+        return resolved
     source_url = str(key[1])
     return by_source_url.get(source_url)
 

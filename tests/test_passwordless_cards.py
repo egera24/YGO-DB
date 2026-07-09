@@ -318,6 +318,52 @@ class TestImportUpsertPasswordless(unittest.TestCase):
         finally:
             session.close()
 
+    def test_seven_digit_legacy_id_row_reused_when_passcode_imported(self):
+        """7-digit pre-migration rows (id=passcode) must not spawn surrogate duplicates."""
+        session = self.Session()
+        try:
+            session.add(
+                Card(
+                    id=4731783,
+                    passcode=None,
+                    source_url="https://yugipedia.com/wiki/A_Bao_A_Qu,_the_Lightless_Shadow",
+                    name="A Bao A Qu, the Lightless Shadow",
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        cards, printings = import_cards_entries(
+            [
+                {
+                    "passcode": 4731783,
+                    "source_url": "https://yugipedia.com/wiki/A_Bao_A_Qu,_the_Lightless_Shadow",
+                    "name": "A Bao A Qu, the Lightless Shadow",
+                    "category": "Monster",
+                    "card_sets": [
+                        {
+                            "set_code": "INFO-EN001",
+                            "set_name": "The Infinite Forbidden",
+                            "set_rarity": "Secret Rare",
+                            "set_rarity_code": "ScR",
+                        }
+                    ],
+                }
+            ]
+        )
+        self.assertEqual(cards, 1)
+        self.assertEqual(printings, 1)
+
+        session = self.Session()
+        try:
+            rows = session.query(Card).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].id, 4731783)
+            self.assertEqual(rows[0].passcode, 4731783)
+        finally:
+            session.close()
+
     def test_passcode_import_matches_prior_passwordless_row(self):
         import_cards_entries([self._obelisk_entry()])
         session = self.Session()

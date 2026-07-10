@@ -2596,6 +2596,156 @@ let searchHelpOutsideHandler = null;
 let searchHelpRepositionHandler = null;
 
 const SEARCH_HELP_DESKTOP_MQ = "(min-width: 800px)";
+const SEARCH_HELP_SIZE_KEY = "ygo_search_help_size";
+const SEARCH_HELP_MIN_W = 320;
+const SEARCH_HELP_MIN_H = 240;
+const SEARCH_HELP_DEFAULT_W = 520;
+const SEARCH_HELP_VIEWPORT_MARGIN_PX = 32;
+const SEARCH_HELP_MAX_H_RATIO = 0.9;
+
+function searchHelpMaxWidth() {
+  return Math.max(SEARCH_HELP_MIN_W, window.innerWidth - SEARCH_HELP_VIEWPORT_MARGIN_PX);
+}
+
+function searchHelpMaxHeight() {
+  return Math.max(SEARCH_HELP_MIN_H, window.innerHeight * SEARCH_HELP_MAX_H_RATIO);
+}
+
+function searchHelpDefaultHeight() {
+  return Math.max(SEARCH_HELP_MIN_H, window.innerHeight * 0.75);
+}
+
+function loadSearchHelpSize() {
+  try {
+    const raw = sessionStorage.getItem(SEARCH_HELP_SIZE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (typeof data.width === "number" && typeof data.height === "number") {
+      return { width: data.width, height: data.height };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function saveSearchHelpSize(width, height) {
+  try {
+    sessionStorage.setItem(SEARCH_HELP_SIZE_KEY, JSON.stringify({ width, height }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clampSearchHelpSize(width, height) {
+  const maxW = searchHelpMaxWidth();
+  const maxH = searchHelpMaxHeight();
+  return {
+    width: Math.max(SEARCH_HELP_MIN_W, Math.min(maxW, Math.round(width))),
+    height: Math.max(SEARCH_HELP_MIN_H, Math.min(maxH, Math.round(height))),
+  };
+}
+
+function applySearchHelpSize(panel, width, height) {
+  const clamped = clampSearchHelpSize(width, height);
+  panel.style.width = `${clamped.width}px`;
+  panel.style.height = `${clamped.height}px`;
+  return clamped;
+}
+
+function getSearchHelpDefaultSize(anchorWidth) {
+  const saved = loadSearchHelpSize();
+  if (saved) return clampSearchHelpSize(saved.width, saved.height);
+  const defaultW =
+    anchorWidth != null
+      ? Math.min(SEARCH_HELP_DEFAULT_W, Math.max(anchorWidth, SEARCH_HELP_MIN_W))
+      : SEARCH_HELP_DEFAULT_W;
+  return clampSearchHelpSize(defaultW, searchHelpDefaultHeight());
+}
+
+function clampSearchHelpPopoverPosition() {
+  const popover = $("#search-help-popover");
+  const anchor = document.querySelector(".search-field--grow");
+  if (!popover || popover.hidden || !anchor) return;
+
+  const margin = 8;
+  const gap = 6;
+  const rect = anchor.getBoundingClientRect();
+  const popRect = popover.getBoundingClientRect();
+  const width = popRect.width;
+  const height = popRect.height;
+
+  let left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+  let top = rect.bottom + gap;
+
+  if (top + height > window.innerHeight - margin) {
+    const aboveTop = rect.top - height - gap;
+    top = aboveTop >= margin ? aboveTop : margin;
+  }
+
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+}
+
+function initSearchHelpResize(panel) {
+  if (!panel || panel.dataset.resizeBound === "1") return;
+  const handle = panel.querySelector(".search-help-resize-handle");
+  if (!handle) return;
+  panel.dataset.resizeBound = "1";
+
+  let startX = 0;
+  let startY = 0;
+  let startW = 0;
+  let startH = 0;
+
+  function onPointerMove(e) {
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    applySearchHelpSize(panel, startW + dx, startH + dy);
+    if (panel.id === "search-help-popover") {
+      clampSearchHelpPopoverPosition();
+    }
+  }
+
+  function onPointerUp(e) {
+    document.body.classList.remove("search-help-resizing");
+    handle.releasePointerCapture?.(e.pointerId);
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", onPointerUp);
+    const rect = panel.getBoundingClientRect();
+    saveSearchHelpSize(rect.width, rect.height);
+  }
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    startW = rect.width;
+    startH = rect.height;
+    document.body.classList.add("search-help-resizing");
+    handle.setPointerCapture(e.pointerId);
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  });
+}
+
+function applySearchHelpPanelSize(panel, anchorWidth) {
+  const size = getSearchHelpDefaultSize(anchorWidth);
+  applySearchHelpSize(panel, size.width, size.height);
+}
+
+function repositionSearchHelpOnViewportChange() {
+  const popover = $("#search-help-popover");
+  if (!popover || popover.hidden) return;
+  const rect = popover.getBoundingClientRect();
+  const clamped = clampSearchHelpSize(rect.width, rect.height);
+  if (clamped.width !== rect.width || clamped.height !== rect.height) {
+    applySearchHelpSize(popover, clamped.width, clamped.height);
+  }
+  clampSearchHelpPopoverPosition();
+}
 
 const SEARCH_SYNTAX_SECTIONS = [
   {
@@ -2881,25 +3031,8 @@ function positionSearchHelpPopover() {
   const anchor = document.querySelector(".search-field--grow");
   if (!popover || popover.hidden || !anchor) return;
 
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(520, Math.max(rect.width, 320));
-  const margin = 8;
-  const gap = 6;
-
-  popover.style.width = `${width}px`;
-  popover.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))}px`;
-  popover.style.top = `${rect.bottom + gap}px`;
-
-  const popRect = popover.getBoundingClientRect();
-  const maxBottom = window.innerHeight - margin;
-  if (popRect.bottom > maxBottom) {
-    const aboveTop = rect.top - popRect.height - gap;
-    if (aboveTop >= margin) {
-      popover.style.top = `${aboveTop}px`;
-    } else {
-      popover.style.top = `${margin}px`;
-    }
-  }
+  applySearchHelpPanelSize(popover, anchor.getBoundingClientRect().width);
+  clampSearchHelpPopoverPosition();
 }
 
 function attachSearchHelpPopoverListeners() {
@@ -2917,7 +3050,7 @@ function attachSearchHelpPopoverListeners() {
   };
 
   searchHelpRepositionHandler = () => {
-    if (isSearchHelpPopoverOpen()) positionSearchHelpPopover();
+    if (isSearchHelpPopoverOpen()) repositionSearchHelpOnViewportChange();
   };
 
   document.addEventListener("click", searchHelpOutsideHandler);
@@ -2947,6 +3080,11 @@ function openSearchHelpModal() {
   trigger?.setAttribute("aria-expanded", "true");
   trigger?.setAttribute("aria-controls", "search-help-modal");
   syncModalOpenClass();
+  const card = dlg.querySelector(".modal-card--search-help");
+  if (card) {
+    applySearchHelpPanelSize(card);
+    initSearchHelpResize(card);
+  }
   $("#search-help-modal-body")?.querySelector(".search-help-dismiss")?.focus();
 }
 
@@ -2972,6 +3110,7 @@ function openSearchHelpPopover() {
   trigger?.setAttribute("aria-expanded", "true");
   trigger?.setAttribute("aria-controls", "search-help-popover");
   positionSearchHelpPopover();
+  initSearchHelpResize(popover);
   attachSearchHelpPopoverListeners();
   $("#search-help-popover-body")?.querySelector(".search-help-dismiss")?.focus();
 }

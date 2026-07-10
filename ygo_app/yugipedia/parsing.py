@@ -327,19 +327,28 @@ def normalize_passcode_card_type(card_type: str) -> str:
     text = (card_type or "").strip()
     if not text:
         return ""
-    if text in ("Monster Card", "Spell Card", "Trap Card", "Skill Card", "Token Card"):
+    if text in (
+        "Monster Card",
+        "Spell Card",
+        "Trap Card",
+        "Skill Card",
+        "Token Card",
+        "Counter Card",
+    ):
         return text
     lower = text.lower()
     if "token" in lower:
         return "Token Card"
-    for key in ("Monster", "Spell", "Trap", "Skill"):
+    if "counter" in lower and "trap" not in lower:
+        return "Counter Card"
+    for key in ("Monster", "Spell", "Trap", "Skill", "Counter"):
         if text == key:
             return f"{key} Card"
     return text
 
 
 def extract_card_type_from_page(soup: BeautifulSoup) -> str | None:
-    """Read the 'Card type' infobox row (Monster/Spell/Trap/Skill/Token).
+    """Read the 'Card type' infobox row (Monster/Spell/Trap/Skill/Token/Counter).
 
     Used for cards discovered without a card type (passwordless category members),
     returning the same labels the passcode list carries (e.g. 'Monster Card').
@@ -356,6 +365,8 @@ def extract_card_type_from_page(soup: BeautifulSoup) -> str | None:
             return f"{key} Card"
     if "Token" in text:
         return "Token Card"
+    if "Counter" in text and "Trap" not in text:
+        return "Counter Card"
     return None
 
 
@@ -375,6 +386,39 @@ def parse_token_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None
         return card_data, error
     _apply_token_category(card_data)
     return card_data, None
+
+
+def _apply_counter_category(card_data: dict) -> None:
+    """Mark scrape JSON as a Counter card (Yugipedia card type, not Trap)."""
+    card_data["category"] = "Counter"
+    typeline = list(card_data.get("typeline") or [])
+    if "Counter" not in typeline:
+        typeline.append("Counter")
+    card_data["typeline"] = typeline
+
+
+def parse_counter_card(soup: BeautifulSoup, input_card: dict) -> tuple[dict | None, str | None]:
+    """Parse a Counter card page (no monster stats; Counter card type)."""
+    card_data: dict = _init_card_data(input_card, type="Counter")
+    try:
+        pw_error = _password_mismatch_error(soup, input_card)
+        if pw_error:
+            return None, pw_error
+        lore = extract_lore_description(soup, is_pendulum=False)
+        if lore and "description" in lore:
+            card_data["description"] = lore["description"]
+        archetype = extract_archetype(soup)
+        if archetype:
+            card_data["archetype"] = ", ".join(archetype) if len(archetype) > 1 else archetype[0]
+        card_sets = extract_card_sets(soup)
+        if card_sets:
+            card_data["card_sets"] = card_sets
+        _merge_card_image(card_data, soup)
+        _merge_related_links(card_data, soup)
+        _apply_counter_category(card_data)
+        return card_data, None
+    except Exception as e:
+        return None, f"Error parsing counter card: {e}"
 
 
 def _init_card_data(input_card: dict, **extra) -> dict:
@@ -556,6 +600,8 @@ def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | Non
         return card_data, None
     if card_type == "Token Card":
         return parse_token_card(soup, input_card)
+    if card_type == "Counter Card":
+        return parse_counter_card(soup, input_card)
     if card_type == "Spell Card":
         return parse_spell_card(soup, input_card)
     if card_type == "Trap Card":

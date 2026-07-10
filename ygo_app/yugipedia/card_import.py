@@ -7,7 +7,7 @@ import json
 from ygo_app.yugipedia.adapter import yugipedia_card_to_api
 from ygo_app.yugipedia.constants import MONSTER_TYPES
 
-CARD_CATEGORIES = frozenset({"Spell", "Trap", "Skill"})
+CARD_CATEGORIES = frozenset({"Spell", "Trap", "Skill", "Counter"})
 MONSTER_LIKE_CATEGORIES = frozenset({"Monster", "Token"})
 
 
@@ -164,6 +164,8 @@ def enrich_ygopro_entry(entry: dict) -> dict:
         category = "Spell"
     elif frame == "trap" or "Trap" in card_type:
         category = "Trap"
+    elif frame == "counter" or "Counter" in card_type:
+        category = "Counter"
     elif "Skill" in card_type:
         category = "Skill"
     else:

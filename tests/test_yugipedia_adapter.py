@@ -93,6 +93,35 @@ class TestYugipediaAdapter(unittest.TestCase):
         self.assertIn("Continuous", api["humanReadableCardType"])
         self.assertIn("ms.yugipedia.com", api["card_images"][0]["image_url"])
 
+    def test_counter_card(self):
+        entry = {
+            "id": None,
+            "source_url": "https://yugipedia.com/wiki/Black_Feather_Counter_(card)",
+            "name": "Black Feather Counter (card)",
+            "category": "Counter",
+            "type": "Counter",
+            "description": 'This card can be used as a "Black Feather Counter".',
+            "card_sets": [
+                {
+                    "set_code": "OP21-EN027",
+                    "set_name": "OTS Tournament Pack 21",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "SR",
+                }
+            ],
+        }
+        api = yugipedia_card_to_api(entry)
+        assert api is not None
+        self.assertIsNone(api["id"])
+        self.assertIsNone(api["passcode"])
+        self.assertEqual(api["type"], "Counter")
+        self.assertEqual(api["humanReadableCardType"], "Counter")
+        self.assertEqual(api["frameType"], "counter")
+        self.assertIsNone(api["atk"])
+        self.assertIsNone(api["def"])
+        self.assertIsNone(api["level"])
+        self.assertIsNone(api["attribute"])
+
     def test_xyz_rank_not_in_level(self):
         entry = {
             "id": "3738521",

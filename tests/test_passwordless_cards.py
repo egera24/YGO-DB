@@ -38,6 +38,25 @@ TOKEN_HTML = """
 </body></html>
 """
 
+COUNTER_HTML = """
+<html><body>
+<table class="innertable">
+  <tr><th scope="row">Card type</th><td><a href="/wiki/Counter">Counter</a></td></tr>
+  <tr><th scope="row">Password</th><td>None</td></tr>
+  <tr><td colspan="2" style="text-align: center;">
+    <div class="lore">This card can be used as a "Black Feather Counter".</div>
+  </td></tr>
+</table>
+<table id="cts--EN" class="card-list">
+  <tbody>
+    <tr><td>2023-02-08</td><td><a href="/wiki/OP21-EN027">OP21-EN027</a></td>
+        <td><a href="/wiki/OTS_Tournament_Pack_21"><i>OTS Tournament Pack 21</i></a></td>
+        <td><a href="/wiki/Super_Rare">Super Rare</a></td></tr>
+  </tbody>
+</table>
+</body></html>
+"""
+
 
 class _FakeResp:
     def __init__(self, data):
@@ -150,6 +169,48 @@ class TestParsePasswordless(unittest.TestCase):
                 assert card_data is not None
                 self.assertEqual(card_data["category"], "Token")
                 self.assertEqual(card_data["type"], "Beast")
+
+    def test_counter_card_type_row_is_counter(self):
+        """Yugipedia counter pages list Card type as Counter (not Trap)."""
+        html = (FIXTURES / "black_feather_counter.html").read_text(encoding="utf-8")
+        self.assertEqual(extract_card_type_from_page(_soup(html)), "Counter Card")
+        input_card = {
+            "name": "Black Feather Counter (card)",
+            "card_type": "",
+            "password": "",
+            "url": "https://yugipedia.com/wiki/Black_Feather_Counter_(card)",
+            "passwordless": True,
+        }
+        card_data, error = parse_card_page(html, input_card)
+        self.assertIsNone(error)
+        assert card_data is not None
+        self.assertIsNone(card_data["id"])
+        self.assertTrue(card_data.get("passwordless"))
+        self.assertEqual(card_data["category"], "Counter")
+        self.assertEqual(card_data["type"], "Counter")
+        self.assertIn("Counter", card_data.get("typeline", []))
+        self.assertIn("OP21-EN027", [cs["set_code"] for cs in card_data.get("card_sets", [])])
+        self.assertEqual(
+            card_data["description"],
+            'This card can be used as a "Black Feather Counter".',
+        )
+
+    def test_counter_card_type_labels_from_passcode_list(self):
+        """SMW/page labels like Counter must route to counter parsing."""
+        html = (FIXTURES / "black_feather_counter.html").read_text(encoding="utf-8")
+        base = {
+            "name": "Black Feather Counter (card)",
+            "password": "",
+            "url": "https://yugipedia.com/wiki/Black_Feather_Counter_(card)",
+            "passwordless": True,
+        }
+        for card_type in ("Counter", "Counter Card"):
+            with self.subTest(card_type=card_type):
+                card_data, error = parse_card_page(html, {**base, "card_type": card_type})
+                self.assertIsNone(error, msg=f"failed for card_type={card_type!r}")
+                assert card_data is not None
+                self.assertEqual(card_data["category"], "Counter")
+                self.assertEqual(card_data["type"], "Counter")
 
 
 class TestAdapterPasswordless(unittest.TestCase):

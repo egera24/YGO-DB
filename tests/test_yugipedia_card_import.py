@@ -54,6 +54,32 @@ class TestYugipediaCardImport(unittest.TestCase):
         self.assertEqual(json.loads(row["types"]), ["Quick-Play"])
         self.assertIsNone(row["mechanic"])
 
+    def test_counter_category_as_types(self):
+        entry = {
+            "id": None,
+            "source_url": "https://yugipedia.com/wiki/Black_Feather_Counter_(card)",
+            "name": "Black Feather Counter (card)",
+            "category": "Counter",
+            "type": "Counter",
+            "description": 'This card can be used as a "Black Feather Counter".',
+            "card_sets": [
+                {
+                    "set_code": "OP21-EN027",
+                    "set_name": "OTS Tournament Pack 21",
+                    "set_rarity": "Super Rare",
+                    "set_rarity_code": "SR",
+                }
+            ],
+        }
+        row = yugipedia_entry_to_import(entry)
+        assert row is not None
+        self.assertEqual(row["category"], "Counter")
+        self.assertEqual(json.loads(row["types"]), ["Counter"])
+        self.assertIsNone(row["mechanic"])
+        self.assertIsNone(row["atk"])
+        self.assertIsNone(row["def"])
+        self.assertIsNone(row["level"])
+
     def test_link_markers_json(self):
         entry = {
             "id": "12345678",

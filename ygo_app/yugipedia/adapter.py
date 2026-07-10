@@ -152,6 +152,30 @@ def yugipedia_card_to_api(entry: dict) -> dict | None:
             "card_sets": card_sets,
         }
 
+    # Counter (Yugipedia card type — no monster stats, not a Trap card)
+    if entry.get("category") == "Counter":
+        return {
+            "id": pid,
+            "passcode": pid,
+            "source_url": source_url,
+            "name": entry.get("name", ""),
+            "type": "Counter",
+            "humanReadableCardType": "Counter",
+            "frameType": "counter",
+            "desc": entry.get("description"),
+            "race": None,
+            "attribute": None,
+            "archetype": entry.get("archetype"),
+            "atk": None,
+            "def": None,
+            "level": None,
+            "linkval": None,
+            "scale": None,
+            "ygoprodeck_url": images["ygoprodeck_url"],
+            "card_images": card_images,
+            "card_sets": card_sets,
+        }
+
     # Spell / Trap / Skill
     if entry.get("type") in ("Spell", "Trap", "Skill"):
         prop = entry.get("property") or ""

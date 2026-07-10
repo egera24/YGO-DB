@@ -74,11 +74,21 @@ def _parse_table_row(row: Tag, *, series: str, region: str) -> dict | None:
     }
 
 
+def _merge_set_chronology_row(existing: dict, new: dict) -> None:
+    """Combine duplicate abbr rows, preferring parseable release dates."""
+    existing_date = existing.get("release_date")
+    new_date = new.get("release_date")
+    if existing_date is None and new_date is not None:
+        existing["release_date"] = new_date
+        existing["release_date_raw"] = None
+    elif existing_date and new_date and new_date < existing_date:
+        existing["release_date"] = new_date
+
+
 def parse_set_chronology_html(html: str, *, region: str = "TCG") -> list[dict]:
     """Extract set rows from Set chronology HTML."""
     soup = BeautifulSoup(html, "html.parser")
-    rows: list[dict] = []
-    seen: set[str] = set()
+    by_abbr: dict[str, dict] = {}
 
     for series, table in _iter_tcg_blocks(soup):
         tbody = table.find("tbody")
@@ -86,10 +96,15 @@ def parse_set_chronology_html(html: str, *, region: str = "TCG") -> list[dict]:
             continue
         for row in tbody.find_all("tr"):
             parsed = _parse_table_row(row, series=series, region=region)
-            if parsed and parsed["abbr"] not in seen:
-                seen.add(parsed["abbr"])
-                rows.append(parsed)
-    return rows
+            if not parsed:
+                continue
+            abbr = parsed["abbr"]
+            existing = by_abbr.get(abbr)
+            if existing is None:
+                by_abbr[abbr] = parsed
+            else:
+                _merge_set_chronology_row(existing, parsed)
+    return list(by_abbr.values())
 
 
 def set_abbr_from_code(set_code: str | None) -> str | None:

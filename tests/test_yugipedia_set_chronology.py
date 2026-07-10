@@ -35,6 +35,14 @@ class TestSetChronology(unittest.TestCase):
         )
         self.assertIn("Duel Monsters", by_abbr["LOB"]["series"])
 
+    def test_duplicate_abbr_prefers_parseable_release_date(self):
+        html = (FIXTURES / "set_chronology_kc01_duplicate.html").read_text(encoding="utf-8")
+        rows = parse_set_chronology_html(html)
+        by_abbr = {row["abbr"]: row for row in rows}
+        self.assertEqual(len(by_abbr), 1)
+        self.assertEqual(by_abbr["KC01"]["release_date"], "2024-03-01")
+        self.assertIsNone(by_abbr["KC01"]["release_date_raw"])
+
 
 class TestSetAbbrFromCode(unittest.TestCase):
     def test_printing_code(self):

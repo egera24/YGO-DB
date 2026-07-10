@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from ygo_app.import_data import import_cards_entries
 from ygo_app.models import Base, Card, Printing
 from ygo_app.yugipedia.adapter import yugipedia_card_to_api
-from ygo_app.yugipedia.category_members import get_category_members
+from ygo_app.yugipedia.passwordless_cards import list_passwordless_cards
 from ygo_app.yugipedia.parsing import extract_card_type_from_page, parse_card_page
 
 FIXTURES = Path(__file__).parent / "fixtures" / "yugipedia"
@@ -50,8 +50,8 @@ class _FakeResp:
         return self._data
 
 
-class TestCategoryDiscovery(unittest.TestCase):
-    @patch("ygo_app.yugipedia.category_members.time.sleep", lambda *_: None)
+class TestPasswordlessDiscovery(unittest.TestCase):
+    @patch("ygo_app.yugipedia.passwordless_cards.time.sleep", lambda *_: None)
     def test_paginates_and_builds_urls(self):
         page1 = {
             "query": {"categorymembers": [{"title": "Obelisk the Tormentor", "ns": 0}]},
@@ -63,7 +63,7 @@ class TestCategoryDiscovery(unittest.TestCase):
         session = MagicMock()
         session.get.side_effect = [_FakeResp(page1), _FakeResp(page2)]
 
-        members = get_category_members(session)
+        members = list_passwordless_cards(session)
 
         self.assertEqual(len(members), 2)
         self.assertEqual(members[0]["name"], "Obelisk the Tormentor")

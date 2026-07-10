@@ -144,7 +144,7 @@ def _merge_passwordless_cards(all_cards: list[dict], *, max_cards: int | None) -
     """Append cards printed without a passcode (deduped by wiki URL) in place."""
     if max_cards is not None and len(all_cards) >= max_cards:
         return
-    from ygo_app.yugipedia.category_members import fetch_passwordless_cards
+    from ygo_app.yugipedia.passwordless_cards import fetch_passwordless_cards
 
     seen_urls = {c.get("url") for c in all_cards}
     added = 0

@@ -29,13 +29,13 @@ def _wiki_url_from_title(title: str) -> str:
     return "https://yugipedia.com/wiki/" + title.replace(" ", "_")
 
 
-def get_category_members(
+def list_passwordless_cards(
     session: requests.Session,
     api_url: str = API_URL,
     *,
     category: str = PASSWORDLESS_CATEGORY,
 ) -> list[dict]:
-    """Return every main-namespace page in ``category`` as passcode-list entries."""
+    """Return passwordless card pages from ``category`` as passcode-list entries."""
     members: list[dict] = []
     seen_titles: set[str] = set()
     cmcontinue: str | None = None
@@ -96,6 +96,6 @@ def fetch_passwordless_cards() -> list[dict]:
         }
     )
     print(f"\nFetching category: {PASSWORDLESS_CATEGORY}")
-    members = get_category_members(session)
+    members = list_passwordless_cards(session)
     print(f"  Found {len(members)} passwordless card pages")
     return members

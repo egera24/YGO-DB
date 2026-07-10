@@ -2441,9 +2441,9 @@ function renderSearchResults(cards) {
         const formatBadge = formatBadgeHtml(c);
         return `
       <article class="card-tile ${c.owned ? "owned" : ""}" data-id="${c.id}">
-        ${c.owned ? `<span class="badge badge-owned">×${c.owned_quantity}</span>` : ""}
-        ${c.trade_quantity > 0 ? `<span class="badge badge-trade">×${c.trade_quantity}</span>` : ""}
         <div class="card-tile-image-wrap">
+          ${c.owned ? `<span class="badge badge-owned">×${c.owned_quantity}</span>` : ""}
+          ${c.trade_quantity > 0 ? `<span class="badge badge-trade">×${c.trade_quantity}</span>` : ""}
           ${cardImgTag(c.image_url_small)}
           ${formatBadge ? `<div class="card-tile-format-badge">${formatBadge}</div>` : ""}
         </div>

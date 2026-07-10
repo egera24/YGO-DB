@@ -95,6 +95,7 @@ class Card(Base):
     image_url_small: Mapped[str | None] = mapped_column(String(512))
     has_errata: Mapped[bool] = mapped_column(Boolean, default=False)
     last_erratum_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    latest_release_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tips: Mapped[str | None] = mapped_column(Text)
 
     printings: Mapped[list["Printing"]] = relationship(back_populates="card")

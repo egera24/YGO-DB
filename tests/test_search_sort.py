@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from ygo_app.models import Base, Card, CollectionItem, Printing, TcgSet, User
+from ygo_app.release_dates import refresh_card_latest_release_dates
 from ygo_app.services import search_cards
 
 
@@ -102,6 +103,7 @@ class TestSearchSort(unittest.TestCase):
                 ),
             ]
         )
+        refresh_card_latest_release_dates(session)
         session.commit()
         session.close()
 
@@ -154,6 +156,7 @@ class TestSearchSort(unittest.TestCase):
                 )
             )
             session.add(TcgSet(abbr="TKN5", name="Token Pack", release_date=None))
+            refresh_card_latest_release_dates(session)
             session.commit()
             cards, _total = search_cards(
                 session, limit=100, user_id=self.user_id, sort="release_date", sort_dir="desc"

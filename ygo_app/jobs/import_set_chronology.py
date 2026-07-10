@@ -11,6 +11,7 @@ from pathlib import Path
 from ygo_app.database import SessionLocal
 from ygo_app.db_migrate import ensure_db_at_head
 from ygo_app.models import TcgSet
+from ygo_app.release_dates import refresh_card_latest_release_dates
 from ygo_app.yugipedia.date_parse import parse_yugipedia_date
 from ygo_app.yugipedia.paths import SET_CHRONOLOGY_PATH
 
@@ -57,6 +58,7 @@ def import_set_chronology_rows(rows: list[dict]) -> int:
                     )
                 )
             imported += 1
+        refresh_card_latest_release_dates(session)
         session.commit()
     finally:
         session.close()

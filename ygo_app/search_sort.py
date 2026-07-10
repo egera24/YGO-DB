@@ -64,21 +64,6 @@ def apply_sort_direction(
     return column.asc()
 
 
-def card_latest_release_subquery(dialect: str):
-    abbr_expr = printing_expansion_abbr_sql(Printing.set_code, dialect)
-    return (
-        select(func.max(TcgSet.release_date))
-        .select_from(Printing)
-        .join(
-            TcgSet,
-            (TcgSet.abbr == abbr_expr) & TcgSet.release_date.is_not(None),
-        )
-        .where(Printing.card_id == Card.id)
-        .correlate(Card)
-        .scalar_subquery()
-    )
-
-
 def card_owned_quantity_subquery(user_id: int | None):
     if user_id is None:
         return literal(0)
@@ -111,8 +96,12 @@ def build_card_search_order_by(
     if field == "passcode":
         return [apply_sort_direction(Card.passcode, direction, nulls=True), tie]
     if field == "release_date":
-        release = card_latest_release_subquery(dialect)
-        return [apply_sort_direction(release, direction, nulls_last=True), tie]
+        return [
+            apply_sort_direction(
+                Card.latest_release_date, direction, nulls_last=True
+            ),
+            tie,
+        ]
     if field == "owned_quantity":
         owned = card_owned_quantity_subquery(user_id)
         return [apply_sort_direction(owned, direction), tie]

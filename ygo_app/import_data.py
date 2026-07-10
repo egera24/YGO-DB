@@ -714,6 +714,10 @@ def import_cards_entries(
 
         _flush_children()
 
+        from ygo_app.release_dates import refresh_card_latest_release_dates
+
+        refresh_card_latest_release_dates(session)
+
         _relink_collection_printing_links(session)
         session.commit()
 

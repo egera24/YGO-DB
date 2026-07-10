@@ -141,4 +141,12 @@ class TestImportCsvStreaming(unittest.TestCase):
         )
         importing = [ev for ev in progress_events if ev.get("phase") == "importing"]
         self.assertTrue(any(ev.get("remaining", 0) >= 0 for ev in importing))
+        progress_phases = [ev.get("phase") for ev in progress_events if ev.get("phase")]
+        self.assertEqual(progress_phases[-1], "finalizing")
+        preload_messages = [
+            ev.get("message")
+            for ev in progress_events
+            if ev.get("phase") == "preloading"
+        ]
+        self.assertIn("Scanning catalog for alternate-art codes…", preload_messages)
         self.assertEqual(done_events[0]["imported"], 1)

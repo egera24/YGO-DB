@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=96" />
+  <link rel="stylesheet" href="/static/css/style.css?v=97" />
 </head>
 <body>
   <header class="app-header">
@@ -677,6 +677,7 @@
         <h2 id="import-progress-title">Importing collection</h2>
       </header>
       <p id="import-progress-phase" class="import-progress-phase" role="status" aria-live="polite">Preparing…</p>
+      <p id="import-progress-hint" class="import-progress-hint muted hidden">Preparing catalog matches — this may take a moment for large collections.</p>
       <progress id="import-progress-bar" class="import-progress-modal-bar" max="100"></progress>
       <div class="import-progress-meta">
         <span id="import-progress-percent" class="import-progress-percent"></span>
@@ -911,6 +912,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=155" type="module"></script>
+  <script src="/static/js/app.js?v=157" type="module"></script>
 </body>
 </html>

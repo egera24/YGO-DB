@@ -187,9 +187,43 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertIn("preloading", phases)
         self.assertIn("importing", phases)
         self.assertIn("finalizing", phases)
+        preload_messages = [
+            call.get("message")
+            for call in calls
+            if call.get("phase") == "preloading"
+        ]
+        self.assertIn("Loading catalog matches…", preload_messages)
+        self.assertIn("Loading catalog index…", preload_messages)
+        self.assertIn("Scanning catalog for alternate-art codes…", preload_messages)
+        parsing = [call for call in calls if call["phase"] == "parsing"]
+        self.assertEqual(parsing[0]["message"], "Reading CSV…")
+        self.assertEqual(parsing[1]["message"], "Read 3 rows…")
+        self.assertEqual(parsing[1]["current"], 1)
+        self.assertEqual(parsing[1]["total"], 1)
+        catalog_loads = [
+            call
+            for call in calls
+            if call.get("phase") == "preloading"
+            and call.get("message") == "Loading catalog matches…"
+        ]
+        self.assertEqual(len(catalog_loads), 1)
+        self.assertEqual(catalog_loads[0]["current"], 1)
+        self.assertEqual(catalog_loads[0]["total"], 1)
+        scan_calls = [
+            call
+            for call in calls
+            if call.get("phase") == "preloading"
+            and call.get("message") == "Scanning catalog for alternate-art codes…"
+            and call.get("total")
+        ]
+        self.assertTrue(scan_calls)
+        self.assertEqual(scan_calls[-1]["current"], 2)
+        self.assertEqual(scan_calls[-1]["total"], 2)
+        self.assertEqual(calls[-1]["phase"], "finalizing")
         importing = [call for call in calls if call["phase"] == "importing"]
         self.assertEqual(importing[0], {"phase": "importing", "current": 0, "total": 3, "message": "Importing 3 rows…"})
-        self.assertEqual(importing[-1], {"phase": "importing", "current": 3, "total": 3})
+        self.assertEqual(importing[0]["total"], 3)
+        self.assertGreaterEqual(max(call["current"] for call in importing), 1)
 
         session = self.Session()
         count = (
@@ -215,6 +249,43 @@ class TestImportCollectionCsv(unittest.TestCase):
             any("LOB-002" in e and "not found" in e for e in errors),
             errors,
         )
+
+    def test_preload_scan_emits_throttled_progress(self):
+        csv_path = Path(self._tmp.name).with_suffix(".scan.csv")
+        rows = [
+            {
+                "Card Number": f"FAKE-{index:04d}",
+                "Rarity": "(UR)",
+                "Card Name": f"Card {index}",
+                "Quantity": "1",
+            }
+            for index in range(120)
+        ]
+        self._write_csv(csv_path, rows)
+
+        calls: list[dict] = []
+
+        def on_progress(update: dict) -> None:
+            calls.append(update)
+
+        result = import_collection_csv(
+            csv_path,
+            user_id=self.user_id,
+            replace=True,
+            progress_callback=on_progress,
+        )
+
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(len(result.rejected), 120)
+        scan_calls = [
+            call
+            for call in calls
+            if call.get("phase") == "preloading"
+            and call.get("message") == "Scanning catalog for alternate-art codes…"
+            and call.get("total") == 120
+        ]
+        self.assertGreater(len(scan_calls), 1)
+        self.assertEqual(scan_calls[-1]["current"], 120)
 
     def test_rejects_unknown_set_code(self):
         csv_path = Path(self._tmp.name).with_suffix(".reject.csv")

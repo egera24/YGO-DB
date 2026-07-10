@@ -882,6 +882,196 @@ function formatEta(seconds) {
   return `~${hr} hr ${remMin} min remaining`;
 }
 
+const IMPORT_PHASE_WEIGHTS = {
+  started: { start: 0, end: 2 },
+  replacing: { start: 2, end: 8 },
+  parsing: { start: 8, end: 12 },
+  preloading: { start: 12, end: 55 },
+  importing: { start: 55, end: 98 },
+  finalizing: { start: 98, end: 99.5 },
+};
+
+const IMPORT_ASYMPTOTIC_CAP = 0.88;
+const IMPORT_INDETERMINATE_MS = 250;
+const IMPORT_FINISH_ANIM_MS = 300;
+
+function estimateImportPhaseTauMs(phase, rowCount, fileSizeBytes) {
+  let baseSec = 2;
+  if (phase === "preloading") baseSec = 10;
+  else if (phase === "parsing") baseSec = 3;
+  const rowScale = rowCount > 0 ? Math.log10(Math.max(rowCount, 10)) * 4 : 0;
+  const fileScale = fileSizeBytes > 0 ? Math.log10(Math.max(fileSizeBytes, 1024)) * 0.5 : 0;
+  if (phase === "preloading") return (baseSec + rowScale) * 1000;
+  return (baseSec + fileScale) * 1000;
+}
+
+class ImportProgressTracker {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.active = false;
+    this.phase = "started";
+    this.message = "";
+    this.current = 0;
+    this.total = 0;
+    this.rowCount = 0;
+    this.etaSeconds = null;
+    this.displayPct = 0;
+    this.realMappedPct = 0;
+    this.phaseStartMs = 0;
+    this.startedMs = 0;
+    this.fileSizeBytes = 0;
+    this.rafId = null;
+    this.finishing = false;
+    this.hasServerEvent = false;
+  }
+
+  start({ fileSizeBytes = 0 } = {}) {
+    this.reset();
+    this.active = true;
+    this.fileSizeBytes = fileSizeBytes;
+    this.startedMs = performance.now();
+    this.phaseStartMs = this.startedMs;
+    this._scheduleTick();
+  }
+
+  stop() {
+    this.active = false;
+    this.finishing = false;
+    if (this.rafId != null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+  }
+
+  onServerEvent(ev) {
+    if (ev.type !== "progress") return;
+    this.hasServerEvent = true;
+    const newPhase = ev.phase || "importing";
+    if (newPhase !== this.phase) {
+      this.phase = newPhase;
+      this.phaseStartMs = performance.now();
+    }
+    this.message = ev.message || formatImportPhaseLabel(this.phase);
+    this.current = ev.current || 0;
+    this.total = ev.total || 0;
+    this.etaSeconds = ev.eta_seconds ?? null;
+    if (this.phase === "importing" && this.total > 0) {
+      this.rowCount = this.total;
+    }
+    if (this.phase === "parsing" && ev.message) {
+      const match = ev.message.match(/Read ([\d,]+) rows/);
+      if (match) this.rowCount = Number.parseInt(match[1].replace(/,/g, ""), 10);
+    }
+    this.realMappedPct = this._mapRealProgress();
+    this.displayPct = Math.max(this.displayPct, this.realMappedPct);
+    this._render();
+  }
+
+  _phaseWeight(phase) {
+    return IMPORT_PHASE_WEIGHTS[phase] || IMPORT_PHASE_WEIGHTS.started;
+  }
+
+  _mapRealProgress() {
+    const weight = this._phaseWeight(this.phase);
+    const span = weight.end - weight.start;
+    let fraction = 0;
+    if (this.total > 0 && this.current > 0) {
+      fraction = Math.min(1, this.current / this.total);
+    } else if (this.phase === "started") {
+      fraction = 1;
+    }
+    return weight.start + span * fraction;
+  }
+
+  _asymptoticProgress() {
+    const weight = this._phaseWeight(this.phase);
+    const span = weight.end - weight.start;
+    const elapsed = performance.now() - this.phaseStartMs;
+    const tau = estimateImportPhaseTauMs(this.phase, this.rowCount, this.fileSizeBytes);
+    const fraction = IMPORT_ASYMPTOTIC_CAP * (1 - Math.exp((-3 * elapsed) / tau));
+    return weight.start + span * fraction;
+  }
+
+  _computeDisplayPct() {
+    const asymptotic = this._asymptoticProgress();
+    return Math.min(99.5, Math.max(this.displayPct, asymptotic, this.realMappedPct));
+  }
+
+  _scheduleTick() {
+    if (!this.active || this.finishing) return;
+    this.rafId = requestAnimationFrame(() => this.tick());
+  }
+
+  tick() {
+    if (!this.active || this.finishing) return;
+    this.displayPct = this._computeDisplayPct();
+    this._render();
+    this._scheduleTick();
+  }
+
+  _render() {
+    const pct = Math.round(this.displayPct);
+    const phaseEl = $("#import-progress-phase");
+    const bar = $("#import-progress-bar");
+    const pctEl = $("#import-progress-percent");
+    const etaEl = $("#import-progress-eta");
+    const showIndeterminate = !this.hasServerEvent
+      && performance.now() - this.startedMs < IMPORT_INDETERMINATE_MS;
+
+    if (phaseEl) {
+      if (this.phase === "importing" && this.total > 0) {
+        const remaining = Math.max(0, this.total - this.current);
+        phaseEl.textContent =
+          `Importing… ${this.current.toLocaleString()} processed · ${remaining.toLocaleString()} remaining`;
+      } else {
+        phaseEl.textContent = this.message || formatImportPhaseLabel(this.phase);
+      }
+    }
+    if (bar) {
+      bar.max = 100;
+      if (showIndeterminate) bar.removeAttribute("value");
+      else bar.value = pct;
+    }
+    if (pctEl) pctEl.textContent = showIndeterminate ? "" : `${pct}%`;
+    if (etaEl) {
+      if (this.phase === "importing" && this.etaSeconds != null) {
+        const eta = formatEta(this.etaSeconds);
+        etaEl.textContent = eta ? `About ${eta} left` : "";
+      } else {
+        etaEl.textContent = "";
+      }
+    }
+    setImportProgressIndeterminate(showIndeterminate);
+    setImportStatusLineFromTracker(this, { showIndeterminate });
+  }
+
+  animateToComplete() {
+    this.finishing = true;
+    const startPct = this.displayPct;
+    const startMs = performance.now();
+    return new Promise((resolve) => {
+      const step = (now) => {
+        const t = Math.min(1, (now - startMs) / IMPORT_FINISH_ANIM_MS);
+        this.displayPct = startPct + (100 - startPct) * t;
+        this._render();
+        if (t < 1) requestAnimationFrame(step);
+        else {
+          this.displayPct = 100;
+          this._render();
+          this.stop();
+          resolve();
+        }
+      };
+      requestAnimationFrame(step);
+    });
+  }
+}
+
+const importProgressTracker = new ImportProgressTracker();
+
 function formatImportPhaseLabel(phase) {
   switch (phase) {
     case "started":
@@ -899,26 +1089,59 @@ function formatImportPhaseLabel(phase) {
   }
 }
 
-function setImportStatusLine(current, total, etaSeconds, extra = {}) {
+function setImportProgressIndeterminate(indeterminate) {
+  const card = document.querySelector("#import-progress-modal .import-progress-card");
+  card?.classList.toggle("import-progress-card--indeterminate", indeterminate);
+  const hint = $("#import-progress-hint");
+  if (hint) hint.classList.toggle("hidden", !indeterminate);
+  const dlg = $("#import-progress-modal");
+  if (dlg) {
+    if (indeterminate) dlg.setAttribute("aria-busy", "true");
+    else dlg.removeAttribute("aria-busy");
+  }
+}
+
+function setImportStatusLineFromTracker(tracker, { showIndeterminate = false } = {}) {
   const line = $("#status-line");
   if (!line) return;
   line.classList.add("status-importing");
   line.style.color = "";
   const prog = $("#import-progress");
-  const phase = extra.phase || "importing";
+  const pct = Math.round(tracker.displayPct);
+  if (tracker.phase === "importing" && tracker.total > 0) {
+    const remaining = Math.max(0, tracker.total - tracker.current);
+    const rowPct = Math.round((tracker.current / tracker.total) * 100);
+    const eta = formatEta(tracker.etaSeconds);
+    line.textContent =
+      `Importing… ${tracker.current.toLocaleString()} processed · ${remaining.toLocaleString()} remaining (${rowPct}%) · ${eta}`;
+  } else {
+    const msg = tracker.message || formatImportPhaseLabel(tracker.phase);
+    line.textContent = showIndeterminate ? msg : `${msg} (${pct}%)`;
+  }
+  if (prog) {
+    prog.hidden = false;
+    prog.max = 100;
+    if (showIndeterminate) prog.removeAttribute("value");
+    else prog.value = pct;
+  }
+}
+
+function setImportStatusLine(current, total, etaSeconds, extra = {}) {
+  if (importProgressTracker.active) return;
+  const line = $("#status-line");
+  if (!line) return;
+  line.classList.add("status-importing");
+  line.style.color = "";
+  const prog = $("#import-progress");
   const remaining = extra.remaining ?? (total > 0 ? Math.max(0, total - current) : 0);
-  if (phase !== "importing" || !total) {
+  const phase = extra.phase || "importing";
+  if (!total && phase !== "importing") {
     const msg = extra.message || formatImportPhaseLabel(phase);
     line.textContent = msg;
     if (prog) {
       prog.hidden = false;
-      if (total > 0 && current > 0) {
-        prog.max = 100;
-        prog.value = Math.round((current / total) * 100);
-      } else {
-        prog.removeAttribute("value");
-        prog.max = 100;
-      }
+      prog.removeAttribute("value");
+      prog.max = 100;
     }
     return;
   }
@@ -2104,7 +2327,7 @@ function formatImportResultMessage(done) {
   return `${summary}.`;
 }
 
-function openImportProgressModal() {
+function openImportProgressModal(fileSizeBytes = 0) {
   importProgressCanClose = false;
   importProgressDonePayload = null;
   const dlg = $("#import-progress-modal");
@@ -2134,60 +2357,22 @@ function openImportProgressModal() {
   }
   const actions = $("#import-progress-actions");
   if (actions) actions.hidden = true;
+  setImportProgressIndeterminate(true);
+  importProgressTracker.start({ fileSizeBytes });
   dlg.hidden = false;
   syncModalOpenClass();
 }
 
 function updateImportProgress(ev) {
   if (ev.type !== "progress") return;
-  const phase = ev.phase || "importing";
-  const phaseEl = $("#import-progress-phase");
-  const bar = $("#import-progress-bar");
-  const pctEl = $("#import-progress-percent");
-  const etaEl = $("#import-progress-eta");
-  const total = ev.total || 0;
-  const current = ev.current || 0;
-  const remaining = ev.remaining ?? (total > 0 ? Math.max(0, total - current) : 0);
-  const prepPhases = new Set(["started", "replacing", "parsing", "preloading", "finalizing"]);
-
-  if (prepPhases.has(phase) || (phase === "importing" && !total)) {
-    const msg = ev.message || formatImportPhaseLabel(phase);
-    if (phaseEl) phaseEl.textContent = msg;
-    if (bar) {
-      if (total > 0 && current > 0) {
-        const pct = ev.percent ?? Math.round((current / total) * 100);
-        bar.max = 100;
-        bar.value = pct;
-      } else {
-        bar.removeAttribute("value");
-        bar.max = 100;
-      }
-    }
-    if (pctEl) {
-      pctEl.textContent = total > 0 ? `${ev.percent ?? Math.round((current / total) * 100)}%` : "";
-    }
-    if (etaEl) etaEl.textContent = "";
-    setImportStatusLine(current, total, null, { phase, message: msg });
-    return;
-  }
-
-  const pct = ev.percent ?? (total ? Math.round((current / total) * 100) : 0);
-  const eta = formatEta(ev.eta_seconds);
-  if (phaseEl) {
-    phaseEl.textContent = `Importing… ${current.toLocaleString()} processed · ${remaining.toLocaleString()} remaining`;
-  }
-  if (bar) {
-    bar.max = 100;
-    bar.value = pct;
-  }
-  if (pctEl) pctEl.textContent = `${pct}%`;
-  if (etaEl) etaEl.textContent = eta ? `About ${eta} left` : "";
-  setImportStatusLine(current, total, ev.eta_seconds, { phase, remaining });
+  importProgressTracker.onServerEvent(ev);
 }
 
 function showImportProgressResult(done) {
   importProgressCanClose = true;
   importProgressDonePayload = done;
+  importProgressTracker.stop();
+  setImportProgressIndeterminate(false);
   const title = $("#import-progress-title");
   if (title) title.textContent = "Import complete";
   const phase = $("#import-progress-phase");
@@ -2216,6 +2401,8 @@ function showImportProgressResult(done) {
 function showImportProgressError(message) {
   importProgressCanClose = true;
   importProgressDonePayload = null;
+  importProgressTracker.stop();
+  setImportProgressIndeterminate(false);
   const title = $("#import-progress-title");
   if (title) title.textContent = "Import failed";
   const phase = $("#import-progress-phase");
@@ -2260,8 +2447,7 @@ async function runCollectionImport(file, replace) {
   form.append("file", file);
   const importBtn = $("#import-collection-btn");
   if (importBtn) importBtn.disabled = true;
-  openImportProgressModal();
-  setImportStatusLine(0, 0, null);
+  openImportProgressModal(file.size || 0);
   try {
     const res = await fetch(`${API}/collection/import-csv?replace=${replace ? "true" : "false"}`, {
       method: "POST",
@@ -2279,11 +2465,13 @@ async function runCollectionImport(file, replace) {
     if (done.rejected_count > 0 && done.rejected_csv) {
       downloadRejectedCsv(done.rejected_csv);
     }
+    await importProgressTracker.animateToComplete();
     showImportProgressResult(done);
   } catch (err) {
     showImportProgressError(err.message);
     await loadStatus();
   } finally {
+    importProgressTracker.stop();
     clearImportStatusLine();
     if (importBtn) importBtn.disabled = false;
   }

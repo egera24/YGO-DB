@@ -1168,6 +1168,12 @@ def import_collection_csv(
         output_fieldnames = list(reader.fieldnames or []) + [IMPORT_ERROR_COLUMN]
         rows = list(reader)
         total = len(rows)
+        _report(
+            "parsing",
+            current=1,
+            total=1,
+            message=f"Read {total:,} rows…",
+        )
 
         # Preload printing match map for every set code referenced in the CSV.
         wanted_set_codes = sorted(
@@ -1180,12 +1186,6 @@ def import_collection_csv(
         catalog_chunks = list(_chunked(wanted_set_codes, 1000))
         catalog_chunk_total = len(catalog_chunks) or 1
         for chunk_index, chunk in enumerate(catalog_chunks or [[]], start=1):
-            _report(
-                "preloading",
-                current=chunk_index,
-                total=catalog_chunk_total,
-                message="Loading catalog matches…",
-            )
             for sc, rc, sr, pid in session.execute(
                 select(
                     Printing.set_code,
@@ -1199,24 +1199,50 @@ def import_collection_csv(
                     printing_by_key=printing_by_key,
                     catalog_set_codes=catalog_set_codes,
                 )
+            _report(
+                "preloading",
+                current=chunk_index,
+                total=catalog_chunk_total,
+                message="Loading catalog matches…",
+            )
 
+        _report("preloading", message="Loading catalog index…")
         all_catalog_set_codes = set(
             session.execute(select(Printing.set_code).distinct()).scalars().all()
         )
         substring_candidates: set[str] = set()
-        for wanted in wanted_set_codes:
+        scan_total = len(wanted_set_codes) or 1
+        scan_throttle = ProgressThrottle() if progress_callback else None
+
+        def _emit_scan_progress(current: int) -> None:
+            if progress_callback is None:
+                return
+            if scan_throttle is not None and not scan_throttle.should_emit(current):
+                return
+            _report(
+                "preloading",
+                current=current,
+                total=scan_total,
+                message="Scanning catalog for alternate-art codes…",
+            )
+
+        for scan_index, wanted in enumerate(wanted_set_codes, start=1):
             parents = _substring_catalog_candidates(wanted, all_catalog_set_codes)
             substring_parents_by_code[wanted] = parents
             substring_candidates.update(parents)
+            if progress_callback is not None:
+                _emit_scan_progress(scan_index)
+        if progress_callback is not None and wanted_set_codes:
+            _report(
+                "preloading",
+                current=scan_total,
+                total=scan_total,
+                message="Scanning catalog for alternate-art codes…",
+            )
+
         parent_chunks = list(_chunked(sorted(substring_candidates), 1000))
         parent_chunk_total = len(parent_chunks) or 1
         for chunk_index, chunk in enumerate(parent_chunks or [[]], start=1):
-            _report(
-                "preloading",
-                current=chunk_index,
-                total=parent_chunk_total,
-                message="Loading alternate-art catalog matches…",
-            )
             rows_to_register = session.execute(
                 select(
                     Printing.set_code,
@@ -1229,6 +1255,12 @@ def import_collection_csv(
                 rows_to_register,
                 printing_by_key=printing_by_key,
                 catalog_set_codes=catalog_set_codes,
+            )
+            _report(
+                "preloading",
+                current=chunk_index,
+                total=parent_chunk_total,
+                message="Loading alternate-art catalog matches…",
             )
 
         # Preload the user's existing collection (with folder allocations) so
@@ -1299,9 +1331,6 @@ def import_collection_csv(
             )
 
         _report("finalizing", current=total, total=total, message="Saving changes…")
-
-        if progress_callback is not None and total > 0:
-            _report("importing", current=total, total=total)
 
         session.commit()
         return CollectionImportResult(

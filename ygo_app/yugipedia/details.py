@@ -10,41 +10,28 @@ from datetime import datetime
 from pathlib import Path
 
 from ygo_app.yugipedia.constants import (
-    BATCH_POOL_TIMEOUT_SECONDS,
-    BATCH_WORKERS,
     CHECKPOINT_EVERY,
     FAILED_RETRY_ROUNDS,
-    PARSE_BATCH_SIZE,
+    MAX_WORKERS,
+    PER_CARD_POOL_TIMEOUT_SECONDS,
     PROGRESS_LOG_EVERY,
     REQUESTS_PER_SECOND,
 )
-from ygo_app.yugipedia.http_client import (
-    create_session,
-    fetch_current_revisions,
-    fetch_page,
-    fetch_pages_batch,
-    normalize_wiki_title,
-    wiki_title_from_url,
-)
+from ygo_app.yugipedia.http_client import create_session, fetch_page
 from ygo_app.yugipedia.passcodes import limit_passcode_list
 from ygo_app.yugipedia.parsing import parse_card_page
 from ygo_app.yugipedia.paths import (
     ALL_CARDS_PATH,
     PASSCODE_LIST_PATH,
     REJECTED_PATH,
-    SET_CHRONOLOGY_PATH,
     ensure_catalog_dir,
 )
 from ygo_app.yugipedia.scrape_progress import (
     BatchIncompleteError,
     ScrapeProgressMonitor,
+    ScrapeStalledError,
     is_retryable_error,
     log_line,
-)
-from ygo_app.yugipedia.supplements import (
-    apply_supplements_to_card,
-    load_set_release_lookup,
-    supplements_complete,
 )
 
 
@@ -54,7 +41,11 @@ def _load_json_list(path: Path) -> list[dict]:
 
 
 def input_card_key(card: dict) -> str:
-    """Stable dedup/checkpoint key for a passcode-list entry."""
+    """Stable dedup/checkpoint key for a passcode-list entry.
+
+    Real cards key on the zero-padded password; passwordless cards (no password)
+    key on the wiki URL instead.
+    """
     pw = str(card.get("password") or "").strip()
     if pw:
         return pw.zfill(8)
@@ -69,13 +60,16 @@ def saved_card_key(card: dict) -> str:
     return card.get("source_url") or ""
 
 
-def _index_cards_by_key(cards: list[dict]) -> dict[str, dict]:
-    out: dict[str, dict] = {}
-    for card in cards:
-        key = saved_card_key(card)
+def _passwords_done(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    cards = _load_json_list(path)
+    done: set[str] = set()
+    for c in cards:
+        key = saved_card_key(c)
         if key:
-            out[key] = card
-    return out
+            done.add(key)
+    return done
 
 
 def _save_cards(path: Path, cards: list[dict]) -> None:
@@ -119,14 +113,17 @@ def audit_slice_completion(
     batch_index: int | None,
     batch_count: int | None,
 ) -> int:
+    """
+    Log [BATCH_RESULT] and return missing passcode count for this slice.
+    Raises BatchIncompleteError when batch_index is set and missing > 0.
+    """
     slice_passwords = {input_card_key(c) for c in slice_cards}
-    saved: set[str] = set()
-    if output_path.exists():
-        for c in _load_json_list(output_path):
-            key = saved_card_key(c)
-            if key:
-                saved.add(key)
-    rejected_pw = {input_card_key(c) for c in rejected_cards if input_card_key(c)}
+    saved = _passwords_done(output_path)
+    rejected_pw = {
+        input_card_key(c)
+        for c in rejected_cards
+        if input_card_key(c)
+    }
     missing = slice_passwords - saved - rejected_pw
     saved_in_slice = len(slice_passwords & saved)
     rejected_in_slice = len(slice_passwords & rejected_pw)
@@ -158,201 +155,20 @@ def audit_slice_completion(
     return len(missing)
 
 
-def _card_title(card: dict) -> str | None:
-    return wiki_title_from_url(card.get("url") or "")
-
-
-def _title_key(card: dict) -> str | None:
-    title = _card_title(card)
-    return normalize_wiki_title(title) if title else None
-
-
-def _apply_page_meta(card_data: dict, *, revid: int | None, touched: str | None) -> None:
-    if revid is not None:
-        card_data["page_revid"] = revid
-    if touched:
-        card_data["page_touched"] = touched
-
-
-def _revision_unchanged(
-    existing: dict,
-    current: dict[str, int | str | None] | None,
-) -> bool:
-    if current is None:
-        return False
-    stored = existing.get("page_revid")
-    current_revid = current.get("revid")
-    if stored is None or current_revid is None:
-        return False
-    return int(stored) == int(current_revid)
-
-
-def _filter_pending_with_revisions(
-    slice_cards: list[dict],
-    *,
-    existing_by_key: dict[str, dict],
-    resume: bool,
-    session,
-) -> tuple[list[dict], int]:
-    """Return cards needing fetch and count of revision-skipped cards."""
-    if not resume:
-        return list(slice_cards), 0
-
-    titles = [_card_title(c) for c in slice_cards]
-    titles = [t for t in titles if t]
-    current_revisions = fetch_current_revisions(session, titles) if titles else {}
-
-    pending: list[dict] = []
-    skipped = 0
-    for card in slice_cards:
-        key = input_card_key(card)
-        existing = existing_by_key.get(key)
-        if existing is None:
-            pending.append(card)
-            continue
-        if not supplements_complete(existing):
-            pending.append(card)
-            continue
-        if existing.get("page_revid") is None:
-            pending.append(card)
-            continue
-        title = _card_title(card)
-        norm = normalize_wiki_title(title) if title else None
-        current = None
-        if title and title in current_revisions:
-            current = current_revisions[title]
-        elif norm:
-            for api_title, meta in current_revisions.items():
-                if normalize_wiki_title(api_title) == norm:
-                    current = meta
-                    break
-        if _revision_unchanged(existing, current):
-            skipped += 1
-            continue
-        pending.append(card)
-
-    if skipped:
-        log_line(f"[REV_SKIP] unchanged pages skipped={skipped}")
-    return pending, skipped
-
-
-def _process_parsed_card(
-    session,
-    input_card: dict,
-    card_data: dict,
-    *,
-    set_release_lookup: dict[str, str],
-    scrape_supplements: bool,
-) -> dict:
+def _process_card(session, input_card: dict) -> dict:
+    html, error = fetch_page(session, input_card["url"])
+    if html is None:
+        return {"success": False, "input_card": input_card, "error": error}
+    card_data, parse_error = parse_card_page(html, input_card)
+    if parse_error:
+        return {"success": False, "input_card": input_card, "error": parse_error}
     if not card_data.get("card_sets"):
         return {
             "success": False,
             "input_card": input_card,
             "error": "No English (TCG) printings",
         }
-
-    if scrape_supplements:
-        supplement_base = {**card_data}
-        sup_update, sup_error = apply_supplements_to_card(
-            session,
-            supplement_base,
-            set_release_lookup=set_release_lookup,
-        )
-        if sup_error:
-            return {"success": False, "input_card": input_card, "error": sup_error}
-        card_data = {**card_data, **sup_update}
-
     return {"success": True, "card_data": card_data, "input_card": input_card}
-
-
-def _fetch_html_for_card(
-    session,
-    input_card: dict,
-    batch_results: dict,
-) -> tuple[str | None, int | None, str | None, str | None]:
-    """Return html, revid, touched, error for one card (batch result or fallback)."""
-    title = _card_title(input_card)
-    if not title:
-        return None, None, None, "InvalidWikiUrl"
-
-    norm = normalize_wiki_title(title)
-    fetch = None
-    for api_title, result in batch_results.items():
-        if normalize_wiki_title(api_title) == norm:
-            fetch = result
-            break
-    if fetch is None:
-        for api_title, result in batch_results.items():
-            if api_title == title:
-                fetch = result
-                break
-
-    if fetch is not None and fetch.html:
-        return fetch.html, fetch.revid, fetch.touched, None
-
-    if fetch is not None and fetch.error == "MissingPage":
-        return None, None, None, "MissingPage"
-
-    html, error = fetch_page(session, input_card["url"])
-    if html:
-        return html, None, None, None
-    err = fetch.error if fetch and fetch.error else error
-    return None, None, None, err or "ParseApiError: fetch failed"
-
-
-def _process_card_batch(
-    session,
-    input_cards: list[dict],
-    *,
-    set_release_lookup: dict[str, str],
-    scrape_supplements: bool,
-) -> list[dict]:
-    title_to_card: dict[str, dict] = {}
-    titles: list[str] = []
-    results: list[dict] = []
-
-    for card in input_cards:
-        title = _card_title(card)
-        if not title:
-            results.append(
-                {"success": False, "input_card": card, "error": "InvalidWikiUrl"}
-            )
-            continue
-        title_to_card[title] = card
-        titles.append(title)
-
-    batch_results = fetch_pages_batch(session, titles) if titles else {}
-
-    for title, card in title_to_card.items():
-        html, revid, touched, error = _fetch_html_for_card(session, card, batch_results)
-        if html is None:
-            results.append(
-                {"success": False, "input_card": card, "error": error or "ParseApiError"}
-            )
-            continue
-
-        card_data, parse_error = parse_card_page(html, card)
-        if parse_error:
-            results.append(
-                {"success": False, "input_card": card, "error": parse_error}
-            )
-            continue
-
-        _apply_page_meta(card_data, revid=revid, touched=touched)
-        results.append(
-            _process_parsed_card(
-                session,
-                card,
-                card_data,
-                set_release_lookup=set_release_lookup,
-                scrape_supplements=scrape_supplements,
-            )
-        )
-    return results
-
-
-def _chunk_cards(cards: list[dict], size: int) -> list[list[dict]]:
-    return [cards[i : i + size] for i in range(0, len(cards), size)]
 
 
 def _log_fail(card: dict, error: str, *, will_retry: bool) -> None:
@@ -369,38 +185,17 @@ def _reject_card(card: dict, error: str, rejected_cards: list[dict]) -> None:
     rejected_cards.append(entry)
 
 
-def _upsert_successful_card(
-    card_data: dict,
-    *,
-    successful_cards: list[dict],
-    existing_by_key: dict[str, dict],
-) -> None:
-    key = saved_card_key(card_data)
-    if key and key in existing_by_key:
-        idx = successful_cards.index(existing_by_key[key])
-        successful_cards[idx] = card_data
-        existing_by_key[key] = card_data
-    else:
-        successful_cards.append(card_data)
-        if key:
-            existing_by_key[key] = card_data
-
-
 def _handle_scrape_result(
     result: dict,
     *,
     successful_cards: list[dict],
-    existing_by_key: dict[str, dict],
     rejected_cards: list[dict],
     retryable_failures: list[tuple[dict, str]],
 ) -> bool:
+    """Apply result; queue retryable failures. Returns True if success."""
     input_card = result["input_card"]
     if result["success"]:
-        _upsert_successful_card(
-            result["card_data"],
-            successful_cards=successful_cards,
-            existing_by_key=existing_by_key,
-        )
+        successful_cards.append(result["card_data"])
         return True
 
     error = result.get("error", "unknown") or "unknown"
@@ -419,7 +214,6 @@ def _scrape_pending_bounded(
     *,
     sessions: list,
     successful_cards: list[dict],
-    existing_by_key: dict[str, dict],
     rejected_cards: list[dict],
     output_path: Path,
     monitor: ScrapeProgressMonitor,
@@ -427,40 +221,37 @@ def _scrape_pending_bounded(
     lock: threading.Lock,
     run_start: float,
     round_label: str,
-    set_release_lookup: dict[str, str],
-    scrape_supplements: bool,
     use_monitor: bool = True,
 ) -> tuple[list[tuple[dict, str]], list[tuple[dict, str]]]:
+    """
+    Scrape pending cards with at most MAX_WORKERS in flight.
+
+    Returns (pool_timeout_items, retryable_failure_items) as (card, error) pairs.
+    """
     if not pending:
         return [], []
 
-    batches = _chunk_cards(pending, PARSE_BATCH_SIZE)
     pool_timeout_items: list[tuple[dict, str]] = []
     retryable_failures: list[tuple[dict, str]] = []
-    pool_msg = f"PoolTimeout: no completion within {BATCH_POOL_TIMEOUT_SECONDS}s"
+    pool_msg = f"PoolTimeout: no completion within {PER_CARD_POOL_TIMEOUT_SECONDS}s"
     work_index = 0
+    total = len(pending)
 
     def maybe_checkpoint(completed: int) -> None:
         if completed > 0 and completed % checkpoint_every == 0:
             with lock:
                 _save_cards(output_path, successful_cards)
 
-    with ThreadPoolExecutor(max_workers=BATCH_WORKERS) as executor:
-        in_flight: dict[Future, list[dict]] = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        in_flight: dict[Future, dict] = {}
 
         def submit_next() -> None:
             nonlocal work_index
-            while work_index < len(batches) and len(in_flight) < BATCH_WORKERS:
-                batch = batches[work_index]
+            while work_index < total and len(in_flight) < MAX_WORKERS:
+                card = pending[work_index]
                 session = sessions[work_index % len(sessions)]
-                fut = executor.submit(
-                    _process_card_batch,
-                    session,
-                    batch,
-                    set_release_lookup=set_release_lookup,
-                    scrape_supplements=scrape_supplements,
-                )
-                in_flight[fut] = batch
+                fut = executor.submit(_process_card, session, card)
+                in_flight[fut] = card
                 work_index += 1
 
         submit_next()
@@ -471,66 +262,61 @@ def _scrape_pending_bounded(
             done, _ = wait(
                 in_flight,
                 return_when=FIRST_COMPLETED,
-                timeout=BATCH_POOL_TIMEOUT_SECONDS,
+                timeout=PER_CARD_POOL_TIMEOUT_SECONDS,
             )
 
             if not done:
                 log_line(
-                    f"[WARN] Pool idle {BATCH_POOL_TIMEOUT_SECONDS}s with "
+                    f"[WARN] Pool idle {PER_CARD_POOL_TIMEOUT_SECONDS}s with "
                     f"{len(in_flight)} in-flight ({round_label}); re-queueing for retry"
                 )
-                for batch in in_flight.values():
-                    for card in batch:
+                for card in in_flight.values():
+                    pool_timeout_items.append((card, pool_msg))
+                if work_index < total:
+                    for card in pending[work_index:]:
                         pool_timeout_items.append((card, pool_msg))
-                if work_index < len(batches):
-                    for batch in batches[work_index:]:
-                        for card in batch:
-                            pool_timeout_items.append((card, pool_msg))
-                    work_index = len(batches)
+                    work_index = total
                 for fut in in_flight:
                     fut.cancel()
                 in_flight.clear()
                 break
 
             for fut in done:
-                batch = in_flight.pop(fut)
+                card = in_flight.pop(fut)
                 try:
-                    batch_results = fut.result(timeout=1)
+                    result = fut.result(timeout=1)
                 except Exception as exc:
-                    err = f"WorkerError: {type(exc).__name__}: {exc!s}"[:120]
-                    batch_results = [
-                        {"success": False, "input_card": card, "error": err}
-                        for card in batch
-                    ]
+                    result = {
+                        "success": False,
+                        "input_card": card,
+                        "error": f"WorkerError: {type(exc).__name__}: {exc!s}"[:120],
+                    }
 
-                for result in batch_results:
-                    card = result["input_card"]
-                    success = False
-                    with lock:
-                        success = _handle_scrape_result(
-                            result,
-                            successful_cards=successful_cards,
-                            existing_by_key=existing_by_key,
-                            rejected_cards=rejected_cards,
-                            retryable_failures=retryable_failures,
+                success = False
+                with lock:
+                    success = _handle_scrape_result(
+                        result,
+                        successful_cards=successful_cards,
+                        rejected_cards=rejected_cards,
+                        retryable_failures=retryable_failures,
+                    )
+
+                if use_monitor:
+                    monitor.record(card_name=card.get("name", "?"), success=success)
+                    completed_this_round = monitor.completed
+                    if (
+                        completed_this_round % PROGRESS_LOG_EVERY == 0
+                        or completed_this_round == monitor.total_pending
+                    ):
+                        monitor.log_progress_line(
+                            completed=completed_this_round,
+                            total=monitor.total_pending,
+                            card_name=card.get("name", "?"),
+                            success=success,
+                            run_start=run_start,
                         )
-
-                    if use_monitor:
-                        monitor.record(card_name=card.get("name", "?"), success=success)
-                        completed_this_round = monitor.completed
-                        if (
-                            completed_this_round % PROGRESS_LOG_EVERY == 0
-                            or completed_this_round == monitor.total_pending
-                        ):
-                            monitor.log_progress_line(
-                                completed=completed_this_round,
-                                total=monitor.total_pending,
-                                card_name=card.get("name", "?"),
-                                success=success,
-                                run_start=run_start,
-                            )
-                        maybe_checkpoint(completed_this_round)
-                        monitor.check_abort()
+                    maybe_checkpoint(completed_this_round)
+                    monitor.check_abort()
                 submit_next()
 
     return pool_timeout_items, retryable_failures
@@ -557,9 +343,15 @@ def scrape_card_details(
     max_cards: int | None = None,
     checkpoint_every: int = CHECKPOINT_EVERY,
     failed_retry_rounds: int = FAILED_RETRY_ROUNDS,
-    scrape_supplements: bool = True,
-    set_chronology_path: Path = SET_CHRONOLOGY_PATH,
 ) -> tuple[Path, Path, int, int]:
+    """
+    Scrape card pages from passcode list.
+
+    When batch_index and batch_count are set, only the corresponding slice of
+    the passcode list is scraped (for chained GHA jobs).
+
+    Returns (output_path, rejected_path, success_count, rejected_count).
+    """
     ensure_catalog_dir()
     input_path = input_path or PASSCODE_LIST_PATH
     output_path = output_path or ALL_CARDS_PATH
@@ -583,14 +375,15 @@ def scrape_card_details(
             f"slice {len(slice_cards)} of {total_in_list} passcodes"
         )
 
+    done_passwords: set[str] = set()
     successful_cards: list[dict] = []
-    existing_by_key: dict[str, dict] = {}
 
     if resume and output_path.exists():
         successful_cards = _load_json_list(output_path)
-        existing_by_key = _index_cards_by_key(successful_cards)
-        log_line(f"Resume: {len(existing_by_key)} cards already scraped")
+        done_passwords = _passwords_done(output_path)
+        log_line(f"Resume: {len(done_passwords)} cards already scraped")
 
+    pending = [c for c in slice_cards if input_card_key(c) not in done_passwords]
     rejected_cards: list[dict] = []
     if rejected_path.exists():
         try:
@@ -601,29 +394,11 @@ def scrape_card_details(
         except (json.JSONDecodeError, OSError):
             rejected_cards = []
 
-    set_release_lookup: dict[str, str] = {}
-    if scrape_supplements:
-        if set_chronology_path.exists():
-            set_release_lookup = load_set_release_lookup(set_chronology_path)
-        else:
-            log_line(
-                f"[WARN] Set chronology missing ({set_chronology_path}); "
-                "errata date enrichment disabled"
-            )
-
-    revision_session = create_session()
-    pending, rev_skipped = _filter_pending_with_revisions(
-        slice_cards,
-        existing_by_key=existing_by_key,
-        resume=resume,
-        session=revision_session,
-    )
-
     log_line(f"Input: {len(slice_cards)} cards, pending: {len(pending)}")
     log_line(
-        f"Rate limit: {REQUESTS_PER_SECOND} req/s, batch_workers: {BATCH_WORKERS}, "
-        f"parse_batch: {PARSE_BATCH_SIZE}, pool_timeout: {BATCH_POOL_TIMEOUT_SECONDS}s, "
-        f"failed_retries: {failed_retry_rounds}, supplements: {scrape_supplements}"
+        f"Rate limit: {REQUESTS_PER_SECOND} req/s, workers: {MAX_WORKERS}, "
+        f"pool_timeout: {PER_CARD_POOL_TIMEOUT_SECONDS}s, "
+        f"failed_retries: {failed_retry_rounds}"
     )
 
     lock = threading.Lock()
@@ -633,12 +408,11 @@ def scrape_card_details(
         monitor.start()
 
         try:
-            sessions = [create_session() for _ in range(BATCH_WORKERS)]
+            sessions = [create_session() for _ in range(MAX_WORKERS)]
             pool_items, failure_items = _scrape_pending_bounded(
                 pending,
                 sessions=sessions,
                 successful_cards=successful_cards,
-                existing_by_key=existing_by_key,
                 rejected_cards=rejected_cards,
                 output_path=output_path,
                 monitor=monitor,
@@ -646,8 +420,6 @@ def scrape_card_details(
                 lock=lock,
                 run_start=run_start,
                 round_label="primary",
-                set_release_lookup=set_release_lookup,
-                scrape_supplements=scrape_supplements,
             )
             retry_items = _merge_retry_items(pool_items, failure_items)
 
@@ -658,13 +430,12 @@ def scrape_card_details(
                     f"[BATCH_RETRY] round {round_num}/{failed_retry_rounds}: "
                     f"{len(retry_items)} cards (fresh HTTP sessions)"
                 )
-                sessions = [create_session() for _ in range(BATCH_WORKERS)]
+                sessions = [create_session() for _ in range(MAX_WORKERS)]
                 retry_cards = [card for card, _ in retry_items]
                 pool_items, failure_items = _scrape_pending_bounded(
                     retry_cards,
                     sessions=sessions,
                     successful_cards=successful_cards,
-                    existing_by_key=existing_by_key,
                     rejected_cards=rejected_cards,
                     output_path=output_path,
                     monitor=monitor,
@@ -672,8 +443,6 @@ def scrape_card_details(
                     lock=lock,
                     run_start=run_start,
                     round_label=f"retry-{round_num}",
-                    set_release_lookup=set_release_lookup,
-                    scrape_supplements=scrape_supplements,
                     use_monitor=False,
                 )
                 retry_items = _merge_retry_items(pool_items, failure_items)
@@ -694,10 +463,7 @@ def scrape_card_details(
             monitor.stop()
             monitor.log_summary()
     else:
-        if rev_skipped:
-            log_line(f"Nothing pending in this batch slice ({rev_skipped} unchanged).")
-        else:
-            log_line("Nothing pending in this batch slice.")
+        log_line("Nothing pending in this batch slice.")
 
     with lock:
         _save_cards(output_path, successful_cards)

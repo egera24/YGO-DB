@@ -3,18 +3,14 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from ygo_app.yugipedia.details import _handle_scrape_result, _process_card_batch
+from ygo_app.yugipedia.details import _handle_scrape_result, _process_card
 
 
-class TestProcessCardBatchNoPrintings(unittest.TestCase):
+class TestProcessCardNoPrintings(unittest.TestCase):
     @patch("ygo_app.yugipedia.details.parse_card_page")
-    @patch("ygo_app.yugipedia.details.fetch_pages_batch")
+    @patch("ygo_app.yugipedia.details.fetch_page")
     def test_rejects_when_no_card_sets(self, mock_fetch, mock_parse):
-        from ygo_app.yugipedia.http_client import PageFetchResult
-
-        mock_fetch.return_value = {
-            "OCG Only": PageFetchResult(html="<html></html>", revid=1, touched=None, error=None)
-        }
+        mock_fetch.return_value = ("<html></html>", None)
         mock_parse.return_value = (
             {"id": "11111111", "name": "OCG Only", "type": "Monster"},
             None,
@@ -24,24 +20,14 @@ class TestProcessCardBatchNoPrintings(unittest.TestCase):
             "name": "OCG Only",
             "url": "https://yugipedia.com/wiki/OCG_Only",
         }
-        results = _process_card_batch(
-            MagicMock(),
-            [input_card],
-            set_release_lookup={},
-            scrape_supplements=False,
-        )
-        self.assertEqual(len(results), 1)
-        self.assertFalse(results[0]["success"])
-        self.assertIn("English (TCG)", results[0]["error"])
+        result = _process_card(MagicMock(), input_card)
+        self.assertFalse(result["success"])
+        self.assertIn("English (TCG)", result["error"])
 
     @patch("ygo_app.yugipedia.details.parse_card_page")
-    @patch("ygo_app.yugipedia.details.fetch_pages_batch")
+    @patch("ygo_app.yugipedia.details.fetch_page")
     def test_succeeds_when_card_sets_present(self, mock_fetch, mock_parse):
-        from ygo_app.yugipedia.http_client import PageFetchResult
-
-        mock_fetch.return_value = {
-            "x": PageFetchResult(html="<html></html>", revid=1, touched=None, error=None)
-        }
+        mock_fetch.return_value = ("<html></html>", None)
         mock_parse.return_value = (
             {
                 "id": "85087012",
@@ -50,19 +36,10 @@ class TestProcessCardBatchNoPrintings(unittest.TestCase):
             },
             None,
         )
-        input_card = {
-            "password": "85087012",
-            "name": "Card Trooper",
-            "url": "https://yugipedia.com/wiki/x",
-        }
-        results = _process_card_batch(
-            MagicMock(),
-            [input_card],
-            set_release_lookup={},
-            scrape_supplements=False,
-        )
-        self.assertTrue(results[0]["success"])
-        self.assertEqual(results[0]["card_data"]["id"], "85087012")
+        input_card = {"password": "85087012", "name": "Card Trooper", "url": "http://x"}
+        result = _process_card(MagicMock(), input_card)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["card_data"]["id"], "85087012")
 
 
 class TestHandleScrapeResultNoPrintings(unittest.TestCase):
@@ -79,7 +56,6 @@ class TestHandleScrapeResultNoPrintings(unittest.TestCase):
         ok = _handle_scrape_result(
             result,
             successful_cards=successful,
-            existing_by_key={},
             rejected_cards=rejected,
             retryable_failures=retryable,
         )

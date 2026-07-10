@@ -79,6 +79,7 @@ class Card(Base):
     race: Mapped[str | None] = mapped_column(String(64), index=True)
     attribute: Mapped[str | None] = mapped_column(String(32), index=True)
     archetype: Mapped[str | None] = mapped_column(String(128), index=True)
+    character: Mapped[str | None] = mapped_column(String(128), index=True)
     linkval: Mapped[int | None] = mapped_column(Integer)
     scale: Mapped[int | None] = mapped_column(Integer)
     category: Mapped[str | None] = mapped_column(String(16), index=True)

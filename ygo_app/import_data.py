@@ -379,6 +379,7 @@ def _card_fields_from_api(entry: dict) -> dict:
         "race": entry.get("race"),
         "attribute": entry.get("attribute"),
         "archetype": entry.get("archetype"),
+        "character": entry.get("character"),
         "linkval": _int_or_none(entry.get("linkval")) or link_rating,
         "scale": _int_or_none(entry.get("scale")) or pendulum_scale,
         "category": entry.get("category"),

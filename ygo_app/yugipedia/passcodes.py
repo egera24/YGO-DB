@@ -135,6 +135,7 @@ def fetch_all_passcodes(*, max_cards: int | None = None) -> list[dict]:
             time.sleep(5)
 
     _merge_passwordless_cards(all_cards, max_cards=max_cards)
+    _merge_skill_cards(all_cards, max_cards=max_cards)
 
     return limit_passcode_list(all_cards, max_cards)
 
@@ -156,6 +157,25 @@ def _merge_passwordless_cards(all_cards: list[dict], *, max_cards: int | None) -
         if max_cards is not None and len(all_cards) >= max_cards:
             break
     print(f"  Added {added} passwordless cards (total {len(all_cards)})")
+
+
+def _merge_skill_cards(all_cards: list[dict], *, max_cards: int | None) -> None:
+    """Append Skill Cards from the SMW ask list (deduped by wiki URL) in place."""
+    if max_cards is not None and len(all_cards) >= max_cards:
+        return
+    from ygo_app.yugipedia.skill_cards import fetch_skill_cards
+
+    seen_urls = {c.get("url") for c in all_cards}
+    added = 0
+    for card in fetch_skill_cards():
+        if card["url"] in seen_urls:
+            continue
+        all_cards.append(card)
+        seen_urls.add(card["url"])
+        added += 1
+        if max_cards is not None and len(all_cards) >= max_cards:
+            break
+    print(f"  Added {added} skill cards (total {len(all_cards)})")
 
 
 def limit_passcode_list(cards: list[dict], max_cards: int | None) -> list[dict]:

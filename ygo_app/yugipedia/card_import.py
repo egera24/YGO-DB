@@ -108,9 +108,11 @@ def yugipedia_entry_to_import(entry: dict) -> dict | None:
         race = next((t for t in typeline if t in MONSTER_TYPES), race)
 
     monster_like = category in MONSTER_LIKE_CATEGORIES
+    character = (entry.get("character") or "").strip() or None
     return {
         **api,
         "category": category,
+        "character": character,
         "types": _json_list(types_list),
         "mechanic": mechanic,
         "attribute": attribute if monster_like else api.get("attribute"),

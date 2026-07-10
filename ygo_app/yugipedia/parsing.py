@@ -346,21 +346,11 @@ def extract_card_type_from_page(soup: BeautifulSoup) -> str | None:
     """
     row = find_row_by_header(soup, "Card type")
     if not row:
-        # #region agent log
-        import json, time
-        with open("debug-8cf9c8.log", "a", encoding="utf-8") as _f:
-            _f.write(json.dumps({"sessionId": "8cf9c8", "hypothesisId": "B", "location": "parsing.py:extract_card_type_from_page", "message": "no Card type row", "data": {}, "timestamp": int(time.time() * 1000)}) + "\n")
-        # #endregion
         return None
     td = row.find("td")
     if not td:
         return None
     text = td.get_text()
-    # #region agent log
-    import json, time
-    with open("debug-8cf9c8.log", "a", encoding="utf-8") as _f:
-        _f.write(json.dumps({"sessionId": "8cf9c8", "hypothesisId": "A", "location": "parsing.py:extract_card_type_from_page", "message": "Card type row text", "data": {"text": text.strip()}, "timestamp": int(time.time() * 1000)}) + "\n")
-    # #endregion
     for key in ("Monster", "Spell", "Trap", "Skill"):
         if key in text:
             return f"{key} Card"
@@ -398,6 +388,12 @@ def _init_card_data(input_card: dict, **extra) -> dict:
         data["source_url"] = input_card["url"]
     if passwordless:
         data["passwordless"] = True
+    character = (input_card.get("character") or "").strip()
+    if character:
+        data["character"] = character
+    property_val = (input_card.get("property") or "").strip()
+    if property_val:
+        data["property"] = property_val
     data.update(extra)
     return data
 
@@ -551,11 +547,6 @@ def parse_card_page(html: str, input_card: dict) -> tuple[dict | None, str | Non
     # Passwordless category members arrive without a card type; read it off the page.
     if not card_type:
         card_type = extract_card_type_from_page(soup) or ""
-    # #region agent log
-    import json, time
-    with open("debug-8cf9c8.log", "a", encoding="utf-8") as _f:
-        _f.write(json.dumps({"sessionId": "8cf9c8", "hypothesisId": "C", "location": "parsing.py:parse_card_page", "message": "resolved card_type", "data": {"name": input_card.get("name"), "card_type": card_type or "(none)", "passwordless": bool(input_card.get("passwordless"))}, "timestamp": int(time.time() * 1000), "runId": "post-fix"}) + "\n")
-    # #endregion
     if card_type == "Monster Card":
         card_data, error = parse_monster_card(soup, input_card)
         if error or card_data is None:

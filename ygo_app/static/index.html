@@ -122,6 +122,16 @@
               <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
             </div>
             <div class="search-buttons">
+              <select id="search-sort" aria-label="Sort search results">
+                <option value="name">Sort: Name</option>
+                <option value="passcode">Sort: Passcode</option>
+                <option value="release_date">Sort: Latest release</option>
+                <option value="owned_quantity">Sort: Owned quantity</option>
+              </select>
+              <select id="search-sort-dir" aria-label="Sort direction">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
               <button type="button" id="search-reset" class="secondary">Clear all</button>
               <button type="submit">Search</button>
             </div>
@@ -377,6 +387,12 @@
               <option value="folder_name">Sort: Folder</option>
               <option value="quantity">Sort: Quantity</option>
               <option value="trade_quantity">Sort: Trade quantity</option>
+              <option value="passcode">Sort: Passcode</option>
+              <option value="release_date">Sort: Release date</option>
+            </select>
+            <select id="collection-sort-dir" aria-label="Sort direction">
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
             </select>
             <button type="submit">Apply</button>
             <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
@@ -888,6 +904,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=138" type="module"></script>
+  <script src="/static/js/app.js?v=141" type="module"></script>
 </body>
 </html>

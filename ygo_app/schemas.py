@@ -423,6 +423,8 @@ SEARCH_PRESET_PARAM_KEYS = frozenset(
         "genesys_point_list_id",
         "points_min",
         "points_max",
+        "sort",
+        "sort_dir",
     }
 )
 

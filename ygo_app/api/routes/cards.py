@@ -116,6 +116,11 @@ def search(
     genesys_point_list_id: int | None = None,
     points_min: int | None = None,
     points_max: int | None = None,
+    sort: str = Query(
+        "name",
+        pattern="^(name|passcode|release_date|owned_quantity)$",
+    ),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     limit: int = Query(None, le=SEARCH_MAX_LIMIT),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -168,6 +173,8 @@ def search(
         genesys_point_list_id=genesys_point_list_id,
         points_min=points_min,
         points_max=points_max,
+        sort=sort,
+        sort_dir=sort_dir,
     )
     extras = card_summaries_batch(db, cards, user.id)
     format_extras = enrich_cards_for_format(

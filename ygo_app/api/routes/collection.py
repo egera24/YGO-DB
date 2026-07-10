@@ -168,7 +168,13 @@ def get_collection(
     q: str | None = None,
     folder: str | None = None,
     set_code: str | None = None,
-    sort: str = Query("set_code", pattern="^(set_code|card_name|folder_name|quantity|trade_quantity)$"),
+    sort: str = Query(
+        "set_code",
+        pattern=(
+            "^(set_code|card_name|folder_name|quantity|trade_quantity|passcode|release_date)$"
+        ),
+    ),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     limit: int = Query(100, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -181,6 +187,7 @@ def get_collection(
         folder=folder,
         set_code=set_code,
         sort=sort,
+        sort_dir=sort_dir,
         limit=limit,
         offset=offset,
     )

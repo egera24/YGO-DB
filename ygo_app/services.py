@@ -25,6 +25,11 @@ from ygo_app.card_filters import (
     types_overlap_filter,
 )
 from ygo_app.cardmarket.market_prices import load_market_prices
+from ygo_app.search_sort import (
+    apply_collection_sort_joins,
+    build_card_search_order_by,
+    build_collection_order_by,
+)
 from ygo_app.search_query import (
     SearchQueryError,
     Term,
@@ -361,6 +366,8 @@ def search_cards(
     genesys_point_list_id: int | None = None,
     points_min: int | None = None,
     points_max: int | None = None,
+    sort: str = "name",
+    sort_dir: str = "asc",
 ) -> tuple[list[Card], int]:
     search_columns = (
         Card.id,
@@ -628,8 +635,12 @@ def search_cards(
                     count_stmt = count_stmt.where(banlist_filter)
 
     total = session.execute(count_stmt).scalar() or 0
+    dialect = session.get_bind().dialect.name
+    order_by = build_card_search_order_by(
+        sort, sort_dir, user_id, dialect=dialect
+    )
     cards = (
-        session.execute(stmt.order_by(Card.name).offset(offset).limit(limit))
+        session.execute(stmt.order_by(*order_by).offset(offset).limit(limit))
         .scalars()
         .unique()
         .all()
@@ -1103,13 +1114,6 @@ def _ensure_default_allocations(item: CollectionItem) -> None:
         )
 
 
-_COLLECTION_SORT_COLUMNS = {
-    "set_code": CollectionItem.set_code,
-    "card_name": CollectionItem.card_name,
-    "quantity": CollectionItem.quantity,
-    "trade_quantity": CollectionItem.trade_quantity,
-}
-
 
 def find_card_by_set_code(session: Session, set_code: str) -> Card | None:
     printing = session.execute(
@@ -1217,6 +1221,7 @@ def list_collection(
     folder: str | None = None,
     set_code: str | None = None,
     sort: str = "set_code",
+    sort_dir: str = "asc",
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -1238,21 +1243,9 @@ def list_collection(
         select(func.count()).select_from(stmt.subquery())
     ).scalar() or 0
 
-    if sort == "folder_name":
-        primary_folder = (
-            select(CollectionFolder.name)
-            .join(
-                CollectionItemFolder,
-                CollectionItemFolder.folder_id == CollectionFolder.id,
-            )
-            .where(CollectionItemFolder.collection_item_id == CollectionItem.id)
-            .order_by(CollectionFolder.name)
-            .limit(1)
-            .scalar_subquery()
-        )
-        order_col = primary_folder
-    else:
-        order_col = _COLLECTION_SORT_COLUMNS.get(sort, CollectionItem.set_code)
+    dialect = session.get_bind().dialect.name
+    stmt = apply_collection_sort_joins(stmt, sort, dialect=dialect)
+    order_by = build_collection_order_by(sort, sort_dir)
 
     items = (
         session.execute(
@@ -1262,7 +1255,7 @@ def list_collection(
                     CollectionItemFolder.folder
                 ),
             )
-            .order_by(order_col)
+            .order_by(*order_by)
             .offset(offset)
             .limit(limit)
         )

@@ -110,6 +110,8 @@ const ROUTE_SEARCH_KEYS = new Set([
   "genesys_point_list_id",
   "points_min",
   "points_max",
+  "sort",
+  "sort_dir",
 ]);
 const ROUTE_PARAM_MAX_LEN = 500;
 const ROUTE_PARAM_MAX_KEYS = 30;
@@ -1392,6 +1394,11 @@ function resetSearchFilters() {
     btn.setAttribute("aria-pressed", "false");
   });
 
+  const searchSortEl = $("#search-sort");
+  if (searchSortEl) searchSortEl.value = "name";
+  const searchSortDirEl = $("#search-sort-dir");
+  if (searchSortDirEl) searchSortDirEl.value = "asc";
+
   closeAllFilterMultiPanels();
   renderActiveSearchFilters();
 }
@@ -1755,6 +1762,10 @@ function buildSearchParams() {
     if (pointsMin) params.set("points_min", pointsMin);
     if (pointsMax) params.set("points_max", pointsMax);
   }
+  const searchSort = $("#search-sort")?.value || "name";
+  if (searchSort !== "name") params.set("sort", searchSort);
+  const searchSortDir = $("#search-sort-dir")?.value || "asc";
+  if (searchSortDir !== "asc") params.set("sort_dir", searchSortDir);
   return params;
 }
 
@@ -1844,6 +1855,14 @@ function applySearchParams(snapshot) {
   if (s.points_max) {
     const el = $("#points-max");
     if (el) el.value = s.points_max;
+  }
+  if (s.sort) {
+    const el = $("#search-sort");
+    if (el) el.value = s.sort;
+  }
+  if (s.sort_dir) {
+    const el = $("#search-sort-dir");
+    if (el) el.value = s.sort_dir;
   }
   renderActiveSearchFilters();
 }
@@ -3494,6 +3513,8 @@ function buildCollectionParams(offset = 0) {
   const setCode = $("#collection-set-code")?.value.trim();
   if (setCode) params.set("set_code", setCode);
   params.set("sort", $("#collection-sort")?.value || "set_code");
+  const collectionSortDir = $("#collection-sort-dir")?.value || "asc";
+  if (collectionSortDir !== "asc") params.set("sort_dir", collectionSortDir);
   return params;
 }
 
@@ -5877,6 +5898,12 @@ function wireEvents() {
     clearActivePreset();
     await runSearch();
   });
+  $("#search-sort")?.addEventListener("change", () => {
+    runSearch().catch((err) => showToast(err.message, { variant: "error" }));
+  });
+  $("#search-sort-dir")?.addEventListener("change", () => {
+    runSearch().catch((err) => showToast(err.message, { variant: "error" }));
+  });
   $("#search-clear-filters")?.addEventListener("click", async () => {
     resetSearchFilters();
     clearActivePreset();
@@ -6164,6 +6191,14 @@ function wireEvents() {
 
   $("#collection-filter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    state.collectionPage = 0;
+    await loadCollectionPage(0);
+  });
+  $("#collection-sort")?.addEventListener("change", async () => {
+    state.collectionPage = 0;
+    await loadCollectionPage(0);
+  });
+  $("#collection-sort-dir")?.addEventListener("change", async () => {
     state.collectionPage = 0;
     await loadCollectionPage(0);
   });

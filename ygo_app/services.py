@@ -357,6 +357,7 @@ def search_cards(
     set_code: str | None = None,
     owned_only: bool = False,
     favorites_only: bool = False,
+    for_trade_only: bool = False,
     tag: str | None = None,
     user_id: int | None = None,
     limit: int = 60,
@@ -549,6 +550,25 @@ def search_cards(
         stmt = stmt.where(Card.id.in_(owned_ids))
         count_stmt = select(func.count()).select_from(Card).where(Card.id.in_(owned_ids))
     elif owned_only:
+        return [], 0
+
+    if for_trade_only and user_id is not None:
+        trade_ids = session.execute(
+            select(Printing.card_id)
+            .join(
+                CollectionItem,
+                (CollectionItem.set_code == Printing.set_code)
+                & (CollectionItem.rarity_code == Printing.set_rarity_code)
+                & (CollectionItem.user_id == user_id),
+            )
+            .where(CollectionItem.trade_quantity > 0)
+            .distinct()
+        ).scalars().all()
+        if not trade_ids:
+            return [], 0
+        stmt = stmt.where(Card.id.in_(trade_ids))
+        count_stmt = count_stmt.where(Card.id.in_(trade_ids))
+    elif for_trade_only:
         return [], 0
 
     if format_code:

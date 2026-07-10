@@ -416,6 +416,7 @@ SEARCH_PRESET_PARAM_KEYS = frozenset(
         "def_max",
         "owned_only",
         "favorites_only",
+        "for_trade_only",
         "tag",
         "format",
         "banlist_revision_id",

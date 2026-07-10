@@ -104,6 +104,7 @@ const ROUTE_SEARCH_KEYS = new Set([
   "def_max",
   "owned_only",
   "favorites_only",
+  "for_trade_only",
   "format",
   "banlist_revision_id",
   "banlist_status",
@@ -1354,6 +1355,8 @@ function resetSearchFilters() {
   if (ownedEl) ownedEl.checked = false;
   const favEl = $("#favorites-only");
   if (favEl) favEl.checked = false;
+  const forTradeEl = $("#for-trade-only");
+  if (forTradeEl) forTradeEl.checked = false;
   const tagEl = $("#filter-tag");
   if (tagEl) tagEl.value = "";
 
@@ -1440,8 +1443,9 @@ function collectActiveSearchFilterChips() {
   const tag = $("#filter-tag")?.value.trim();
   if (tag) chips.push({ id: "tag", label: `Tag: ${tag}` });
 
-  if ($("#owned-only")?.checked) chips.push({ id: "owned_only", label: "Owned only" });
-  if ($("#favorites-only")?.checked) chips.push({ id: "favorites_only", label: "Favorites" });
+  if ($("#owned-only")?.checked) chips.push({ id: "owned_only", label: "Owned" });
+  if ($("#for-trade-only")?.checked) chips.push({ id: "for_trade_only", label: "Trade" });
+  if ($("#favorites-only")?.checked) chips.push({ id: "favorites_only", label: "Favourites" });
 
   for (const val of getFilterMultiValues("filter-category")) {
     chips.push({ id: `category:${val}`, label: val });
@@ -1498,6 +1502,7 @@ const PRIMARY_SEARCH_FILTER_IDS = new Set([
   "tag",
   "owned_only",
   "favorites_only",
+  "for_trade_only",
 ]);
 
 function hasAdvancedSearchFilters() {
@@ -1534,6 +1539,7 @@ function removeSearchFilterChip(chipId) {
   else if (chipId === "tag") $("#filter-tag").value = "";
   else if (chipId === "owned_only") $("#owned-only").checked = false;
   else if (chipId === "favorites_only") $("#favorites-only").checked = false;
+  else if (chipId === "for_trade_only") $("#for-trade-only").checked = false;
   else if (chipId === "archetype") $("#filter-archetype").value = "";
   else if (chipId === "summoning") $("#filter-summoning").value = "";
   else if (chipId.startsWith("category:")) {
@@ -1741,6 +1747,7 @@ function buildSearchParams() {
 
   if ($("#owned-only").checked) params.set("owned_only", "true");
   if ($("#favorites-only").checked) params.set("favorites_only", "true");
+  if ($("#for-trade-only").checked) params.set("for_trade_only", "true");
   const tag = $("#filter-tag")?.value.trim();
   if (tag) params.set("tag", tag);
   const format = $("#search-format")?.value;
@@ -1829,6 +1836,7 @@ function applySearchParams(snapshot) {
 
   if (s.owned_only === "true") $("#owned-only").checked = true;
   if (s.favorites_only === "true") $("#favorites-only").checked = true;
+  if (s.for_trade_only === "true") $("#for-trade-only").checked = true;
   if (s.tag) {
     const el = $("#filter-tag");
     if (el) el.value = s.tag;

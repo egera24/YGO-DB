@@ -196,6 +196,8 @@ python -m unittest tests.test_yugipedia_errata tests.test_yugipedia_tips tests.t
 | `sell_price` | Do not overwrite from CSV (import already leaves it `None`) |
 | Folder | Merge folder allocation qty if same folder name; else create allocation |
 
+> **Design gap:** Edition is not part of the match key — reprints (e.g. 1st Edition then Unlimited of the same card number) merge into one row and the stored edition is overwritten. See [`design_gaps_or_known_issues.md`](design_gaps_or_known_issues.md) §1.
+
 **Steps:**
 
 - [ ] Import UI: modal or two-step confirm — **Overwrite** (current) vs **Append** (merge).

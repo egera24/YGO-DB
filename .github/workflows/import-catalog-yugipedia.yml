@@ -60,7 +60,7 @@ jobs:
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-        run: alembic upgrade head
+        run: python -m ygo_app.db_migrate
 
       - name: Reject test mode on production
         if: >-
@@ -774,7 +774,7 @@ jobs:
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-        run: alembic upgrade head
+        run: python -m ygo_app.db_migrate
 
       - name: Import catalog into database
         env:
@@ -831,7 +831,7 @@ jobs:
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ inputs.environment == 'dev' && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-        run: alembic upgrade head
+        run: python -m ygo_app.db_migrate
 
       - name: Rebuild images manifest from bucket
         continue-on-error: true

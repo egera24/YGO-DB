@@ -65,7 +65,7 @@ jobs:
       - name: Alembic upgrade
         env:
           DATABASE_URL: ${{ steps.db.outputs.url }}
-        run: alembic upgrade head
+        run: python -m ygo_app.db_migrate
 
       - name: Sync Cardmarket catalog
         env:

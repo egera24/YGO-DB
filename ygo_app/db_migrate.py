@@ -77,6 +77,31 @@ def _apply_yugipedia_columns_idempotent(conn) -> None:
     conn.commit()
 
 
+def _bump_revision_if_yugipedia_columns_present(mig_engine) -> None:
+    """When schema already has 003 columns but alembic_version lags, stamp forward."""
+    state = _revision_state_on(mig_engine)
+    if state["db_revision"] == "002" and not state["missing_yugipedia_columns"]:
+        with mig_engine.connect() as conn:
+            conn.execute(
+                text(
+                    "UPDATE alembic_version SET version_num = '003' WHERE version_num = '002'"
+                )
+            )
+            conn.commit()
+
+
+def _run_alembic_upgrade(alembic_cfg, mig_engine) -> None:
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except Exception as exc:
+        msg = str(exc)
+        if "DuplicateColumn" not in msg and "already exists" not in msg:
+            raise
+        with mig_engine.connect() as conn:
+            _apply_yugipedia_columns_idempotent(conn)
+        command.upgrade(alembic_cfg, "head")
+
+
 def ensure_db_at_head() -> None:
     """Apply pending Alembic revisions; ensure Yugipedia search columns exist."""
     mig_url = database_url_for_migrations()
@@ -85,12 +110,14 @@ def ensure_db_at_head() -> None:
     try:
         alembic_cfg = Config("alembic.ini")
         alembic_cfg.set_main_option("sqlalchemy.url", mig_url)
-        command.upgrade(alembic_cfg, "head")
+        _bump_revision_if_yugipedia_columns_present(mig_engine)
+        _run_alembic_upgrade(alembic_cfg, mig_engine)
 
         state = _revision_state_on(mig_engine)
         if state["missing_yugipedia_columns"]:
             with mig_engine.connect() as conn:
                 _apply_yugipedia_columns_idempotent(conn)
+            _run_alembic_upgrade(alembic_cfg, mig_engine)
             state = _revision_state_on(mig_engine)
     finally:
         mig_engine.dispose()
@@ -112,3 +139,7 @@ def ensure_db_at_head() -> None:
             f"alembic_version ({state['db_revision']!r}) does not match repo head "
             f"({state['repo_head']!r}) after upgrade"
         )
+
+
+if __name__ == "__main__":
+    ensure_db_at_head()

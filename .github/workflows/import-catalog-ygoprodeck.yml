@@ -31,7 +31,7 @@ jobs:
       - name: Run database migrations
         env:
           DATABASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') && secrets.DATABASE_URL_DEV || secrets.DATABASE_URL }}
-        run: alembic upgrade head
+        run: python -m ygo_app.db_migrate
 
       - name: Import cards from YGOProDeck API
         env:

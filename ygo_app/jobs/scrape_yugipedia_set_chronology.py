@@ -7,15 +7,15 @@ import json
 import sys
 from pathlib import Path
 
-from ygo_app.yugipedia.http_client import create_scraper, fetch_page
+from ygo_app.yugipedia.http_client import create_session, fetch_page
 from ygo_app.yugipedia.paths import SET_CHRONOLOGY_PATH, ensure_catalog_dir
 from ygo_app.yugipedia.set_chronology import SET_CHRONOLOGY_URL, parse_set_chronology_html
 
 
 def scrape_set_chronology(*, output_path=SET_CHRONOLOGY_PATH) -> list[dict]:
     ensure_catalog_dir()
-    scraper = create_scraper()
-    html, err = fetch_page(scraper, SET_CHRONOLOGY_URL)
+    session = create_session()
+    html, err = fetch_page(session, SET_CHRONOLOGY_URL)
     if err or not html:
         raise RuntimeError(f"Failed to fetch Set chronology: {err}")
 

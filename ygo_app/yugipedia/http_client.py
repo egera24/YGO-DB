@@ -5,8 +5,10 @@ from __future__ import annotations
 import random
 import threading
 import time
+from urllib.parse import unquote, urlparse
 
 import cloudscraper
+import requests
 
 from ygo_app.yugipedia.constants import (
     MAX_RETRIES,
@@ -17,6 +19,9 @@ from ygo_app.yugipedia.constants import (
     USER_AGENT,
 )
 from ygo_app.yugipedia.scrape_progress import log_line
+
+YUGIPEDIA_API_URL = "https://yugipedia.com/api.php"
+YUGIPEDIA_WIKI_HOST = "yugipedia.com"
 
 
 class RateLimiter:
@@ -48,6 +53,50 @@ def _response_log_fields(response) -> dict:
     }
 
 
+def _is_retryable_error(error_type: str, error_str: str) -> bool:
+    return any(
+        [
+            "502" in error_str,
+            "503" in error_str,
+            "500" in error_str,
+            "504" in error_str,
+            "timeout" in error_str.lower(),
+            "timed out" in error_str.lower(),
+            "ReadTimeout" in error_type,
+            "ConnectTimeout" in error_type,
+            "ConnectionError" in error_type,
+        ]
+    )
+
+
+def wiki_title_from_url(url: str) -> str | None:
+    """Return a MediaWiki page title from a Yugipedia wiki URL, or None."""
+    if not url:
+        return None
+    parsed = urlparse(url.split("#", 1)[0])
+    host = (parsed.netloc or "").lower().removeprefix("www.")
+    path = parsed.path or ""
+    if host and host != YUGIPEDIA_WIKI_HOST:
+        return None
+    prefix = "/wiki/"
+    if not path.startswith(prefix):
+        return None
+    title = unquote(path[len(prefix) :]).strip()
+    return title or None
+
+
+def create_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+    )
+    return session
+
+
 def create_scraper() -> cloudscraper.CloudScraper:
     scraper = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "desktop": True}
@@ -56,8 +105,79 @@ def create_scraper() -> cloudscraper.CloudScraper:
     return scraper
 
 
-def fetch_page(
-    scraper,
+def _extract_parse_html(data: dict) -> str | None:
+    if data.get("error"):
+        return None
+    html = data.get("parse", {}).get("text", {}).get("*", "")
+    return html if html else None
+
+
+def _fetch_via_parse(
+    session: requests.Session,
+    title: str,
+    *,
+    retries: int = MAX_RETRIES,
+    timeout: float = REQUEST_TIMEOUT,
+) -> tuple[str | None, str | None]:
+    label = title[:60]
+    for attempt in range(retries):
+        started = time.monotonic()
+        try:
+            _rate_limiter.acquire()
+            response = session.get(
+                YUGIPEDIA_API_URL,
+                params={
+                    "action": "parse",
+                    "format": "json",
+                    "page": title,
+                    "prop": "text",
+                },
+                timeout=timeout,
+            )
+            elapsed = time.monotonic() - started
+            resp_fields = _response_log_fields(response)
+            if elapsed >= SLOW_REQUEST_WARN_SECONDS:
+                log_line(
+                    f"[WARN] Slow parse API {elapsed:.1f}s status={resp_fields['status_code']} "
+                    f"bytes={resp_fields['body_bytes_read']} "
+                    f"(attempt {attempt + 1}/{retries}) {label}"
+                )
+            response.raise_for_status()
+            html = _extract_parse_html(response.json())
+            if html:
+                return html, None
+            error_msg = "ParseApiError: empty or invalid parse response"
+            if attempt < retries - 1:
+                log_line(
+                    f"[WARN] Retryable parse empty (attempt {attempt + 1}/{retries}) "
+                    f"elapsed={elapsed:.1f}s {label}"
+                )
+                time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
+                continue
+            return None, error_msg
+        except Exception as e:
+            elapsed = time.monotonic() - started
+            error_type = type(e).__name__
+            error_str = str(e)
+            resp_fields = _response_log_fields(getattr(e, "response", None))
+            status_part = (
+                f" status={resp_fields['status_code']} bytes={resp_fields['body_bytes_read']}"
+                if resp_fields["has_response"]
+                else " no_response"
+            )
+            if _is_retryable_error(error_type, error_str) and attempt < retries - 1:
+                log_line(
+                    f"[WARN] Retryable parse {error_type} (attempt {attempt + 1}/{retries}) "
+                    f"elapsed={elapsed:.1f}s{status_part} {label}"
+                )
+                time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
+                continue
+            return None, f"{error_type}: {error_str[:100]}"
+    return None, f"Failed after {retries} retry attempts"
+
+
+def _fetch_via_wiki_url(
+    scraper: cloudscraper.CloudScraper,
     url: str,
     *,
     retries: int = MAX_RETRIES,
@@ -94,25 +214,12 @@ def fetch_page(
             error_type = type(e).__name__
             error_str = str(e)
             resp_fields = _response_log_fields(getattr(e, "response", None))
-            is_retryable = any(
-                [
-                    "502" in error_str,
-                    "503" in error_str,
-                    "500" in error_str,
-                    "504" in error_str,
-                    "timeout" in error_str.lower(),
-                    "timed out" in error_str.lower(),
-                    "ReadTimeout" in error_type,
-                    "ConnectTimeout" in error_type,
-                    "ConnectionError" in error_type,
-                ]
-            )
             status_part = (
                 f" status={resp_fields['status_code']} bytes={resp_fields['body_bytes_read']}"
                 if resp_fields["has_response"]
                 else " no_response"
             )
-            if is_retryable and attempt < retries - 1:
+            if _is_retryable_error(error_type, error_str) and attempt < retries - 1:
                 log_line(
                     f"[WARN] Retryable {error_type} (attempt {attempt + 1}/{retries}) "
                     f"elapsed={elapsed:.1f}s{status_part} {url[:60]}"
@@ -121,3 +228,29 @@ def fetch_page(
                 continue
             return None, f"{error_type}: {error_str[:100]}"
     return None, f"Failed after {retries} retry attempts"
+
+
+def fetch_page(
+    client,
+    url: str,
+    *,
+    retries: int = MAX_RETRIES,
+    timeout: float = REQUEST_TIMEOUT,
+) -> tuple[str | None, str | None]:
+    """Fetch rendered wiki HTML via MediaWiki parse API, with wiki URL fallback."""
+    title = wiki_title_from_url(url)
+    if title is not None and isinstance(client, requests.Session):
+        html, error = _fetch_via_parse(client, title, retries=retries, timeout=timeout)
+        if html:
+            return html, None
+        log_line(
+            f"[WARN] parse failed for {title[:60]}; falling back to wiki URL"
+            + (f" — {error}" if error else "")
+        )
+
+    scraper = (
+        client
+        if isinstance(client, cloudscraper.CloudScraper)
+        else create_scraper()
+    )
+    return _fetch_via_wiki_url(scraper, url, retries=retries, timeout=timeout)

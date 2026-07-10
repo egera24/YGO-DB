@@ -11,6 +11,7 @@ Documented limitations of the current application design — behaviors that are 
 | Section | Topic |
 |---------|--------|
 | [1. Card edition (printing) is not a first-class dimension](#1-card-edition-printing-is-not-a-first-class-dimension) | Reprints with the same card number merge; edition is overwritten |
+| [2. Card condition is not a first-class dimension](#2-card-condition-is-not-a-first-class-dimension) | Same card + rarity with different conditions merge; condition is overwritten |
 
 ---
 
@@ -78,3 +79,81 @@ These are design options for a future change; none are scheduled here.
 
 - [`docs/importing-physical-cards.md`](docs/importing-physical-cards.md) — documents that import matching uses **Card Number + Rarity** only.
 - [`next_steps.md`](next_steps.md) §9 — append merge rules for `edition` on CSV import (overwrite when cell is non-empty).
+- [§2. Card condition is not a first-class dimension](#2-card-condition-is-not-a-first-class-dimension) — same merge pattern for condition.
+
+---
+
+## 2. Card condition is not a first-class dimension
+
+### Summary
+
+The app stores **condition** (Near Mint, Light Played, etc.) on each collection row, but condition **does not** split rows or participate in import matching. Identity is still **one row per user + card number (`set_code`) + rarity**.
+
+If you own one **Near Mint** and one **Light Played** copy of the same card number and rarity, the app cannot represent them as separate inventory lines today.
+
+### How matching and identity work
+
+Collection items are keyed by:
+
+- `user_id`
+- `set_code` (card number printed on the card, e.g. `LOB-EN005`)
+- `rarity_code` (e.g. `UR`, `ScR`)
+
+Condition is **not** part of this key. See CSV import merge logic in [`ygo_app/import_data.py`](ygo_app/import_data.py) (`key = (stored_set_code, rarity_code)`).
+
+### What happens on import (different conditions)
+
+**Example:** You import two CSV rows for the same card:
+
+```csv
+Card Number,Rarity,Quantity,Condition
+LOB-001,UR,1,NearMint
+LOB-001,UR,1,LightPlayed
+```
+
+| Step | Result |
+|------|--------|
+| First row | One row: qty 1, condition `NearMint` |
+| Second row (same file or append) | **Same row merged**: qty 2, condition **`LightPlayed`** |
+
+On merge, quantity and trade quantity are **added**. Condition is **replaced** if the new CSV row has a non-empty `Condition` cell (last merged row wins). Both physical copies are counted in quantity, but only one condition value is kept.
+
+The same merge applies within a single CSV file: duplicate `(Card Number, Rarity)` rows in one import are deduplicated in memory before insert, with the same overwrite rules.
+
+### Where condition is stored vs used
+
+| Area | Condition behavior |
+|------|-------------------|
+| Database | `collection_items.condition` column exists |
+| API | Validated against canonical values in [`ygo_app/schemas.py`](ygo_app/schemas.py) (`NearMint`, `LightPlayed`, etc.) |
+| CSV import | Reads `Condition` as-is; **no validation**; overwrites on merge when cell is non-empty |
+| CSV export | Writes stored `condition` → `Condition` |
+| My Collection UI | **Shown** in the table as a condition badge; **editable** in the edit modal |
+| Card modal owned badges | Quantities aggregated by `(set_code, rarity_code)` only — condition ignored |
+| Duplicate detection | `(set_code, rarity_code)` per user — condition not considered |
+
+### User-visible symptoms
+
+- Importing the same card twice with different conditions **increases quantity** and may **change the displayed condition** to the last imported value.
+- Export shows only one `Condition` for what are physically different copies.
+- Owned quantity on the card detail modal cannot distinguish Near Mint from Light Played copies.
+- CSV abbreviations like `NM` or `LP` import without error but display as unknown badges until edited to canonical values (`NearMint`, `LightPlayed`).
+
+### Workarounds (today)
+
+- Use **one row** with `Quantity` set to the total copy count and pick the condition you care about most.
+- Or leave `Condition` blank on import and set it manually in the app afterward.
+- Or record the split in **Notes** (e.g. `1 NM, 1 LP`) — the app does not enforce this, but it preserves the information.
+
+### Likely fix directions (not implemented)
+
+These are design options for a future change; none are scheduled here.
+
+1. **Include condition in the collection unique key** — `(user_id, set_code, rarity_code, condition)` so NM and LP are separate rows. Requires import merge rules, UI, and owned-badge aggregation updates.
+2. **Keep single row but track condition quantities** — e.g. sub-counts per condition (heavier schema/UI).
+3. **CSV alias normalization** — map `NM`/`LP`/etc. to canonical values on import (does not fix the merge/overwrite problem).
+
+### Related docs
+
+- [`docs/importing-physical-cards.md`](docs/importing-physical-cards.md) — documents that import matching uses **Card Number + Rarity** only; recommends collapsing duplicates with `Quantity`.
+- [§1. Card edition (printing) is not a first-class dimension](#1-card-edition-printing-is-not-a-first-class-dimension) — same merge pattern for edition.

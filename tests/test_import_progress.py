@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import unittest
 
-from ygo_app.import_progress import ProgressThrottle, eta_seconds
+from ygo_app.import_progress import ProgressThrottle, build_progress_event, eta_seconds
 
 
 class TestImportProgress(unittest.TestCase):
@@ -25,3 +25,15 @@ class TestImportProgress(unittest.TestCase):
         for i in range(2, 10):
             self.assertFalse(throttle.should_emit(i))
         self.assertTrue(throttle.should_emit(11))
+
+    def test_build_progress_event_includes_remaining(self):
+        payload = build_progress_event(
+            phase="importing",
+            current=25,
+            total=100,
+            started=time.monotonic() - 5.0,
+        )
+        self.assertEqual(payload["type"], "progress")
+        self.assertEqual(payload["phase"], "importing")
+        self.assertEqual(payload["remaining"], 75)
+        self.assertEqual(payload["percent"], 25)

@@ -4,6 +4,19 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
+from starlette.types import Receive, Scope, Send
+
+SKIP_GZIP_PATHS = frozenset({"/api/collection/import-csv"})
+
+
+class AppGZipMiddleware(GZipMiddleware):
+    """GZip static/API payloads but not NDJSON import streams (small chunks buffer)."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") in SKIP_GZIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
 
 from ygo_app.api.routes import auth, cards, collection, decks, formats, meta, search_presets
 from ygo_app.config import IMAGE_BASE_URL, IS_PRODUCTION
@@ -22,7 +35,7 @@ app = FastAPI(
     version="2.0.0",
     **_docs_kwargs,
 )
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(AppGZipMiddleware, minimum_size=1000)
 
 
 def _build_csp() -> str:

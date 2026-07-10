@@ -882,28 +882,53 @@ function formatEta(seconds) {
   return `~${hr} hr ${remMin} min remaining`;
 }
 
-function setImportStatusLine(current, total, etaSeconds) {
+function formatImportPhaseLabel(phase) {
+  switch (phase) {
+    case "started":
+      return "Starting import…";
+    case "replacing":
+      return "Removing existing collection…";
+    case "parsing":
+      return "Reading CSV…";
+    case "preloading":
+      return "Loading catalog matches…";
+    case "finalizing":
+      return "Saving changes…";
+    default:
+      return "Preparing…";
+  }
+}
+
+function setImportStatusLine(current, total, etaSeconds, extra = {}) {
   const line = $("#status-line");
   if (!line) return;
   line.classList.add("status-importing");
   line.style.color = "";
   const prog = $("#import-progress");
-  if (!total) {
-    line.textContent = "Importing collection… preparing…";
+  const phase = extra.phase || "importing";
+  const remaining = extra.remaining ?? (total > 0 ? Math.max(0, total - current) : 0);
+  if (phase !== "importing" || !total) {
+    const msg = extra.message || formatImportPhaseLabel(phase);
+    line.textContent = msg;
     if (prog) {
       prog.hidden = false;
-      prog.removeAttribute("value");
-      prog.max = 100;
+      if (total > 0 && current > 0) {
+        prog.max = 100;
+        prog.value = Math.round((current / total) * 100);
+      } else {
+        prog.removeAttribute("value");
+        prog.max = 100;
+      }
     }
     return;
   }
   const pct = Math.round((current / total) * 100);
   const eta = formatEta(etaSeconds);
-  line.textContent = `Importing collection… ${current.toLocaleString()} / ${total.toLocaleString()} (${pct}%) · ${eta}`;
+  line.textContent = `Importing… ${current.toLocaleString()} processed · ${remaining.toLocaleString()} remaining (${pct}%) · ${eta}`;
   if (prog) {
     prog.hidden = false;
-    prog.max = total;
-    prog.value = current;
+    prog.max = 100;
+    prog.value = pct;
   }
 }
 
@@ -2115,32 +2140,49 @@ function openImportProgressModal() {
 
 function updateImportProgress(ev) {
   if (ev.type !== "progress") return;
-  const phase = $("#import-progress-phase");
+  const phase = ev.phase || "importing";
+  const phaseEl = $("#import-progress-phase");
   const bar = $("#import-progress-bar");
   const pctEl = $("#import-progress-percent");
   const etaEl = $("#import-progress-eta");
   const total = ev.total || 0;
   const current = ev.current || 0;
-  if (!total) {
-    if (phase) phase.textContent = "Preparing…";
-    if (bar) bar.removeAttribute("value");
-    if (pctEl) pctEl.textContent = "";
+  const remaining = ev.remaining ?? (total > 0 ? Math.max(0, total - current) : 0);
+  const prepPhases = new Set(["started", "replacing", "parsing", "preloading", "finalizing"]);
+
+  if (prepPhases.has(phase) || (phase === "importing" && !total)) {
+    const msg = ev.message || formatImportPhaseLabel(phase);
+    if (phaseEl) phaseEl.textContent = msg;
+    if (bar) {
+      if (total > 0 && current > 0) {
+        const pct = ev.percent ?? Math.round((current / total) * 100);
+        bar.max = 100;
+        bar.value = pct;
+      } else {
+        bar.removeAttribute("value");
+        bar.max = 100;
+      }
+    }
+    if (pctEl) {
+      pctEl.textContent = total > 0 ? `${ev.percent ?? Math.round((current / total) * 100)}%` : "";
+    }
     if (etaEl) etaEl.textContent = "";
-    setImportStatusLine(0, 0, null);
+    setImportStatusLine(current, total, null, { phase, message: msg });
     return;
   }
-  const pct = ev.percent ?? Math.round((current / total) * 100);
+
+  const pct = ev.percent ?? (total ? Math.round((current / total) * 100) : 0);
   const eta = formatEta(ev.eta_seconds);
-  if (phase) {
-    phase.textContent = `Importing… ${current.toLocaleString()} / ${total.toLocaleString()}`;
+  if (phaseEl) {
+    phaseEl.textContent = `Importing… ${current.toLocaleString()} processed · ${remaining.toLocaleString()} remaining`;
   }
   if (bar) {
-    bar.max = total;
-    bar.value = current;
+    bar.max = 100;
+    bar.value = pct;
   }
   if (pctEl) pctEl.textContent = `${pct}%`;
   if (etaEl) etaEl.textContent = eta ? `About ${eta} left` : "";
-  setImportStatusLine(current, total, ev.eta_seconds);
+  setImportStatusLine(current, total, ev.eta_seconds, { phase, remaining });
 }
 
 function showImportProgressResult(done) {

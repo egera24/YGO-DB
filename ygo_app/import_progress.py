@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 PROGRESS_MIN_ROWS_FOR_ETA = 10
 PROGRESS_THROTTLE_ROWS = 50
@@ -16,6 +17,31 @@ def eta_seconds(current: int, total: int, started: float) -> float | None:
     rate = current / elapsed
     remaining = total - current
     return remaining / rate if rate > 0 else None
+
+
+def build_progress_event(
+    *,
+    phase: str,
+    current: int = 0,
+    total: int = 0,
+    message: str | None = None,
+    started: float | None = None,
+) -> dict[str, Any]:
+    percent = round(100 * current / total) if total else 0
+    remaining = max(0, total - current) if total else 0
+    eta = eta_seconds(current, total, started) if started is not None else None
+    payload: dict[str, Any] = {
+        "type": "progress",
+        "phase": phase,
+        "current": current,
+        "total": total,
+        "remaining": remaining,
+        "percent": percent,
+        "eta_seconds": round(eta, 1) if eta is not None else None,
+    }
+    if message:
+        payload["message"] = message
+    return payload
 
 
 class ProgressThrottle:

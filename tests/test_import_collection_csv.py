@@ -166,10 +166,10 @@ class TestImportCollectionCsv(unittest.TestCase):
             ],
         )
 
-        calls: list[tuple[int, int]] = []
+        calls: list[dict] = []
 
-        def on_progress(current: int, total: int) -> None:
-            calls.append((current, total))
+        def on_progress(update: dict) -> None:
+            calls.append(update)
 
         result = import_collection_csv(
             csv_path,
@@ -181,8 +181,15 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertEqual(result.imported, 1)
         self.assertEqual(len(result.rejected), 2)
         self.assertTrue(calls)
-        self.assertEqual(calls[0], (0, 3))
-        self.assertEqual(calls[-1], (3, 3))
+        phases = [call["phase"] for call in calls]
+        self.assertIn("replacing", phases)
+        self.assertIn("parsing", phases)
+        self.assertIn("preloading", phases)
+        self.assertIn("importing", phases)
+        self.assertIn("finalizing", phases)
+        importing = [call for call in calls if call["phase"] == "importing"]
+        self.assertEqual(importing[0], {"phase": "importing", "current": 0, "total": 3, "message": "Importing 3 rows…"})
+        self.assertEqual(importing[-1], {"phase": "importing", "current": 3, "total": 3})
 
         session = self.Session()
         count = (

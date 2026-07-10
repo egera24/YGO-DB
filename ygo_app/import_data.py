@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from datetime import date
 
@@ -843,7 +844,7 @@ def import_collection_csv(
     *,
     user_id: int,
     replace: bool = True,
-    progress_callback: Callable[[int, int], None] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> CollectionImportResult:
     from ygo_app.models import CollectionItemFolder
 
@@ -1053,9 +1054,28 @@ def import_collection_csv(
         imported += 1
 
     try:
+        def _report(
+            phase: str,
+            *,
+            current: int = 0,
+            total: int = 0,
+            message: str | None = None,
+        ) -> None:
+            if progress_callback is None:
+                return
+            payload: dict[str, Any] = {
+                "phase": phase,
+                "current": current,
+                "total": total,
+            }
+            if message:
+                payload["message"] = message
+            progress_callback(payload)
+
         if replace:
             from ygo_app.models import CollectionFolder
 
+            _report("replacing", message="Removing existing collection…")
             session.query(CollectionItem).filter(
                 CollectionItem.user_id == user_id
             ).delete()
@@ -1064,6 +1084,7 @@ def import_collection_csv(
             ).delete()
             session.commit()
 
+        _report("parsing", message="Reading CSV…")
         with path.open("r", encoding="utf-8-sig", newline="") as f:
             lines = f.readlines()
         if lines and lines[0].strip() == '"sep=,"':
@@ -1082,7 +1103,15 @@ def import_collection_csv(
                 if (row.get("Card Number") or "").strip()
             }
         )
-        for chunk in _chunked(wanted_set_codes, 1000):
+        catalog_chunks = list(_chunked(wanted_set_codes, 1000))
+        catalog_chunk_total = len(catalog_chunks) or 1
+        for chunk_index, chunk in enumerate(catalog_chunks or [[]], start=1):
+            _report(
+                "preloading",
+                current=chunk_index,
+                total=catalog_chunk_total,
+                message="Loading catalog matches…",
+            )
             for sc, rc, sr, pid in session.execute(
                 select(
                     Printing.set_code,
@@ -1098,6 +1127,7 @@ def import_collection_csv(
         # Preload the user's existing collection (with folder allocations) so
         # append merges happen in memory instead of one query per row.
         if not replace:
+            _report("preloading", message="Loading existing collection…")
             for item in (
                 session.execute(
                     select(CollectionItem)
@@ -1113,7 +1143,12 @@ def import_collection_csv(
                 for alloc in item.folder_allocations:
                     alloc_index[(item.id, alloc.folder_id)] = alloc
         if progress_callback is not None and total > 0:
-            progress_callback(0, total)
+            _report(
+                "importing",
+                current=0,
+                total=total,
+                message=f"Importing {total:,} rows…",
+            )
         throttle = ProgressThrottle() if progress_callback else None
 
         def _emit_progress(current: int) -> None:
@@ -1121,7 +1156,7 @@ def import_collection_csv(
                 return
             if throttle is not None and not throttle.should_emit(current):
                 return
-            progress_callback(current, total)
+            _report("importing", current=current, total=total)
 
         if progress_callback is not None:
             row_iter = enumerate(rows, start=1)
@@ -1156,8 +1191,10 @@ def import_collection_csv(
                 ],
             )
 
+        _report("finalizing", current=total, total=total, message="Saving changes…")
+
         if progress_callback is not None and total > 0:
-            progress_callback(total, total)
+            _report("importing", current=total, total=total)
 
         session.commit()
         return CollectionImportResult(

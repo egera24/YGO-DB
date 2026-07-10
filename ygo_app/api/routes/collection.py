@@ -2,6 +2,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import tempfile
 import threading
 import time
@@ -18,7 +19,7 @@ from ygo_app.collection_export import export_collection_csv, list_export_formats
 from ygo_app.config import COLLECTION_CSV_MAX_BYTES
 from ygo_app.database import get_db
 from ygo_app.import_data import CollectionImportResult, import_collection_csv
-from ygo_app.import_progress import eta_seconds
+from ygo_app.import_progress import build_progress_event
 from ygo_app.models import CollectionItem, CollectionItemFolder, Printing, User
 from ygo_app.schemas import (
     CollectionFolderCreate,
@@ -45,6 +46,7 @@ from ygo_app.services import (
 )
 
 router = APIRouter(prefix="/collection", tags=["collection"])
+logger = logging.getLogger(__name__)
 
 
 def _item_out(
@@ -302,16 +304,21 @@ def _rejected_csv_text(result: CollectionImportResult) -> str | None:
     return buf.getvalue()
 
 
-def _progress_event(current: int, total: int, started: float) -> dict:
-    eta = eta_seconds(current, total, started)
-    percent = round(100 * current / total) if total else 0
-    return {
-        "type": "progress",
-        "current": current,
-        "total": total,
-        "percent": percent,
-        "eta_seconds": round(eta, 1) if eta is not None else None,
-    }
+def _progress_event(update: dict, started: float) -> dict:
+    return build_progress_event(started=started, **update)
+
+
+def _log_progress(update: dict) -> None:
+    phase = update.get("phase", "?")
+    current = update.get("current", 0)
+    total = update.get("total", 0)
+    message = update.get("message")
+    if message:
+        logger.info("CSV import [%s] %s (%s/%s)", phase, message, current, total)
+    elif total:
+        logger.info("CSV import [%s] %s/%s", phase, current, total)
+    else:
+        logger.info("CSV import [%s]", phase)
 
 
 @router.post("/import-csv")
@@ -334,8 +341,9 @@ async def import_csv(
     queue: asyncio.Queue = asyncio.Queue()
     started = time.monotonic()
 
-    def on_progress(current: int, total: int) -> None:
-        payload = _progress_event(current, total, started)
+    def on_progress(update: dict) -> None:
+        payload = _progress_event(update, started)
+        _log_progress(update)
         loop.call_soon_threadsafe(queue.put_nowait, ("event", payload))
 
     def worker() -> None:
@@ -374,6 +382,12 @@ async def import_csv(
     threading.Thread(target=worker, daemon=True).start()
 
     async def event_stream():
+        started_payload = build_progress_event(
+            phase="started",
+            message="Starting import…",
+            started=started,
+        )
+        yield json.dumps(started_payload) + "\n"
         while True:
             kind, payload = await queue.get()
             if kind == "close":

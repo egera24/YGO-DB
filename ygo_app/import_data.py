@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -763,6 +764,36 @@ def _link_printing(session: Session, set_code: str, rarity_raw: str) -> int | No
     return None
 
 
+_ALT_ART_REMAINDER_RE = re.compile(r"^[a-zA-Z]$|_v\d+$|-\d+$")
+
+
+def _substring_catalog_candidates(
+    imported: str, all_catalog_set_codes: set[str]
+) -> list[str]:
+    """Catalog set codes that are a guarded substring of an imported alt-art code."""
+    candidates: list[str] = []
+    for candidate in all_catalog_set_codes:
+        if candidate == imported or candidate not in imported:
+            continue
+        remainder = imported[len(candidate) :]
+        if _ALT_ART_REMAINDER_RE.fullmatch(remainder):
+            candidates.append(candidate)
+    candidates.sort(key=len, reverse=True)
+    return candidates
+
+
+def _register_catalog_printings(
+    rows,
+    *,
+    printing_by_key: dict[tuple[str, str], int],
+    catalog_set_codes: set[str],
+) -> None:
+    for sc, rc, sr, pid in rows:
+        catalog_set_codes.add(sc)
+        for variant in variants_for_printing(rc, sr):
+            printing_by_key.setdefault((sc, variant), pid)
+
+
 def _lookup_printing_id_cached(
     set_code: str,
     rarity_raw: str,
@@ -775,26 +806,50 @@ def _lookup_printing_id_cached(
     return None
 
 
+def _lookup_printing_substring_fallback(
+    rarity_raw: str,
+    printing_by_key: dict[tuple[str, str], int],
+    substring_parents: list[str],
+) -> tuple[int | None, str | None]:
+    for candidate in substring_parents:
+        printing_id = _lookup_printing_id_cached(candidate, rarity_raw, printing_by_key)
+        if printing_id is not None:
+            return printing_id, candidate
+    return None, None
+
+
 def _match_printing(
     session: Session, set_code: str, rarity_raw: str
-) -> tuple[int | None, str | None]:
+) -> tuple[int | None, str | None, str | None]:
     if not set_code:
-        return None, "Missing card number"
+        return None, "Missing card number", None
     resolved = resolve_rarity(rarity_raw)
     if (rarity_raw or "").strip() and resolved is None:
-        return None, f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'"
+        return (
+            None,
+            f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'",
+            None,
+        )
     printing_id = _link_printing(session, set_code, rarity_raw)
     if printing_id is not None:
-        return printing_id, None
-    has_set = session.execute(
-        select(Printing.id).where(Printing.set_code == set_code).limit(1)
-    ).scalar()
+        return printing_id, None, set_code
+    all_catalog_set_codes = set(
+        session.execute(select(Printing.set_code).distinct()).scalars().all()
+    )
+    substring_parents = _substring_catalog_candidates(set_code, all_catalog_set_codes)
+    for candidate in substring_parents:
+        printing_id = _link_printing(session, candidate, rarity_raw)
+        if printing_id is not None:
+            return printing_id, None, candidate
+    has_set = set_code in all_catalog_set_codes or bool(substring_parents)
     if has_set:
         label = rarity_label_for_error(rarity_raw, resolved)
-        return None, (
-            f"Rarity '{label}' not found for set code '{set_code}'"
+        return (
+            None,
+            f"Rarity '{label}' not found for set code '{set_code}'",
+            None,
         )
-    return None, f"Set code '{set_code}' not found in catalog"
+    return None, f"Set code '{set_code}' not found in catalog", None
 
 
 def _nonempty(value) -> str | None:
@@ -809,21 +864,34 @@ def _match_printing_cached(
     rarity_raw: str,
     printing_by_key: dict[tuple[str, str], int],
     catalog_set_codes: set[str],
-) -> tuple[int | None, str | None]:
+    substring_parents: list[str] | None = None,
+) -> tuple[int | None, str | None, str | None]:
     if not set_code:
-        return None, "Missing card number"
+        return None, "Missing card number", None
     resolved = resolve_rarity(rarity_raw)
     if (rarity_raw or "").strip() and resolved is None:
-        return None, f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'"
+        return (
+            None,
+            f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'",
+            None,
+        )
     printing_id = _lookup_printing_id_cached(set_code, rarity_raw, printing_by_key)
     if printing_id is not None:
-        return printing_id, None
-    if set_code in catalog_set_codes:
+        return printing_id, None, set_code
+    parents = substring_parents or []
+    printing_id, catalog_code = _lookup_printing_substring_fallback(
+        rarity_raw, printing_by_key, parents
+    )
+    if printing_id is not None and catalog_code is not None:
+        return printing_id, None, catalog_code
+    if set_code in catalog_set_codes or parents:
         label = rarity_label_for_error(rarity_raw, resolved)
-        return None, (
-            f"Rarity '{label}' not found for set code '{set_code}'"
+        return (
+            None,
+            f"Rarity '{label}' not found for set code '{set_code}'",
+            None,
         )
-    return None, f"Set code '{set_code}' not found in catalog"
+    return None, f"Set code '{set_code}' not found in catalog", None
 
 
 def _chunked(items: list, size: int):
@@ -863,6 +931,7 @@ def import_collection_csv(
     existing_by_key: dict[tuple[str, str], CollectionItem] = {}
     printing_by_key: dict[tuple[str, str], int] = {}
     catalog_set_codes: set[str] = set()
+    substring_parents_by_code: dict[str, list[str]] = {}
     folder_cache: dict[str, "object"] = {}
 
     # New items created during this import (pending ORM, mutated in memory for
@@ -1000,17 +1069,22 @@ def import_collection_csv(
             if resolved is not None
             else normalize_rarity_code(rarity_raw)
         )
-        printing_id, reason = _match_printing_cached(
-            set_code, rarity_raw, printing_by_key, catalog_set_codes
+        printing_id, reason, matched_set_code = _match_printing_cached(
+            set_code,
+            rarity_raw,
+            printing_by_key,
+            catalog_set_codes,
+            substring_parents_by_code.get(set_code),
         )
         if reason:
             rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
             return
 
+        stored_set_code = matched_set_code or set_code
         quantity = int(row.get("Quantity") or 1)
         folder_raw = (row.get("Folder Name") or "").strip()
         folder = _folder_for(folder_raw) if folder_raw else None
-        key = (set_code, rarity_code)
+        key = (stored_set_code, rarity_code)
 
         if not replace:
             existing = existing_by_key.get(key)
@@ -1027,7 +1101,7 @@ def import_collection_csv(
 
         item = CollectionItem(
             user_id=user_id,
-            set_code=set_code,
+            set_code=stored_set_code,
             rarity_code=rarity_code,
             card_name=row.get("Card Name"),
             expansion_code=row.get("Set Code"),
@@ -1120,9 +1194,42 @@ def import_collection_csv(
                     Printing.id,
                 ).where(Printing.set_code.in_(chunk))
             ).all():
-                catalog_set_codes.add(sc)
-                for variant in variants_for_printing(rc, sr):
-                    printing_by_key.setdefault((sc, variant), pid)
+                _register_catalog_printings(
+                    [(sc, rc, sr, pid)],
+                    printing_by_key=printing_by_key,
+                    catalog_set_codes=catalog_set_codes,
+                )
+
+        all_catalog_set_codes = set(
+            session.execute(select(Printing.set_code).distinct()).scalars().all()
+        )
+        substring_candidates: set[str] = set()
+        for wanted in wanted_set_codes:
+            parents = _substring_catalog_candidates(wanted, all_catalog_set_codes)
+            substring_parents_by_code[wanted] = parents
+            substring_candidates.update(parents)
+        parent_chunks = list(_chunked(sorted(substring_candidates), 1000))
+        parent_chunk_total = len(parent_chunks) or 1
+        for chunk_index, chunk in enumerate(parent_chunks or [[]], start=1):
+            _report(
+                "preloading",
+                current=chunk_index,
+                total=parent_chunk_total,
+                message="Loading alternate-art catalog matches…",
+            )
+            rows_to_register = session.execute(
+                select(
+                    Printing.set_code,
+                    Printing.set_rarity_code,
+                    Printing.set_rarity,
+                    Printing.id,
+                ).where(Printing.set_code.in_(chunk))
+            ).all()
+            _register_catalog_printings(
+                rows_to_register,
+                printing_by_key=printing_by_key,
+                catalog_set_codes=catalog_set_codes,
+            )
 
         # Preload the user's existing collection (with folder allocations) so
         # append merges happen in memory instead of one query per row.

@@ -306,6 +306,122 @@ class TestImportCollectionCsv(unittest.TestCase):
         session.close()
         self.assertEqual(item.rarity_code, "(QCSR)")
 
+    def _add_printing(
+        self,
+        *,
+        set_code: str,
+        rarity_code: str,
+        set_rarity: str | None = None,
+    ) -> None:
+        session = self.Session()
+        session.add(
+            Printing(
+                card_id=89631139,
+                set_code=set_code,
+                set_rarity_code=rarity_code,
+                set_rarity=set_rarity or rarity_code.strip("()"),
+            )
+        )
+        session.commit()
+        session.close()
+
+    def test_import_resolves_alt_art_letter_suffix(self):
+        self._add_printing(set_code="LCKC-EN001", rarity_code="(UR)", set_rarity="Ultra Rare")
+        csv_path = Path(self._tmp.name).with_suffix(".alt-letter.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "LCKC-EN001b", "Rarity": "UR", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(result.rejected, [])
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.set_code, "LCKC-EN001")
+        self.assertIsNotNone(item.printing_id)
+
+    def test_import_resolves_alt_art_version_suffix(self):
+        self._add_printing(set_code="RA05-EN110", rarity_code="(UR)", set_rarity="Ultra Rare")
+        csv_path = Path(self._tmp.name).with_suffix(".alt-version.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "RA05-EN110_v1", "Rarity": "UR", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(result.rejected, [])
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.set_code, "RA05-EN110")
+
+    def test_import_resolves_alt_art_passcode_suffix(self):
+        self._add_printing(
+            set_code="RA04-EN108",
+            rarity_code="(PlScR)",
+            set_rarity="Platinum Secret Rare",
+        )
+        csv_path = Path(self._tmp.name).with_suffix(".alt-passcode.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "RA04-EN108-8",
+                    "Rarity": "PlScR",
+                    "Card Name": "X",
+                    "Quantity": "1",
+                }
+            ],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(result.rejected, [])
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.set_code, "RA04-EN108")
+
+    def test_rejects_wrong_rarity_for_alt_art_parent(self):
+        self._add_printing(set_code="LCKC-EN001", rarity_code="(UR)", set_rarity="Ultra Rare")
+        csv_path = Path(self._tmp.name).with_suffix(".alt-rarity.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "LCKC-EN001b", "Rarity": "ScR", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(len(result.rejected), 1)
+        self.assertIn("ScR", result.rejected[0][IMPORT_ERROR_COLUMN])
+        self.assertIn(
+            "not found for set code 'LCKC-EN001b'",
+            result.rejected[0][IMPORT_ERROR_COLUMN],
+        )
+
+    def test_rejects_substring_false_positive_without_valid_suffix(self):
+        self._add_printing(set_code="OP21-EN02", rarity_code="(C)", set_rarity="Common")
+        csv_path = Path(self._tmp.name).with_suffix(".alt-false-positive.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "OP21-EN027", "Rarity": "C", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(len(result.rejected), 1)
+        self.assertIn(
+            "Set code 'OP21-EN027' not found in catalog",
+            result.rejected[0][IMPORT_ERROR_COLUMN],
+        )
+
     def test_rejects_unknown_rarity_code(self):
         csv_path = Path(self._tmp.name).with_suffix(".unknown.csv")
         self._write_csv(

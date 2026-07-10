@@ -186,6 +186,11 @@ Workflow:
   different row. When in doubt, confirm the exact rarity in the app.
 - **The match is exact on `(Card Number, Rarity)`** after alias resolution — trailing
   spaces or wrong casing on an unrecognized rarity code can cause a reject.
+- **Alternate-art suffixes** from DragonShield or Cardmarket (e.g. `LCKC-EN001b`,
+  `RA05-EN110_v1`, `RA04-EN108-8`) are resolved to the Yugipedia catalog set code
+  when the suffix is a known alt-art marker and the rarity matches. The stored
+  collection key uses the catalog set code (e.g. `LCKC-EN001`), not the suffixed
+  export value.
 
 ## Normalizing existing database rarity codes
 

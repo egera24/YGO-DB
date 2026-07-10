@@ -84,6 +84,45 @@ class TestSearchYugipediaFilters(unittest.TestCase):
                 atk=2300,
             )
         )
+        session.add(
+            Card(
+                id=5,
+                name="Number 39: Utopia",
+                category="Monster",
+                types=json.dumps(["Warrior", "Xyz", "Effect"]),
+                mechanic="Xyz",
+                attribute="LIGHT",
+                rank=5,
+                atk=2500,
+                def_=2000,
+            )
+        )
+        session.add(
+            Card(
+                id=6,
+                name="Pendulum Sorcerer",
+                category="Monster",
+                types=json.dumps(["Spellcaster", "Pendulum", "Effect"]),
+                mechanic="Pendulum",
+                attribute="EARTH",
+                level=4,
+                atk=1500,
+                def_=800,
+            )
+        )
+        session.add(
+            Card(
+                id=7,
+                name="Odd-Eyes Rebellion Dragon",
+                category="Monster",
+                types=json.dumps(["Dragon", "Xyz", "Pendulum", "Effect"]),
+                mechanic="Xyz, Pendulum",
+                attribute="DARK",
+                rank=7,
+                atk=3000,
+                def_=2500,
+            )
+        )
         session.commit()
         session.close()
         self.Session = sessionmaker(bind=self.engine)
@@ -117,6 +156,18 @@ class TestSearchYugipediaFilters(unittest.TestCase):
     def test_link_markers_and(self):
         self.assertEqual(self._ids(link_markers="Top,Left"), {4})
         self.assertEqual(self._ids(link_markers="Top,Left,Bottom"), set())
+
+    def test_mechanic_composite_and(self):
+        self.assertEqual(self._ids(mechanic="Xyz, Pendulum"), {7})
+
+    def test_mechanic_multi_or(self):
+        self.assertEqual(self._ids(mechanic="Xyz|Pendulum"), {2, 5, 6, 7})
+
+    def test_mechanic_single_xyz(self):
+        self.assertEqual(self._ids(mechanic="Xyz"), {2, 5, 7})
+
+    def test_mechanic_single_pendulum(self):
+        self.assertEqual(self._ids(mechanic="Pendulum"), {6, 7})
 
 
 if __name__ == "__main__":

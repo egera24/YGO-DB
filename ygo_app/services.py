@@ -20,6 +20,7 @@ from ygo_app.models import (
 )
 from ygo_app.card_filters import (
     link_markers_contain_all,
+    mechanic_filter,
     parse_multi_param,
     types_overlap_filter,
 )
@@ -413,9 +414,8 @@ def search_cards(
         stmt = stmt.where(types_filt)
         count_stmt = count_stmt.where(types_filt)
 
-    mechanics = parse_multi_param(mechanic)
-    if mechanics:
-        mech_filt = or_(*[Card.mechanic == m for m in mechanics])
+    mech_filt = mechanic_filter(mechanic)
+    if mech_filt is not None:
         stmt = stmt.where(mech_filt)
         count_stmt = count_stmt.where(mech_filt)
 

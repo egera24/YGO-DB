@@ -1699,7 +1699,7 @@ function buildSearchParams() {
   if (types.length) params.set("types", types.join(","));
 
   const mechanics = getFilterMultiValues("filter-mechanic");
-  if (mechanics.length) params.set("mechanic", mechanics.join(","));
+  if (mechanics.length) params.set("mechanic", mechanics.join("|"));
 
   const attrs = getFilterMultiValues("filter-attribute");
   if (attrs.length) params.set("attribute", attrs.join(","));
@@ -1773,7 +1773,7 @@ function applySearchParams(snapshot) {
 
   if (s.category) setFilterMultiValues("filter-category", s.category.split(","));
   if (s.types) setFilterMultiValues("filter-types", s.types.split(","));
-  if (s.mechanic) setFilterMultiValues("filter-mechanic", s.mechanic.split(","));
+  if (s.mechanic) setFilterMultiValues("filter-mechanic", s.mechanic.split("|"));
   if (s.attribute) setFilterMultiValues("filter-attribute", s.attribute.split(","));
 
   if (s.archetype) {

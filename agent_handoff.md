@@ -172,7 +172,8 @@ Stored on `cards` from scrape JSON via [`card_import.py`](ygo_app/yugipedia/card
 |----------|-------------|--------|
 | Category | `category` | `Spell`/`Trap`/`Skill` from JSON `type`, else `Monster` |
 | Type | `types` (JSON array) | Monsters: `typeline[]`; ST/Skill: `[property]` — filter **OR** |
-| Mechanic, Attribute | `mechanic`, `attribute` | Monsters only; multi-value **OR** |
+| Mechanic | `mechanic` | Monsters only; composite dropdown value (contains `", "`) → **AND**; multiple checkbox selections (joined with `\|`) → **OR** (token-aware) |
+| Attribute | `attribute` | Monsters only; multi-value **OR** |
 | Archetype | `archetype` | Substring `ILIKE` |
 | ATK/DEF/Level/Rank/Link/Pendulum | matching columns | Inclusive min/max query params; UI uses `<select>` for Level/Rank/Link/Pendulum, number inputs for ATK/DEF |
 | Link markers (3×3 grid) | `link_markers` (JSON) | Selected markers **AND** (subset match) |

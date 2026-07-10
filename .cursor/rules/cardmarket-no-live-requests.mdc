@@ -1,0 +1,42 @@
+---
+description: Cardmarket — no live cardmarket.com requests; catalog S3 OK in GHA/user sync job
+alwaysApply: true
+---
+
+# Cardmarket — no live HTML requests from agents
+
+`cardmarket.com` returns HTTP 403/429 to automated traffic. The **legacy web scraper is archived** — use the **official S3 catalog pipeline** instead. See `docs/cardmarket-catalog-pipeline.md` and `agent_handoff.md`.
+
+## Do not
+
+- Fetch `cardmarket.com` (or subdomains) via curl, `requests`, `cloudscraper`, `curl_cffi`, Playwright, or ad-hoc debug scripts
+- Run archived scrape jobs (`python -m ygo_app.jobs.scrape_cardmarket_*`) — they print a deprecation message
+- Trigger CI that scrapes Cardmarket HTML
+
+## Allowed
+
+- Read local artifacts (`data/catalog/cardmarket_*.json`, `data/catalog/cardmarket_raw/`, saved HTML in `DO NOT DELETE/`)
+- Run unit tests with fixtures (`tests/test_cardmarket_catalog_*.py`, `tests/fixtures/cardmarket/`)
+- User or GHA runs `python -m ygo_app.jobs.sync_cardmarket_catalog` (downloads from `downloads.s3.cardmarket.com` only)
+
+## Required workflow when Cardmarket data is needed
+
+1. **Explain** — state what you need and the next step.
+2. **Ask the user** — for HTML fixtures, saved JSON, or to run `sync_cardmarket_catalog --skip-import --skip-r2` locally and share logs.
+3. **Continue** — analyze local artifacts only; do not fetch `cardmarket.com`.
+
+### What to ask for
+
+| Task | Ask user for |
+|------|--------------|
+| URL discovery / HTML change | Saved Data page HTML (`DO NOT DELETE/cardmarket_*_html_code.html`) |
+| Matching failure | GHA log or `data/catalog/cardmarket_raw/sync_summary.json` |
+| Price pipeline | `data/catalog/cardmarket_prices.json` or R2 export |
+
+### Recommend (do not run) catalog sync
+
+```powershell
+python -m ygo_app.jobs.sync_cardmarket_catalog --skip-import --skip-r2
+```
+
+Weekly GHA: **Sync Cardmarket catalog** (S3 download — safe from datacenter IPs).

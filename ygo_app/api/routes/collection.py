@@ -1,64 +1,232 @@
+import asyncio
+import csv
+import io
+import json
+import logging
 import tempfile
+import threading
+import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
-from sqlalchemy.orm import Session
+from fastapi.responses import Response, StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from ygo_app.auth import get_current_user
+from ygo_app.cardmarket.market_prices import load_market_prices
+from ygo_app.collection_export import export_collection_csv, list_export_formats
+from ygo_app.config import COLLECTION_CSV_MAX_BYTES
 from ygo_app.database import get_db
-from ygo_app.import_data import import_collection_csv
-from ygo_app.models import CollectionItem, User
-from ygo_app.schemas import CollectionItemCreate, CollectionItemOut, CollectionItemUpdate
-from ygo_app.services import add_collection_item, find_card_by_set_code, list_collection
+from ygo_app.import_data import CollectionImportResult, import_collection_csv
+from ygo_app.import_progress import build_progress_event
+from ygo_app.models import CollectionItem, CollectionItemFolder, Printing, User
+from ygo_app.schemas import (
+    CollectionFolderCreate,
+    CollectionFolderDeleteResult,
+    CollectionFolderOut,
+    CollectionFolderUpdate,
+    CollectionItemCreate,
+    CollectionItemOut,
+    CollectionItemUpdate,
+    CollectionListOut,
+    CollectionStatsOut,
+)
+from ygo_app.services import (
+    FolderConflictError,
+    _collection_item_row,
+    add_collection_item,
+    collection_stats,
+    create_collection_folder,
+    delete_collection_folder,
+    list_collection,
+    list_collection_folders,
+    update_collection_folder,
+    update_collection_item,
+)
 
 router = APIRouter(prefix="/collection", tags=["collection"])
+logger = logging.getLogger(__name__)
 
 
-def _item_out(db: Session, item: CollectionItem) -> CollectionItemOut:
-    card = find_card_by_set_code(db, item.set_code)
+def _item_out(
+    db: Session,
+    item: CollectionItem,
+    *,
+    folder_filter: str | None = None,
+) -> CollectionItemOut:
+    market_row = load_market_prices(db, [(item.set_code, item.rarity_code)]).get(
+        (item.set_code, item.rarity_code)
+    )
     return CollectionItemOut(
-        id=item.id,
-        set_code=item.set_code,
-        rarity_code=item.rarity_code,
-        card_name=item.card_name,
-        expansion_code=item.expansion_code,
-        set_name=item.set_name,
-        quantity=item.quantity,
-        trade_quantity=item.trade_quantity,
-        condition=item.condition,
-        printing=item.edition,
-        language=item.language,
-        folder_name=item.folder_name,
-        price_bought=item.price_bought,
-        date_bought=item.date_bought,
-        avg_price=item.avg_price,
-        low_price=item.low_price,
-        trend_price=item.trend_price,
-        notes=item.notes,
-        card_id=card.id if card else None,
-        image_url_small=card.image_url_small if card else None,
+        **_collection_item_row(item, folder_filter=folder_filter, market_row=market_row)
     )
 
 
-@router.get("", response_model=list[CollectionItemOut])
+def _load_item_with_card(
+    db: Session, item_id: int, user_id: int
+) -> CollectionItem | None:
+    return db.execute(
+        select(CollectionItem)
+        .options(
+            joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+            joinedload(CollectionItem.folder_allocations).joinedload(
+                CollectionItemFolder.folder
+            ),
+        )
+        .where(CollectionItem.id == item_id, CollectionItem.user_id == user_id)
+    ).unique().scalar_one_or_none()
+
+
+@router.get("/stats", response_model=CollectionStatsOut)
+def get_collection_stats(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return collection_stats(db, user_id=user.id)
+
+
+@router.get("/folders", response_model=list[CollectionFolderOut])
+def get_folders(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return list_collection_folders(db, user_id=user.id)
+
+
+@router.post("/folders", response_model=CollectionFolderOut, status_code=201)
+def create_folder(
+    body: CollectionFolderCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        folder = create_collection_folder(db, user_id=user.id, name=body.name)
+    except FolderConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    rows = list_collection_folders(db, user_id=user.id)
+    match = next((row for row in rows if row["id"] == folder.id), None)
+    return CollectionFolderOut(
+        id=folder.id,
+        name=folder.name,
+        sort_order=folder.sort_order,
+        item_count=match["item_count"] if match else 0,
+        quantity=match["quantity"] if match else 0,
+    )
+
+
+@router.patch("/folders/{folder_id}", response_model=CollectionFolderOut)
+def patch_folder(
+    folder_id: int,
+    body: CollectionFolderUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        folder = update_collection_folder(
+            db,
+            user_id=user.id,
+            folder_id=folder_id,
+            name=body.name,
+            sort_order=body.sort_order,
+        )
+    except FolderConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404 if "not found" in str(exc).lower() else 400, str(exc)) from exc
+    rows = list_collection_folders(db, user_id=user.id)
+    match = next((row for row in rows if row["id"] == folder.id), None)
+    return CollectionFolderOut(
+        id=folder.id,
+        name=folder.name,
+        sort_order=folder.sort_order,
+        item_count=match["item_count"] if match else 0,
+        quantity=match["quantity"] if match else 0,
+    )
+
+
+@router.delete("/folders/{folder_id}", response_model=CollectionFolderDeleteResult)
+def remove_folder(
+    folder_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        moved_allocations, moved_quantity = delete_collection_folder(
+            db, user_id=user.id, folder_id=folder_id
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return CollectionFolderDeleteResult(
+        moved_allocations=moved_allocations,
+        moved_quantity=moved_quantity,
+    )
+
+
+@router.get("", response_model=CollectionListOut)
 def get_collection(
     q: str | None = None,
     folder: str | None = None,
     set_code: str | None = None,
+    sort: str = Query(
+        "set_code",
+        pattern=(
+            "^(set_code|card_name|folder_name|quantity|trade_quantity|passcode|release_date)$"
+        ),
+    ),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     limit: int = Query(100, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    items, _total = list_collection(
+    items, total = list_collection(
         db,
         user_id=user.id,
         q=q,
         folder=folder,
         set_code=set_code,
+        sort=sort,
+        sort_dir=sort_dir,
         limit=limit,
         offset=offset,
     )
-    return [CollectionItemOut(**item) for item in items]
+    return CollectionListOut(
+        items=[CollectionItemOut(**item) for item in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/export-formats")
+def get_export_formats(user: User = Depends(get_current_user)):
+    return list_export_formats()
+
+
+@router.get("/export-csv")
+def export_csv(
+    format: str = Query(..., description="Export format id (e.g. dragonshield)"),
+    folders: list[str] | None = Query(
+        None, description="Folder id or __no_folder__; omit for all"
+    ),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        csv_text, media_type, filename = export_collection_csv(
+            db, user_id=user.id, format_id=format, folder_ids=folders
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    content = "\ufeff" + csv_text
+    return Response(
+        content=content.encode("utf-8"),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", response_model=CollectionItemOut)
@@ -67,7 +235,23 @@ def create_item(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    item = add_collection_item(db, user.id, body.model_dump())
+    try:
+        item = add_collection_item(db, user.id, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    item = _load_item_with_card(db, item.id, user.id) or item
+    return _item_out(db, item)
+
+
+@router.get("/{item_id}", response_model=CollectionItemOut)
+def get_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    item = _load_item_with_card(db, item_id, user.id)
+    if not item:
+        raise HTTPException(404, "Collection item not found")
     return _item_out(db, item)
 
 
@@ -81,10 +265,16 @@ def update_item(
     item = db.get(CollectionItem, item_id)
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Collection item not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(item, field, value)
-    db.commit()
-    db.refresh(item)
+    try:
+        item = update_collection_item(
+            db,
+            user_id=user.id,
+            item=item,
+            data=body.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    item = _load_item_with_card(db, item_id, user.id) or item
     return _item_out(db, item)
 
 
@@ -102,6 +292,35 @@ def delete_item(
     return {"ok": True}
 
 
+def _rejected_csv_text(result: CollectionImportResult) -> str | None:
+    if not result.rejected:
+        return None
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf, fieldnames=result.fieldnames, extrasaction="ignore"
+    )
+    writer.writeheader()
+    writer.writerows(result.rejected)
+    return buf.getvalue()
+
+
+def _progress_event(update: dict, started: float) -> dict:
+    return build_progress_event(started=started, **update)
+
+
+def _log_progress(update: dict) -> None:
+    phase = update.get("phase", "?")
+    current = update.get("current", 0)
+    total = update.get("total", 0)
+    message = update.get("message")
+    if message:
+        logger.info("CSV import [%s] %s (%s/%s)", phase, message, current, total)
+    elif total:
+        logger.info("CSV import [%s] %s/%s", phase, current, total)
+    else:
+        logger.info("CSV import [%s]", phase)
+
+
 @router.post("/import-csv")
 async def import_csv(
     file: UploadFile | None = None,
@@ -110,10 +329,77 @@ async def import_csv(
 ):
     if not file or not file.filename:
         raise HTTPException(400, "Upload a CSV file (multipart form field: file)")
-    suffix = ".csv"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
+    content = await file.read(COLLECTION_CSV_MAX_BYTES + 1)
+    if len(content) > COLLECTION_CSV_MAX_BYTES:
+        max_mb = COLLECTION_CSV_MAX_BYTES // (1024 * 1024)
+        raise HTTPException(413, f"CSV file too large (max {max_mb} MB)")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
         tmp.write(content)
         path = tmp.name
-    count = import_collection_csv(path, user_id=user.id, replace=replace)
-    return {"imported": count}
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    started = time.monotonic()
+
+    def on_progress(update: dict) -> None:
+        payload = _progress_event(update, started)
+        _log_progress(update)
+        loop.call_soon_threadsafe(queue.put_nowait, ("event", payload))
+
+    def worker() -> None:
+        try:
+            result = import_collection_csv(
+                path,
+                user_id=user.id,
+                replace=replace,
+                progress_callback=on_progress,
+            )
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                (
+                    "event",
+                    {
+                        "type": "done",
+                        "imported": result.imported,
+                        "merged": result.merged,
+                        "rejected_count": len(result.rejected),
+                        "rejected_csv": _rejected_csv_text(result),
+                    },
+                ),
+            )
+        except Exception as exc:
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                ("event", {"type": "error", "detail": str(exc)}),
+            )
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, ("close", None))
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        started_payload = build_progress_event(
+            phase="started",
+            message="Starting import…",
+            started=started,
+        )
+        yield json.dumps(started_payload) + "\n"
+        while True:
+            kind, payload = await queue.get()
+            if kind == "close":
+                break
+            yield json.dumps(payload) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

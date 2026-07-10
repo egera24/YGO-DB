@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=7" />
+  <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
+  <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
+  <link rel="stylesheet" href="/static/css/style.css?v=97" />
 </head>
 <body>
   <header class="app-header">
@@ -13,115 +15,903 @@
       <span class="brand-mark">YGO</span>
       <div>
         <h1>Collection & Deck Builder</h1>
-        <p id="status-line">Loading…</p>
+        <p id="status-line" class="app-shell hidden" aria-hidden="true">Loading…</p>
+        <progress id="import-progress" class="import-progress app-shell hidden" value="0" max="100" hidden aria-hidden="true"></progress>
       </div>
     </div>
-    <nav class="tabs" role="tablist">
-      <button class="tab active" data-view="search">Search</button>
-      <button class="tab" data-view="collection">My Collection</button>
-      <button class="tab" data-view="decks">Decks</button>
+    <nav class="tabs app-shell hidden" role="tablist" aria-label="Main views" aria-hidden="true">
+      <button type="button" class="tab active" role="tab" id="tab-search" data-view="search" aria-selected="true" aria-controls="view-search" tabindex="0">Search</button>
+      <button type="button" class="tab" role="tab" id="tab-collection" data-view="collection" aria-selected="false" aria-controls="view-collection" tabindex="-1">My Collection</button>
+      <button type="button" class="tab" role="tab" id="tab-decks" data-view="decks" aria-selected="false" aria-controls="view-decks" tabindex="-1">Decks</button>
     </nav>
-    <div id="auth-panel" class="auth-panel">
+    <div id="auth-panel" class="auth-panel app-shell hidden" aria-hidden="true">
       <span id="auth-user" class="auth-user hidden"></span>
-      <form id="auth-login-form" class="auth-form">
-        <input type="email" id="login-email" placeholder="Email" required autocomplete="username" />
-        <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password" />
-        <button type="submit">Log in</button>
-      </form>
-      <form id="auth-register-form" class="auth-form">
-        <input type="email" id="register-email" placeholder="New email" required autocomplete="email" />
-        <input type="password" id="register-password" placeholder="Password (8+)" required minlength="8" autocomplete="new-password" />
-        <button type="submit" class="secondary">Register</button>
-      </form>
+      <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
     </div>
   </header>
 
-  <main>
-    <section id="view-search" class="view active">
+  <section id="auth-landing" class="auth-landing" aria-labelledby="auth-landing-title">
+    <div class="auth-landing-card">
+      <h2 id="auth-landing-title">Sign in to continue</h2>
+      <p class="auth-landing-lead">Search cards, manage your collection, and build decks.</p>
+
+      <div id="auth-checking" class="auth-checking hidden" role="status" aria-live="polite">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        Checking session…
+      </div>
+
+      <div id="auth-landing-body">
+        <div id="auth-error" class="auth-error hidden" role="alert" aria-live="assertive"></div>
+
+        <div id="auth-tabs" class="auth-tabs" role="tablist" aria-label="Authentication">
+          <button type="button" id="auth-tab-login" class="auth-tab active" role="tab" aria-selected="true" aria-controls="auth-panel-login" tabindex="0">Sign in</button>
+          <button type="button" id="auth-tab-register" class="auth-tab" role="tab" aria-selected="false" aria-controls="auth-panel-register" tabindex="-1">Create account</button>
+        </div>
+
+        <div id="auth-panel-verify" class="auth-panel-view hidden" role="region" aria-labelledby="auth-verify-title" hidden tabindex="0">
+          <h3 id="auth-verify-title" class="auth-verify-title">Verify your email</h3>
+          <p class="auth-verify-lead">We sent a 6-digit code to <span id="verify-email-display"></span>. It expires in 10 minutes.</p>
+          <form id="auth-verify-form" class="auth-form auth-form--stacked">
+            <label for="verify-code">Verification code</label>
+            <input type="text" id="verify-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required />
+            <button type="submit">Verify and continue</button>
+          </form>
+          <div class="auth-verify-actions">
+            <button type="button" id="verify-resend-btn" class="secondary">Resend code</button>
+            <button type="button" id="verify-back-btn" class="secondary">Use a different email</button>
+          </div>
+        </div>
+
+        <div id="auth-panel-login" class="auth-panel-view" role="tabpanel" aria-labelledby="auth-tab-login" tabindex="0">
+          <form id="auth-login-form" class="auth-form auth-form--stacked">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" placeholder="you@example.com" required autocomplete="username" />
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password" />
+            <button type="submit">Sign in</button>
+          </form>
+        </div>
+
+        <div id="auth-panel-register" class="auth-panel-view hidden" role="tabpanel" aria-labelledby="auth-tab-register" hidden tabindex="0">
+          <form id="auth-register-form" class="auth-form auth-form--stacked">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" placeholder="you@example.com" required autocomplete="email" />
+            <label for="register-password">Password</label>
+            <input type="password" id="register-password" placeholder="8+ chars, upper, number, special" required minlength="8" autocomplete="new-password" />
+            <p class="muted auth-password-hint">At least 8 characters with an uppercase letter, a number, and a special character.</p>
+            <div id="register-turnstile" class="register-turnstile" aria-label="Captcha"></div>
+            <button type="submit">Create account</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main class="app-shell hidden" aria-hidden="true">
+    <section id="view-search" class="view active" role="tabpanel" aria-labelledby="tab-search" tabindex="0">
       <form id="search-form" class="search-panel">
-        <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
-        <input type="text" id="set-code" placeholder="Set code e.g. 25LP-EN001" />
-        <select id="frame-type"><option value="">Frame</option></select>
-        <select id="attribute"><option value="">Attribute</option></select>
-        <select id="race"><option value="">Race / type</option></select>
-        <label class="check"><input type="checkbox" id="owned-only" /> Owned only</label>
-        <label class="check"><input type="checkbox" id="favorites-only" /> Favorites</label>
-        <button type="submit">Search</button>
-      </form>
-      <div id="search-pagination" class="search-pagination hidden"></div>
-      <div id="search-results" class="card-grid"></div>
-    </section>
-
-    <section id="view-collection" class="view">
-      <form id="collection-filter" class="search-panel compact">
-        <input type="search" id="collection-q" placeholder="Filter by name or set code…" />
-        <select id="collection-folder"><option value="">All folders</option></select>
-        <button type="submit">Filter</button>
-        <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
-        <button type="button" id="reimport-collection" class="secondary">Import CSV</button>
-      </form>
-      <div id="collection-stats" class="stats-bar"></div>
-      <div id="collection-list" class="collection-table-wrap"></div>
-    </section>
-
-    <section id="view-decks" class="view">
-      <div class="deck-layout">
-        <aside class="deck-sidebar">
-          <button id="new-deck-btn" class="primary">+ New deck</button>
-          <ul id="deck-list"></ul>
-        </aside>
-        <div id="deck-editor" class="deck-editor hidden">
-          <header class="deck-header">
-            <h2 id="deck-name"></h2>
-            <div class="deck-counts">
-              <span>Main: <strong id="count-main">0</strong></span>
-              <span>Extra: <strong id="count-extra">0</strong></span>
-              <span>Side: <strong id="count-side">0</strong></span>
+        <div class="search-primary">
+          <div class="search-primary-inputs">
+            <div class="search-field search-field--grow">
+              <label for="q" class="search-field-label">Search</label>
+              <div class="search-q-wrap search-input-adorned">
+                <input type="search" id="q" placeholder="Name, text, archetype, or passcode…" autocomplete="off" />
+                <button type="button" id="search-help-btn" class="icon-btn supplement-icon-btn search-help-btn" aria-label="Search syntax help" data-tooltip="Search syntax" aria-haspopup="dialog" aria-controls="search-help-popover" aria-expanded="false">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </header>
-          <div id="deck-zones"></div>
+            <div class="search-field">
+              <label for="set-code" class="search-field-label">Set code</label>
+              <input type="text" id="set-code" placeholder="e.g. 25LP-EN001" autocomplete="off" />
+            </div>
+            <div class="search-field search-field--tag">
+              <label for="filter-tag" class="search-field-label">Tag</label>
+              <input type="text" id="filter-tag" list="tag-datalist" placeholder="Filter by tag" autocomplete="off" />
+              <datalist id="tag-datalist"></datalist>
+            </div>
+          </div>
+          <div class="search-primary-actions">
+            <div class="search-toggles">
+              <label class="check"><input type="checkbox" id="owned-only" /> Owned</label>
+              <label class="check"><input type="checkbox" id="for-trade-only" /> Trade</label>
+              <label class="check"><input type="checkbox" id="favorites-only" /> Favourites</label>
+            </div>
+            <div class="search-buttons">
+              <select id="search-sort" aria-label="Sort search results">
+                <option value="name">Sort: Name</option>
+                <option value="passcode">Sort: Passcode</option>
+                <option value="release_date">Sort: Latest release</option>
+                <option value="owned_quantity">Sort: Owned quantity</option>
+                <option value="trade_quantity">Sort: Trade quantity</option>
+                <option value="total_quantity">Sort: Total quantity</option>
+              </select>
+              <select id="search-sort-dir" aria-label="Sort direction">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+              <button type="button" id="search-reset" class="secondary">Clear all</button>
+              <button type="submit">Search</button>
+            </div>
+          </div>
         </div>
-        <div id="deck-empty" class="deck-empty">
-          <p>Select or create a deck to start building.</p>
+        <div class="search-secondary">
+          <div class="search-presets-bar hidden" id="search-presets-bar">
+            <div class="search-presets-controls">
+              <label for="search-preset-select" class="search-presets-label">Search presets</label>
+              <select id="search-preset-select" aria-label="Search presets"><option value="">No preset</option></select>
+              <div class="search-presets-actions">
+                <button type="button" id="search-preset-save" class="secondary" aria-label="Save current search as preset">Save preset</button>
+                <div class="preset-menu-wrap">
+                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu" disabled title="Select a preset first">⋯</button>
+                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
+                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
+                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
+            <span class="search-active-filters-label">Active filters</span>
+            <div id="search-active-filters-chips" class="search-filter-chips"></div>
+            <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
+          </div>
+          <details id="advanced-filters" class="advanced-filters">
+            <summary class="advanced-filters-summary">
+              <span class="advanced-filters-summary-label">Advanced filters</span>
+              <span class="advanced-filters-summary-meta">
+                <span id="advanced-filters-count" class="filter-count-badge hidden" aria-hidden="true"></span>
+                <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+              </span>
+            </summary>
+            <div class="advanced-filters-body">
+            <div class="search-format-context">
+              <div class="search-format-bar">
+                <div class="search-format-field">
+                  <div class="filter-group-label-row">
+                    <label for="search-format">Format</label>
+                    <button type="button" id="formats-info-btn" class="icon-btn supplement-icon-btn formats-info-btn" aria-label="Format guide" data-tooltip="Format guide" aria-haspopup="dialog" aria-controls="formats-info-modal" aria-expanded="false">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 16v-4" />
+                        <path d="M12 8h.01" />
+                      </svg>
+                    </button>
+                  </div>
+                  <select id="search-format" aria-label="Search format">
+                    <option value="">Any format</option>
+                  </select>
+                </div>
+                <div id="search-banlist-wrap" class="search-format-field hidden">
+                  <label for="search-banlist">Banlist</label>
+                  <select id="search-banlist" aria-label="Banlist revision"></select>
+                </div>
+                <div id="search-banlist-status-wrap" class="search-format-field hidden">
+                  <span class="filter-group-heading" id="filter-banlist-status-label">Restriction</span>
+                  <div class="filter-multi" id="filter-banlist-status">
+                    <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-banlist-status-label">
+                      <span class="filter-multi-summary">Any</span>
+                      <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="filter-multi-panel" hidden>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Forbidden" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--forbidden" aria-hidden="true"></span> Forbidden</label>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--limited" aria-hidden="true"></span> Limited</label>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Semi-Limited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--semi" aria-hidden="true"></span> Semi-Limited</label>
+                      <label class="check filter-multi-option"><input type="checkbox" value="Unlimited" /> <span class="filter-banlist-status-dot filter-banlist-status-dot--unlimited" aria-hidden="true"></span> Unlimited</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="search-genesys-points-wrap" class="filter-ranges hidden">
+                <fieldset class="filter-range filter-range--select">
+                  <legend>Genesys points</legend>
+                  <div class="filter-range-row">
+                    <input type="number" id="points-min" min="0" max="100" placeholder="min" aria-label="Points minimum" />
+                    <span class="filter-range-sep" aria-hidden="true">–</span>
+                    <input type="number" id="points-max" min="0" max="100" placeholder="max" aria-label="Points maximum" />
+                  </div>
+                </fieldset>
+              </div>
+            </div>
+            <div class="filter-group filter-group--compact">
+              <span class="filter-group-heading" id="filter-category-label">Category</span>
+              <div class="filter-multi" id="filter-category">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-category-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Monster" /> Monster</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Spell" /> Spell</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Trap" /> Trap</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Skill" /> Skill</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Token" /> Token</label>
+                  <label class="check filter-multi-option"><input type="checkbox" value="Counter" /> Counter</label>
+                </div>
+              </div>
+            </div>
+            <div class="filter-group filter-group--compact">
+              <span class="filter-group-heading" id="filter-types-label">Type</span>
+              <div class="filter-multi" id="filter-types">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-types-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden></div>
+              </div>
+            </div>
+            <div class="filter-group filter-group--compact">
+              <span class="filter-group-heading" id="filter-mechanic-label">Mechanic</span>
+              <div class="filter-multi" id="filter-mechanic">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-mechanic-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden></div>
+              </div>
+            </div>
+            <div class="filter-group filter-group--compact">
+              <span class="filter-group-heading" id="filter-attribute-label">Attribute</span>
+              <div class="filter-multi" id="filter-attribute">
+                <button type="button" class="filter-multi-trigger" aria-haspopup="true" aria-expanded="false" aria-labelledby="filter-attribute-label">
+                  <span class="filter-multi-summary">Any</span>
+                  <span class="filter-multi-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="filter-multi-panel" hidden></div>
+              </div>
+            </div>
+            <div class="filter-group filter-group--wide">
+              <label for="filter-archetype">Archetype</label>
+              <input type="text" id="filter-archetype" list="archetype-datalist" placeholder="Substring match…" autocomplete="off" />
+              <datalist id="archetype-datalist"></datalist>
+            </div>
+            <div class="filter-group filter-group--wide">
+              <label for="filter-summoning">Summoning condition</label>
+              <input type="text" id="filter-summoning" list="summoning-datalist" placeholder="Keywords anywhere in text…" autocomplete="off" />
+              <datalist id="summoning-datalist"></datalist>
+            </div>
+            <div class="filter-ranges">
+              <fieldset class="filter-range filter-range--select">
+                <legend>Level</legend>
+                <div class="filter-range-row">
+                  <select id="level-min" class="filter-range-select" aria-label="Level minimum">
+                    <option value="">min</option>
+                  </select>
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <select id="level-max" class="filter-range-select" aria-label="Level maximum">
+                    <option value="">max</option>
+                  </select>
+                </div>
+              </fieldset>
+              <fieldset class="filter-range filter-range--select">
+                <legend>Rank</legend>
+                <div class="filter-range-row">
+                  <select id="rank-min" class="filter-range-select" aria-label="Rank minimum">
+                    <option value="">min</option>
+                  </select>
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <select id="rank-max" class="filter-range-select" aria-label="Rank maximum">
+                    <option value="">max</option>
+                  </select>
+                </div>
+              </fieldset>
+              <fieldset class="filter-range filter-range--select">
+                <legend>Link rating</legend>
+                <div class="filter-range-row">
+                  <select id="link-rating-min" class="filter-range-select" aria-label="Link rating minimum">
+                    <option value="">min</option>
+                  </select>
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <select id="link-rating-max" class="filter-range-select" aria-label="Link rating maximum">
+                    <option value="">max</option>
+                  </select>
+                </div>
+              </fieldset>
+              <fieldset class="filter-range filter-range--select">
+                <legend>Pendulum scale</legend>
+                <div class="filter-range-row">
+                  <select id="pendulum-scale-min" class="filter-range-select" aria-label="Pendulum scale minimum">
+                    <option value="">min</option>
+                  </select>
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <select id="pendulum-scale-max" class="filter-range-select" aria-label="Pendulum scale maximum">
+                    <option value="">max</option>
+                  </select>
+                </div>
+              </fieldset>
+              <fieldset class="filter-range filter-range--numeric">
+                <legend>ATK</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="atk-min" class="filter-range-input filter-range-input--5" min="0" placeholder="min" aria-label="ATK minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="atk-max" class="filter-range-input filter-range-input--5" min="0" placeholder="max" aria-label="ATK maximum" />
+                </div>
+              </fieldset>
+              <fieldset class="filter-range filter-range--numeric">
+                <legend>DEF</legend>
+                <div class="filter-range-row">
+                  <input type="number" id="def-min" class="filter-range-input filter-range-input--5" min="0" placeholder="min" aria-label="DEF minimum" />
+                  <span class="filter-range-sep" aria-hidden="true">–</span>
+                  <input type="number" id="def-max" class="filter-range-input filter-range-input--5" min="0" placeholder="max" aria-label="DEF maximum" />
+                </div>
+              </fieldset>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">Link markers</span>
+              <div id="link-marker-grid" class="link-marker-grid" role="group" aria-label="Link markers">
+                <button type="button" class="link-marker-btn" data-marker="Top-Left" title="Top-Left">◤</button>
+                <button type="button" class="link-marker-btn" data-marker="Top" title="Top">▲</button>
+                <button type="button" class="link-marker-btn" data-marker="Top-Right" title="Top-Right">◥</button>
+                <button type="button" class="link-marker-btn" data-marker="Left" title="Left">◀</button>
+                <span class="link-marker-center" aria-hidden="true">CARD</span>
+                <button type="button" class="link-marker-btn" data-marker="Right" title="Right">▶</button>
+                <button type="button" class="link-marker-btn" data-marker="Bottom-Left" title="Bottom-Left">◣</button>
+                <button type="button" class="link-marker-btn" data-marker="Bottom" title="Bottom">▼</button>
+                <button type="button" class="link-marker-btn" data-marker="Bottom-Right" title="Bottom-Right">◢</button>
+              </div>
+            </div>
+          </div>
+        </details>
         </div>
+      </form>
+      <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
+      <div id="search-pagination" class="search-pagination hidden" data-search-pagination></div>
+      <div id="search-results" class="card-grid"></div>
+      <div id="search-pagination-bottom" class="search-pagination search-pagination--bottom hidden" data-search-pagination></div>
+    </section>
+
+    <section id="view-collection" class="view" role="tabpanel" aria-labelledby="tab-collection" hidden tabindex="0">
+      <div id="collection-login-prompt" class="collection-empty hidden">
+        <p>Log in to view and manage your collection.</p>
+      </div>
+      <div id="collection-main" class="collection-layout hidden">
+        <aside class="collection-sidebar">
+          <div class="collection-sidebar-header">
+            <h2 class="collection-sidebar-title">Folders</h2>
+          </div>
+          <button type="button" id="collection-new-folder-btn" class="collection-new-folder-btn" title="Create a new folder">
+            <span class="collection-new-folder-icon" aria-hidden="true">+</span>
+            New folder
+          </button>
+          <ul id="collection-folder-list" class="collection-folder-list"></ul>
+        </aside>
+        <div class="collection-panel">
+          <form id="collection-filter-form" class="collection-toolbar">
+            <input type="search" id="collection-q" placeholder="Search name or set…" autocomplete="off" />
+            <input type="text" id="collection-set-code" placeholder="Set code" />
+            <select id="collection-sort" aria-label="Sort collection">
+              <option value="set_code">Sort: Set code</option>
+              <option value="card_name">Sort: Name</option>
+              <option value="folder_name">Sort: Folder</option>
+              <option value="quantity">Sort: Quantity</option>
+              <option value="trade_quantity">Sort: Trade quantity</option>
+              <option value="passcode">Sort: Passcode</option>
+              <option value="release_date">Sort: Release date</option>
+            </select>
+            <select id="collection-sort-dir" aria-label="Sort direction">
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+            <button type="submit">Apply</button>
+            <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
+            <button type="button" id="export-collection-btn" class="secondary hidden">Export</button>
+          </form>
+          <p id="collection-stats-line" class="stats-bar"></p>
+          <div class="collection-table-wrap">
+            <table id="collection-table">
+              <thead>
+                <tr>
+                  <th scope="col"></th>
+                  <th scope="col">Card</th>
+                  <th scope="col">Set</th>
+                  <th scope="col">Rarity</th>
+                  <th scope="col">Quantity</th>
+                  <th scope="col">Trade Qty</th>
+                  <th scope="col">Sell Price</th>
+                  <th scope="col">Condition</th>
+                  <th scope="col">Notes</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody id="collection-tbody"></tbody>
+            </table>
+          </div>
+          <div id="collection-pagination" class="search-pagination hidden"></div>
+          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Import</strong> above to get started.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-decks" class="view" role="tabpanel" aria-labelledby="tab-decks" hidden tabindex="0">
+      <div id="decks-list-view">
+        <div class="decks-toolbar">
+          <input type="search" id="decks-q" placeholder="Search decks or cards…" autocomplete="off" aria-label="Search decks" />
+          <select id="decks-sort" aria-label="Sort decks">
+            <option value="updated_at">Sort: Last modified</option>
+            <option value="created_at">Sort: Created</option>
+            <option value="name">Sort: Name</option>
+          </select>
+          <button type="button" id="new-deck-btn" class="primary">+ New deck</button>
+        </div>
+        <div id="decks-grid" class="decks-grid"></div>
+        <p id="decks-empty" class="empty-msg hidden">No decks yet. Create one to get started.</p>
+        <p id="decks-login-msg" class="empty-msg hidden">Log in to manage decks.</p>
+      </div>
+      <div id="decks-detail-view" class="hidden">
+        <header class="deck-detail-toolbar">
+          <button type="button" id="decks-back-btn" class="decks-back-btn secondary">← Decks</button>
+          <div class="deck-title-block">
+            <div class="deck-title-row">
+              <h2 id="deck-name" title="Double-click to rename"></h2>
+              <button type="button" id="deck-rename-btn" class="icon-btn secondary deck-rename-icon-btn" title="Rename deck" aria-label="Rename deck">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+            </div>
+            <div id="deck-meta" class="deck-meta" aria-label="Deck summary"></div>
+          </div>
+        </header>
+        <div id="deck-action-bar" class="deck-action-bar" aria-label="Deck actions">
+          <span id="deck-dirty-indicator" class="deck-dirty-indicator hidden" aria-live="polite">Unsaved changes</span>
+          <div class="deck-action-buttons">
+            <button type="button" id="deck-discard-btn" class="secondary" disabled>Discard</button>
+            <button type="button" id="deck-save-btn" class="primary" disabled>Save</button>
+          </div>
+        </div>
+        <div class="deck-settings-panel">
+          <div id="deck-format-bar" class="deck-format-bar">
+            <div class="deck-format-field">
+              <label for="deck-format">Format</label>
+              <select id="deck-format" aria-label="Deck format"></select>
+            </div>
+            <div id="deck-banlist-wrap" class="deck-format-field hidden">
+              <label for="deck-banlist">Banlist</label>
+              <select id="deck-banlist" aria-label="Banlist revision"></select>
+            </div>
+            <div id="deck-genesys-list-wrap" class="deck-format-field hidden">
+              <label for="deck-genesys-list">Point list</label>
+              <select id="deck-genesys-list" aria-label="Genesys point list">
+                <option value="">Latest</option>
+              </select>
+            </div>
+          </div>
+          <div id="deck-validation" class="deck-validation hidden" aria-live="polite"></div>
+        </div>
+        <div id="deck-zones" class="deck-zones"></div>
       </div>
     </section>
   </main>
 
   <div id="card-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-name" hidden>
     <article class="modal-card">
-      <button type="button" id="modal-close" class="modal-close" aria-label="Close">&times;</button>
+      <button type="button" id="modal-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
       <div class="modal-body">
-        <img id="modal-image" alt="" />
+        <div class="modal-image-slot" id="modal-image-slot">
+          <div id="modal-image-loading" class="modal-image-loading" hidden>
+            <span class="loading-spinner" role="status" aria-hidden="true"></span>
+            <p>Image is being loaded</p>
+          </div>
+          <img id="modal-image" alt="" />
+        </div>
         <div class="modal-info">
           <h2 id="modal-name"></h2>
+          <p id="modal-passcode" class="modal-passcode muted" hidden>
+            <span class="modal-passcode-label">Passcode:</span>
+            <span id="modal-passcode-text" class="modal-passcode-digits"></span>
+            <button type="button" id="modal-passcode-copy" class="icon-btn modal-passcode-copy" aria-label="Copy passcode" title="Copy passcode" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+              </svg>
+            </button>
+          </p>
           <p id="modal-meta" class="muted"></p>
+          <p id="modal-format-context" class="format-context-label muted" hidden></p>
+          <p id="modal-format-badges" class="format-badges"></p>
           <p id="modal-desc"></p>
-          <div class="modal-actions">
+          <div class="modal-quick-actions">
             <button type="button" id="modal-favorite">☆ Favorite</button>
-            <input type="text" id="tag-input" placeholder="Add tag…" />
+            <div id="modal-supplements" class="modal-supplements" hidden>
+              <button type="button" id="modal-errata-open" class="icon-btn supplement-icon-btn" aria-label="Errata History" data-tooltip="Errata History" aria-haspopup="dialog" aria-controls="card-errata-modal" hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              </button>
+              <button type="button" id="modal-tips-trigger" class="icon-btn supplement-icon-btn" aria-label="Card Tips" data-tooltip="Card Tips" aria-haspopup="dialog" aria-controls="card-tips-modal" hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 18h6" />
+                  <path d="M10 22h4" />
+                  <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="modal-tags-row">
+            <label for="tag-input" class="sr-only">Add tag</label>
+            <input type="text" id="tag-input" list="tag-datalist" placeholder="Add tag…" autocomplete="off" />
             <button type="button" id="tag-add-btn">Add tag</button>
           </div>
           <div id="modal-tags" class="tag-list"></div>
-          <h3>Printings (set code)</h3>
-          <div id="modal-printings" class="printings-list"></div>
-          <div class="add-owned">
-            <h3>Mark as owned</h3>
-            <select id="owned-printing"></select>
-            <input type="number" id="owned-qty" min="1" value="1" />
-            <button type="button" id="owned-add-btn">Add to collection</button>
-          </div>
-          <div class="deck-add-row">
-            <h3>Add to active deck</h3>
-            <select id="deck-zone"><option value="main">Main</option><option value="extra">Extra</option><option value="side">Side</option></select>
-            <button type="button" id="deck-add-card-btn">Add card</button>
-          </div>
+          <section class="modal-section modal-section--printings" aria-labelledby="modal-printings-heading">
+            <div class="modal-section-header">
+              <h3 id="modal-printings-heading">All printings</h3>
+              <div class="modal-printings-header-actions">
+                <button type="button" id="owned-add-btn" class="primary">Add to collection</button>
+              </div>
+            </div>
+            <div id="modal-printings" class="printings-list"></div>
+          </section>
+          <section class="modal-section modal-section--deck" aria-labelledby="modal-deck-heading">
+            <h3 id="modal-deck-heading">Add to active deck</h3>
+            <div class="modal-action-grid">
+              <div class="deck-target-wrap">
+                <label for="deck-target">Deck</label>
+                <select id="deck-target"></select>
+                <span id="deck-target-format" class="deck-target-format muted" aria-live="polite"></span>
+              </div>
+              <div class="deck-zone-wrap">
+                <label for="deck-zone">Zone</label>
+                <select id="deck-zone"><option value="main">Main</option><option value="extra">Extra</option><option value="side">Side</option></select>
+              </div>
+              <button type="button" id="deck-add-card-btn" class="primary modal-action-submit">Add Card</button>
+            </div>
+          </section>
         </div>
       </div>
     </article>
   </div>
 
-  <script src="/static/js/app.js?v=10" type="module"></script>
+  <div id="card-errata-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="card-errata-title" hidden>
+    <article class="modal-card modal-card--narrow modal-card--supplement">
+      <button type="button" id="card-errata-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header>
+        <h2 id="card-errata-title">Card errata</h2>
+      </header>
+      <div id="card-errata-body" class="supplement-body"></div>
+    </article>
+  </div>
+
+  <div id="card-tips-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="card-tips-title" hidden>
+    <article class="modal-card modal-card--narrow modal-card--supplement">
+      <button type="button" id="card-tips-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header>
+        <h2 id="card-tips-title">Tips</h2>
+      </header>
+      <div id="card-tips-body" class="supplement-body"></div>
+    </article>
+  </div>
+
+  <div id="export-collection-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="export-collection-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="export-collection-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="export-collection-title">Export collection</h2>
+        <p class="muted">Choose a CSV format for your download.</p>
+      </header>
+      <fieldset id="export-format-list" class="export-format-list">
+        <legend class="sr-only">Export format</legend>
+      </fieldset>
+      <fieldset id="export-folder-list" class="export-folder-list">
+        <legend>Folders</legend>
+      </fieldset>
+      <p id="export-format-note" class="export-format-note muted"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="export-collection-cancel" class="secondary">Cancel</button>
+        <button type="button" id="export-collection-confirm">Export</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="search-preset-save-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-preset-save-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="search-preset-save-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="search-preset-save-title">Save search preset</h2>
+      </header>
+      <div class="export-collection-actions">
+        <button type="button" id="search-preset-save-cancel" class="secondary">Cancel</button>
+        <button type="button" id="search-preset-save-new" class="secondary">Save as new</button>
+        <button type="button" id="search-preset-save-overwrite" class="secondary">Update preset</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="import-mode-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-mode-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="import-mode-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="import-mode-title">Import collection</h2>
+        <p class="muted">Choose how to apply this CSV to your collection.</p>
+      </header>
+      <p class="muted"><strong>Append</strong> adds new rows and merges quantities into matching cards. <strong>Overwrite</strong> deletes your current collection and imports from scratch.</p>
+      <div class="export-collection-actions">
+        <button type="button" id="import-mode-cancel" class="secondary">Cancel</button>
+        <button type="button" id="import-mode-append" class="secondary">Append</button>
+        <button type="button" id="import-mode-overwrite">Overwrite</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="import-progress-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-progress-title" hidden>
+    <article class="modal-card modal-card--narrow import-progress-card">
+      <header class="export-collection-header">
+        <h2 id="import-progress-title">Importing collection</h2>
+      </header>
+      <p id="import-progress-phase" class="import-progress-phase" role="status" aria-live="polite">Preparing…</p>
+      <p id="import-progress-hint" class="import-progress-hint muted hidden">Preparing catalog matches — this may take a moment for large collections.</p>
+      <progress id="import-progress-bar" class="import-progress-modal-bar" max="100"></progress>
+      <div class="import-progress-meta">
+        <span id="import-progress-percent" class="import-progress-percent"></span>
+        <span id="import-progress-eta" class="import-progress-eta muted"></span>
+      </div>
+      <p id="import-progress-summary" class="import-progress-summary hidden" aria-live="polite"></p>
+      <div id="import-progress-actions" class="export-collection-actions" hidden>
+        <button type="button" id="import-progress-close" hidden>Close</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="search-preset-name-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-preset-name-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="search-preset-name-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="search-preset-name-title">Save search preset</h2>
+      </header>
+      <form id="search-preset-name-form" class="search-preset-name-form">
+        <label for="search-preset-name-input">Preset name</label>
+        <input type="text" id="search-preset-name-input" maxlength="128" autocomplete="off" required />
+        <div class="export-collection-actions">
+          <button type="button" id="search-preset-name-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="search-preset-name-submit">Save</button>
+        </div>
+      </form>
+    </article>
+  </div>
+
+  <div id="collection-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-add-title" hidden>
+    <article class="modal-card modal-card--narrow modal-card--collection-add">
+      <button type="button" id="collection-add-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="collection-edit-header">
+        <h2 id="collection-add-title">Add to collection</h2>
+        <p class="muted">Fill in the details for this card.</p>
+      </header>
+      <div class="collection-add-form collection-edit-form">
+        <label class="collection-edit-field">
+          <span>Folder</span>
+          <div class="collection-add-folder-row">
+            <select id="collection-add-folder">
+              <option value="">No Folder</option>
+            </select>
+            <button type="button" id="collection-add-new-folder-toggle" class="secondary collection-add-folder-new-btn">+ New folder</button>
+          </div>
+        </label>
+        <div id="collection-add-new-folder-row" class="collection-add-new-folder-row hidden">
+          <label class="collection-edit-field" for="collection-add-new-folder-name">
+            <span>New folder</span>
+            <div class="collection-add-new-folder-inputs">
+              <input type="text" id="collection-add-new-folder-name" maxlength="128" placeholder="Folder name" autocomplete="off" />
+              <button type="button" id="collection-add-new-folder-create" class="secondary">Create</button>
+            </div>
+          </label>
+        </div>
+        <label class="collection-edit-field" for="collection-add-quantity">
+          <span>Quantity</span>
+          <input type="number" id="collection-add-quantity" min="1" value="1" />
+        </label>
+        <label class="collection-edit-field" for="collection-add-trade-quantity">
+          <span>Trade quantity</span>
+          <input type="number" id="collection-add-trade-quantity" min="0" value="0" />
+        </label>
+        <div class="collection-add-readonly-group">
+          <p class="collection-add-group-label muted">From catalog</p>
+          <label class="collection-edit-field">
+            <span>Card name</span>
+            <span id="collection-add-card-name" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field">
+            <span>Set code</span>
+            <span id="collection-add-set-code" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field">
+            <span>Set name</span>
+            <span id="collection-add-set-name" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field collection-add-card-number-field" id="collection-add-card-number-static-wrap">
+            <span>Card number</span>
+            <span id="collection-add-card-number-static" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field collection-add-card-number-field" id="collection-add-card-number-wrap" hidden>
+            <span>Printing</span>
+            <select id="collection-add-card-number"></select>
+          </label>
+          <label class="collection-edit-field" id="collection-add-rarity-wrap">
+            <span>Rarity</span>
+            <span id="collection-add-rarity" class="collection-add-readonly"></span>
+          </label>
+          <label class="collection-edit-field">
+            <span>Low / Avg / Trend</span>
+            <span id="collection-add-market-prices" class="collection-add-readonly muted"></span>
+          </label>
+        </div>
+        <label class="collection-edit-field" for="collection-add-condition">
+          <span>Condition</span>
+          <select id="collection-add-condition"></select>
+        </label>
+        <label class="collection-edit-field" for="collection-add-edition">
+          <span>Edition</span>
+          <select id="collection-add-edition">
+            <option value="Unlimited">Unlimited</option>
+            <option value="1st Edition">1st Edition</option>
+            <option value="Limited Edition">Limited Edition</option>
+          </select>
+        </label>
+        <label class="collection-edit-field" for="collection-add-language">
+          <span>Language</span>
+          <select id="collection-add-language">
+            <option value="English">English</option>
+            <option value="French">French</option>
+            <option value="Italian">Italian</option>
+            <option value="German">German</option>
+            <option value="Spanish">Spanish</option>
+            <option value="Portuguese">Portuguese</option>
+          </select>
+        </label>
+        <label class="collection-edit-field" for="collection-add-price-bought">
+          <span>Price bought (€)</span>
+          <input type="number" id="collection-add-price-bought" min="0" step="0.01" value="0" />
+        </label>
+        <label class="collection-edit-field" for="collection-add-date-bought">
+          <span>Date bought</span>
+          <input type="date" id="collection-add-date-bought" />
+        </label>
+      </div>
+      <div class="collection-edit-actions">
+        <button type="button" id="collection-add-cancel" class="secondary">Cancel</button>
+        <button type="button" id="collection-add-submit">Add to collection</button>
+      </div>
+      <div class="search-help-resize-handle" role="separator" aria-orientation="both" aria-label="Resize add to collection panel" tabindex="-1"></div>
+    </article>
+  </div>
+
+  <div id="collection-edit-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-edit-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="collection-edit-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="collection-edit-header">
+        <h2 id="collection-edit-title">Edit card</h2>
+        <p id="collection-edit-card-name" class="muted"></p>
+      </header>
+      <div class="collection-edit-form">
+        <label class="collection-edit-field">
+          <span>Set</span>
+          <select id="collection-edit-set"></select>
+        </label>
+        <label class="collection-edit-field">
+          <span>Rarity</span>
+          <select id="collection-edit-rarity"></select>
+        </label>
+        <label class="collection-edit-field">
+          <span>Quantity</span>
+          <input type="number" id="collection-edit-quantity" min="1" value="1" />
+        </label>
+        <label class="collection-edit-field">
+          <span>Trade quantity</span>
+          <input type="number" id="collection-edit-trade-quantity" min="0" value="0" />
+        </label>
+        <label class="collection-edit-field">
+          <span>Sell price (€)</span>
+          <input type="number" id="collection-edit-sell-price" min="0" step="0.01" value="0" />
+        </label>
+        <label class="collection-edit-field">
+          <span>Condition</span>
+          <select id="collection-edit-condition"></select>
+        </label>
+        <p id="collection-edit-note" class="muted collection-edit-note hidden"></p>
+      </div>
+      <div class="collection-edit-actions">
+        <button type="button" id="collection-edit-cancel" class="secondary">Cancel</button>
+        <button type="button" id="collection-edit-save">Save</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="search-help-popover" class="search-help-popover" role="dialog" aria-modal="false" aria-labelledby="search-help-popover-title" hidden>
+    <div id="search-help-popover-body" class="search-help-body"></div>
+    <div class="search-help-resize-handle" role="separator" aria-orientation="both" aria-label="Resize search syntax panel" tabindex="-1"></div>
+  </div>
+
+  <div id="search-help-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="search-help-title" hidden>
+    <article class="modal-card modal-card--search-help">
+      <div id="search-help-modal-body" class="search-help-body"></div>
+      <div class="search-help-resize-handle" role="separator" aria-orientation="both" aria-label="Resize search syntax panel" tabindex="-1"></div>
+    </article>
+  </div>
+
+  <div id="deck-zone-info-popover" class="search-help-popover deck-zone-info-popover" role="dialog" aria-modal="false" aria-labelledby="deck-zone-info-title" hidden>
+    <div class="search-help-shell">
+      <div class="search-help-topbar">
+        <h2 id="deck-zone-info-title"></h2>
+        <button type="button" class="search-help-dismiss deck-zone-info-dismiss" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+      <p id="deck-zone-info-body" class="muted"></p>
+    </div>
+  </div>
+
+  <div id="formats-info-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="formats-info-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="formats-info-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header>
+        <h2 id="formats-info-title">Yu-Gi-Oh! formats</h2>
+      </header>
+      <div id="formats-info-body" class="formats-info-body"></div>
+    </article>
+  </div>
+
+  <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="/static/js/app.js?v=157" type="module"></script>
 </body>
 </html>

@@ -3,7 +3,9 @@
 __pycache__/
 *.py[cod]
 .DS_Store
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 
 # Local databases and generated app data
 data/
@@ -15,6 +17,7 @@ data/
 
 # Large exports, scraper outputs, and personal collection data
 *.json
+!ygo_app/cardmarket/expansion_seed.json
 *.csv
 
 # Downloaded card images (regenerate with scrapers locally)
@@ -28,3 +31,5 @@ yugipedia/image_small/
 
 # Logs
 *.log
+
+DO NOT DELETE/SECRETS/cloudflare.txt

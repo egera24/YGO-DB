@@ -8,8 +8,8 @@ Render’s free PostgreSQL **expires after 30 days**. This guide uses **Neon** f
 |-----------|---------|------|
 | Database | [Neon](https://neon.com) Free Postgres | $0, permanent |
 | Web app | [Render](https://render.com) Free Web Service | $0 (cold starts after idle) |
-| Catalog import | GitHub Actions | $0 on public repos |
-| Card images | YGOPRODeck CDN | $0 (browser loads URLs) |
+| Catalog import | GitHub Actions (Yugipedia scrape + import) | $0 on public repos |
+| Card images | [Cloudflare R2](https://developers.cloudflare.com/r2/) mirror (WebP), Yugipedia CDN fallback | $0 within free tier (10 GB storage, zero egress) |
 
 ## Prerequisites
 
@@ -44,11 +44,51 @@ alembic upgrade head
 2. **Repository secrets**:
    - `DATABASE_URL` — Neon **production** branch pooled URL
    - `DATABASE_URL_DEV` — Neon **dev** branch pooled URL (for staging / local parity)
-3. Go to **Actions** → **Import YGO catalog** → **Run workflow** → choose **production** or **dev**.
-4. Wait until the job finishes (several minutes for ~14k cards). Logs should end with:  
+3. Go to **Actions** → **Import Yugipedia catalog** → **Run workflow** → choose **production** or **dev**.
+4. Wait until **all jobs** finish (`prepare` → `passcodes` → `scrape_batch_0` … `scrape_batch_5` → `import`). Total wall clock is often **~2–4 hours** (each batch job stays under its own timeout). Each batch log should end with **`[BATCH_RESULT] … missing=0`**. The **import** job log should end with:  
    `Catalog import complete: … cards, … printings.`
 
-To refresh card data later, run the workflow again (monthly schedule runs **production** only).
+   Scrape exit codes: **0** success, **2** stalled (re-run workflow with `--resume`), **3** batch incomplete (fix errors, re-run). Look for **`[HEARTBEAT]`**, **`[FAIL]`**, **`[BATCH_RETRY]`** in batch job logs.
+
+The workflow runs automatically on the **1st and 15th** of each month (production DB). Details scraping is split into **6 batches** (`BATCH_COUNT` in the workflow YAML); cumulative JSON is passed via the `catalog-state` artifact. Use **skip scrape** for import-only (requires `data/catalog/yugipedia_all_cards.json` in the workspace — normally you re-run the full workflow instead).
+
+Emergency fallback: **Import YGO catalog (YGOProDeck API fallback)** — fast API import, no Yugipedia scrape.
+
+### Local Yugipedia pipeline
+
+```powershell
+pip install -r requirements.txt
+python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+# Resume interrupted scrape:
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume
+# Same batching as GHA (example: batch 2 of 6):
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-index 2 --batch-count 6
+python -m ygo_app.jobs.import_catalog_yugipedia
+```
+
+### Card image mirror (Cloudflare R2)
+
+The `images` job in the Yugipedia workflow mirrors card art to an S3-compatible bucket (WebP full + 150px thumb, keys `cards/{passcode}.webp` / `cards/{passcode}-small.webp`) so the app stops hotlinking `ms.yugipedia.com`. The import then writes bucket URLs into `cards.image_url` / `image_url_small` for every mirrored passcode (Yugipedia URL fallback otherwise).
+
+One-time setup:
+
+1. Cloudflare Dashboard → **R2 Object Storage** → activate (needs a payment card; free tier is 10 GB storage / 1M writes / 10M reads per month — this project stays far below). Set a **billing notification** at $1 as a tripwire.
+2. Create bucket `ygo-card-images` → Settings → **Public access** via the `r2.dev` subdomain (or a custom domain for full CDN caching).
+3. **Manage R2 API Tokens** → create token with **Object Read & Write** scoped to the bucket.
+4. Add **repository secrets** (also usable in `.env` for local runs):
+   - `S3_ENDPOINT_URL` — `https://<account_id>.r2.cloudflarestorage.com`
+   - `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` — from the R2 API token
+   - `S3_BUCKET` — `ygo-card-images`
+   - `IMAGE_BASE_URL` — public base URL (e.g. `https://pub-xxxx.r2.dev`)
+
+If the secrets are absent the `images` job skips itself and the import keeps Yugipedia URLs. The job is **incremental** — re-runs only download images missing from the bucket. The first full backfill (~14k cards) takes a few hours; it can also be run locally:
+
+```powershell
+python -m ygo_app.jobs.sync_card_images            # needs data/catalog/yugipedia_all_cards.json
+python -m ygo_app.jobs.sync_card_images --manifest-only   # rebuild manifest from bucket listing only
+```
+
+Vendor migration later: `rclone sync` the bucket to any S3-compatible provider, change `S3_*` + `IMAGE_BASE_URL` secrets, re-run the import (or one SQL `UPDATE ... replace(...)`).
 
 ### Optional: DB keep-alive workflow
 
@@ -88,6 +128,18 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
    | `DATABASE_URL` | Neon pooled URL |
    | `SECRET_KEY` | Long random string |
    | `PYTHON_VERSION` | `3.12.0` (optional) |
+   | `EMAIL_BACKEND` | `brevo` |
+   | `BREVO_API_KEY` | Brevo SMTP/API key |
+   | `EMAIL_FROM` | Verified sender, e.g. `YGO App <you@example.com>` |
+
+Optional (bot protection on registration):
+
+| Key | Value |
+|-----|--------|
+| `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key |
+
+For **local development**, use `EMAIL_BACKEND=console` in `.env` — verification codes print in the terminal instead of sending email.
 
 ---
 
@@ -96,7 +148,7 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 1. Open the Render URL (e.g. `https://ygo-app-xxxx.onrender.com`).
 2. First request after idle may take **~1 minute** (free tier spin-up).
 3. Status line should show thousands of **cards** (not “catalog empty”).
-4. **Register** in the header.
+4. **Register** — create an account; check email for the 6-digit verification code (or spam folder).
 5. **My Collection** → **Import CSV** to upload your DragonShield export (logged-in users only).
 
 ---
@@ -106,9 +158,9 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 - [ ] Repo on GitHub  
 - [ ] Neon project created; pooled `DATABASE_URL` copied  
 - [ ] GitHub secret `DATABASE_URL` set  
-- [ ] **Import YGO catalog** workflow succeeded  
-- [ ] Render free web deployed with same `DATABASE_URL` + `SECRET_KEY`  
-- [ ] Register on live site and test search + CSV import  
+- [ ] **Import Yugipedia catalog** workflow succeeded  
+- [ ] Render free web deployed with same `DATABASE_URL` + `SECRET_KEY` + email env vars  
+- [ ] Register on live site, verify email, and test search + CSV import  
 
 ---
 
@@ -126,7 +178,7 @@ See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → pr
 
 ## Catalog refresh without Render Job
 
-GitHub → **Actions** → **Import YGO catalog** → **Run workflow**.
+GitHub → **Actions** → **Import Yugipedia catalog** → **Run workflow**.
 
 Or from your PC:
 

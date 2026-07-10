@@ -1,0 +1,54 @@
+---
+description: Keep import-catalog-yugipedia.yml identical on main and develop
+globs: .github/workflows/import-catalog-yugipedia.yml
+alwaysApply: false
+---
+
+# Yugipedia workflow — keep main and develop in sync
+
+`.github/workflows/import-catalog-yugipedia.yml` must be **the same file** on `main` and `develop`.
+
+## Why
+
+- GitHub Actions lists workflows from the **default branch (`main`)**.
+- App code and workflow edits usually land on **`develop`** first.
+- If the two branches diverge on this file, Actions can run an outdated workflow definition.
+
+## When editing
+
+After changing `import-catalog-yugipedia.yml` on either branch:
+
+1. Commit on the branch where you made the edit (usually `develop`).
+2. Sync the file to the other branch **without merging the full app**.
+3. Confirm they match:
+
+```powershell
+git fetch origin
+git diff origin/main origin/develop -- .github/workflows/import-catalog-yugipedia.yml
+```
+
+No output = in sync.
+
+## Sync workflow file to main (workflow-only)
+
+Use this when the canonical edit is on `develop` and `main` only needs the YAML:
+
+```powershell
+git fetch origin
+git checkout main
+git pull origin main
+git checkout origin/develop -- .github/workflows/import-catalog-yugipedia.yml
+git commit -m "ci: sync Yugipedia import workflow from develop"
+git push origin main
+git checkout develop
+```
+
+## Do not
+
+- Merge all of `develop` into `main` just to update this workflow.
+- Leave `main` with a different version after editing the workflow on `develop`.
+- Assume pushing to `develop` alone updates what appears in the Actions UI.
+
+## Optional
+
+`import-catalog-ygoprodeck.yml` follows the same pattern if it is changed.

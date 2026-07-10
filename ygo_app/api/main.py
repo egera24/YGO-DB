@@ -2,15 +2,72 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
+from starlette.types import Receive, Scope, Send
 
-from ygo_app.api.routes import auth, cards, collection, decks, meta
-from ygo_app.config import IS_PRODUCTION
+SKIP_GZIP_PATHS = frozenset({"/api/collection/import-csv"})
+
+
+class AppGZipMiddleware(GZipMiddleware):
+    """GZip static/API payloads but not NDJSON import streams (small chunks buffer)."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") in SKIP_GZIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+from ygo_app.api.routes import auth, cards, collection, decks, formats, meta, search_presets
+from ygo_app.config import IMAGE_BASE_URL, IS_PRODUCTION
 from ygo_app.import_data import init_db
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-app = FastAPI(title="YGO Collection & Deck Builder", version="2.0.0")
+_docs_kwargs = (
+    {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    if IS_PRODUCTION
+    else {}
+)
+
+app = FastAPI(
+    title="YGO Collection & Deck Builder",
+    version="2.0.0",
+    **_docs_kwargs,
+)
+app.add_middleware(AppGZipMiddleware, minimum_size=1000)
+
+
+def _build_csp() -> str:
+    img_sources = ["'self'", "data:", "https:"]
+    if IMAGE_BASE_URL and IMAGE_BASE_URL.startswith("https://"):
+        img_sources.append(IMAGE_BASE_URL)
+    directives = [
+        "default-src 'self'",
+        f"img-src {' '.join(dict.fromkeys(img_sources))}",
+        "script-src 'self' https://challenges.cloudflare.com",
+        "style-src 'self'",
+        "frame-src https://challenges.cloudflare.com",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ]
+    return "; ".join(directives)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = _build_csp()
+    if IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 @app.on_event("startup")
@@ -28,8 +85,20 @@ class DevStaticFiles(StaticFiles):
         return response
 
 
+class CachedStaticFiles(StaticFiles):
+    """Long-lived cache for versioned static assets (?v= busting in HTML)."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if STATIC_DIR.exists():
-    static_handler = StaticFiles if IS_PRODUCTION else DevStaticFiles
+    if IS_PRODUCTION:
+        static_handler = CachedStaticFiles
+    else:
+        static_handler = DevStaticFiles
     app.mount("/static", static_handler(directory=STATIC_DIR), name="static")
 
 _CACHE_HEADERS = (
@@ -43,6 +112,8 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(cards.router, prefix="/api")
 app.include_router(collection.router, prefix="/api")
 app.include_router(decks.router, prefix="/api")
+app.include_router(formats.router, prefix="/api")
+app.include_router(search_presets.router, prefix="/api")
 
 
 @app.get("/")

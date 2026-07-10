@@ -1,0 +1,7 @@
+flowchart TB
+  s3[S3_JSON_download] --> archive[R2_archive]
+  s3 --> map[expansion_mapping]
+  map --> match[printing_match]
+  match --> gate[import_gate]
+  gate --> db[printing_market_prices_SCD]
+  gha[Weekly_GHA_Sun_04UTC] --> s3

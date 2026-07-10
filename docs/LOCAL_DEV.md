@@ -83,7 +83,7 @@ Open http://127.0.0.1:8000 — register a **new account** (dev DB has no product
 |-------|----------|
 | `GET http://127.0.0.1:8000/api/status` | `ready: true`, `cards` ~14371 |
 | Search tab | Pagination ~29 pages (500 per page) |
-| My Collection → Import CSV | Success alert with row count |
+| My Collection → Import CSV | Header status line shows progress + ETA; success alert with row count |
 | `alembic current` | Shows `head` |
 
 ## Daily workflow
@@ -100,6 +100,37 @@ In Neon, you can reset the `dev` branch from production or re-run:
 alembic upgrade head
 python -m ygo_app.jobs.import_catalog
 ```
+
+## Yugipedia catalog test mode (~500 cards)
+
+Every Yugipedia import **fully replaces** `cards` and `printings` in the target database (not a merge). A test run leaves only the scraped subset until you run a full import again. Use **Neon dev** only.
+
+**Local CLI** (`.env` → dev `DATABASE_URL`):
+
+```powershell
+python -m ygo_app.jobs.scrape_yugipedia_catalog --passcodes-only --max-cards 500
+python -m ygo_app.jobs.scrape_yugipedia_catalog --details-only --resume --batch-index 0 --batch-count 1
+python -m ygo_app.jobs.import_catalog_yugipedia --limit 500
+```
+
+`--limit 500` uses a minimum of 400 mapped cards (`80%`); override with `--min-cards` if needed.
+
+After scrape, each entry in `data/catalog/yugipedia_all_cards.json` should include `image_url` and `image_url_small` pointing at `ms.yugipedia.com` (extracted from the wiki page HTML, not downloaded).
+
+### TCG-only catalog (English printings)
+
+The Yugipedia pipeline keeps only cards with at least one English TCG printing (`cts--EN`, `cts--NA`, `cts--EU`, `cts--AU`, `cts--OC` on the wiki → `card_sets` in JSON). OCG-only cards (e.g. no TCG release) are **rejected** during detail scrape (`yugipedia_rejected_cards.json`) and skipped on import. The passcode list still includes them until scrape runs.
+
+To remove OCG-only cards already in your dev DB from an older scrape:
+
+```powershell
+python -m ygo_app.jobs.scrape_yugipedia_catalog --full
+python -m ygo_app.jobs.import_catalog_yugipedia
+```
+
+Re-import alone is enough if `yugipedia_all_cards.json` no longer contains entries without `card_sets`.
+
+**GitHub Actions:** **Import Yugipedia catalog** → **Run workflow** (not Re-run failed jobs) → branch `develop` → environment `dev` → `test_mode` **true** → `card_limit` **500**. `test_mode` on production is blocked in the workflow.
 
 ## Lightweight SQLite mode (not production-like)
 
@@ -122,3 +153,36 @@ This does **not** match Render behavior (different DB engine, search limits, and
 | Port in use | `python run.py --port 8001 --no-browser` |
 
 See also [ENVIRONMENTS.md](ENVIRONMENTS.md) (staging + production promotion), [DEPLOY_FREE.md](DEPLOY_FREE.md) for Render and GitHub Actions setup.
+
+## Cardmarket prices (official catalog)
+
+Cardmarket publishes Yu-Gi-Oh product catalog and price guide JSON on S3. The app downloads these files (no HTML scraping), matches Yugipedia printings, and imports prices as SCD Type 2 history.
+
+**Full guide:** [cardmarket-catalog-pipeline.md](cardmarket-catalog-pipeline.md)
+
+Legacy web scraper (archived): [archive/legacy_cardmarket_scrape](../archive/legacy_cardmarket_scrape/)
+
+```powershell
+# Dry run: download + match + export (no DB, no R2)
+python -m ygo_app.jobs.sync_cardmarket_catalog --skip-import --skip-r2
+
+# Full local sync (DATABASE_URL + optional S3_* for R2)
+python -m ygo_app.jobs.sync_cardmarket_catalog
+
+# Import export JSON only
+python -m ygo_app.jobs.import_cardmarket_prices -f data/catalog/cardmarket_prices.json
+```
+
+| File / R2 key | Role |
+|---------------|------|
+| `data/catalog/cardmarket_raw/*.json` | Downloaded S3 catalog files |
+| `data/catalog/cardmarket_prices.json` | Matched export (local; uploaded as LZMA zip to R2) |
+| R2 bucket `ygo-cardmarket`, key `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw JSON archive (ZIP_LZMA) |
+| R2 bucket `ygo-cardmarket`, key `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log.br` | Job log (Brotli) |
+| R2 bucket `ygo-cardmarket`, key `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json.br` | Pipeline report (Brotli) |
+| R2 bucket `ygo-cardmarket`, key `archives/cardmarket_prices_{YYYYMMDD}_{HHMM}.zip` | Matched export archive for GHA re-import |
+
+Weekly GHA: **Sync Cardmarket catalog** (Sun 04:00 UTC → production). Manual re-import only: **Import Cardmarket prices**.
+
+Requires `S3_*` and `S3_CARDMARKET_BUCKET` in `.env` for R2 upload (separate bucket from card images).
+

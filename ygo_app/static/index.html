@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=95" />
+  <link rel="stylesheet" href="/static/css/style.css?v=96" />
 </head>
 <body>
   <header class="app-header">
@@ -710,7 +710,7 @@
   </div>
 
   <div id="collection-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-add-title" hidden>
-    <article class="modal-card modal-card--narrow">
+    <article class="modal-card modal-card--narrow modal-card--collection-add">
       <button type="button" id="collection-add-close" class="modal-close" aria-label="Close">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M18 6 6 18" />
@@ -745,7 +745,7 @@
           <input type="number" id="collection-add-quantity" min="1" value="1" />
         </label>
         <label class="collection-edit-field" for="collection-add-trade-quantity">
-          <span>Trade qty</span>
+          <span>Trade quantity</span>
           <input type="number" id="collection-add-trade-quantity" min="0" value="0" />
         </label>
         <div class="collection-add-readonly-group">
@@ -767,10 +767,10 @@
             <span id="collection-add-card-number-static" class="collection-add-readonly"></span>
           </label>
           <label class="collection-edit-field collection-add-card-number-field" id="collection-add-card-number-wrap" hidden>
-            <span>Card number</span>
+            <span>Printing</span>
             <select id="collection-add-card-number"></select>
           </label>
-          <label class="collection-edit-field">
+          <label class="collection-edit-field" id="collection-add-rarity-wrap">
             <span>Rarity</span>
             <span id="collection-add-rarity" class="collection-add-readonly"></span>
           </label>
@@ -784,7 +784,7 @@
           <select id="collection-add-condition"></select>
         </label>
         <label class="collection-edit-field" for="collection-add-edition">
-          <span>Printing</span>
+          <span>Edition</span>
           <select id="collection-add-edition">
             <option value="Unlimited">Unlimited</option>
             <option value="1st Edition">1st Edition</option>
@@ -815,6 +815,7 @@
         <button type="button" id="collection-add-cancel" class="secondary">Cancel</button>
         <button type="button" id="collection-add-submit">Add to collection</button>
       </div>
+      <div class="search-help-resize-handle" role="separator" aria-orientation="both" aria-label="Resize add to collection panel" tabindex="-1"></div>
     </article>
   </div>
 
@@ -908,6 +909,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=148" type="module"></script>
+  <script src="/static/js/app.js?v=152" type="module"></script>
 </body>
 </html>

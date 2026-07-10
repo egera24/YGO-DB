@@ -2176,6 +2176,27 @@ tr:hover td { background: var(--surface); }
   width: 95vw;
   color: #e8eef7;
 }
+.modal-card.modal-card--collection-add {
+  display: flex;
+  flex-direction: column;
+  width: 28rem;
+  height: min(75vh, 35rem);
+  min-width: 320px;
+  min-height: 280px;
+  max-width: calc(100vw - 2rem);
+  max-height: 90vh;
+  overflow: hidden;
+}
+.modal-card.modal-card--collection-add .collection-add-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.modal-card.modal-card--collection-add .collection-edit-header,
+.modal-card.modal-card--collection-add .collection-edit-actions {
+  flex: 0 0 auto;
+}
 #card-modal .modal-card,
 #card-modal .modal-info :is(h2, h3, p, label),
 #card-modal #modal-desc,

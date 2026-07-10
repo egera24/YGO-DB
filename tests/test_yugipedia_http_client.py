@@ -11,7 +11,10 @@ import requests
 from ygo_app.yugipedia.http_client import (
     YUGIPEDIA_API_URL,
     create_session,
+    fetch_current_revisions,
     fetch_page,
+    fetch_pages_batch,
+    normalize_wiki_title,
     wiki_title_from_url,
 )
 
@@ -53,6 +56,170 @@ class TestWikiTitleFromUrl(unittest.TestCase):
         self.assertIsNone(wiki_title_from_url("https://example.com/wiki/Foo"))
 
 
+class TestNormalizeWikiTitle(unittest.TestCase):
+    def test_underscore_to_space(self):
+        self.assertEqual(
+            normalize_wiki_title("Dark_Magician"),
+            "Dark Magician",
+        )
+
+    def test_preserves_case(self):
+        self.assertEqual(
+            normalize_wiki_title("Card_Errata:Amazoness_Paladin"),
+            "Card Errata:Amazoness Paladin",
+        )
+
+
+class TestFetchPagesBatch(unittest.TestCase):
+    def setUp(self):
+        self.session = create_session()
+
+    def test_batch_returns_multiple_pages(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Dark Magician",
+                        "lastrevid": 10,
+                        "touched": "2024-01-01T00:00:00Z",
+                        "parse": {"text": {"*": "<html>dm</html>"}},
+                    },
+                    "2": {
+                        "title": "Blue-Eyes White Dragon",
+                        "lastrevid": 20,
+                        "parse": {"text": {"*": "<html>be</html>"}},
+                    },
+                }
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(self.session, "get", return_value=mock_response) as mock_get:
+            results = fetch_pages_batch(
+                self.session, ["Dark_Magician", "Blue-Eyes_White_Dragon"]
+            )
+
+        self.assertEqual(mock_get.call_count, 1)
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["action"], "query")
+        self.assertEqual(params["maxlag"], 5)
+        self.assertIn("Dark_Magician", params["titles"])
+        self.assertIsNone(results["Dark Magician"].error)
+        self.assertEqual(results["Dark Magician"].html, "<html>dm</html>")
+        self.assertEqual(results["Dark Magician"].revid, 10)
+
+    def test_batch_marks_missing_page(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "-1": {
+                        "title": "Missing Card",
+                        "missing": "",
+                    }
+                }
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(self.session, "get", return_value=mock_response):
+            results = fetch_pages_batch(self.session, ["Missing Card"])
+
+        self.assertIsNone(results["Missing Card"].html)
+        self.assertEqual(results["Missing Card"].error, "MissingPage")
+
+
+class TestFetchCurrentRevisions(unittest.TestCase):
+    def test_returns_revid_map(self):
+        session = create_session()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Dark Magician",
+                        "revisions": [{"revid": 42, "timestamp": "2024-01-01T00:00:00Z"}],
+                    }
+                }
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(session, "get", return_value=mock_response):
+            revs = fetch_current_revisions(session, ["Dark_Magician"])
+
+        self.assertEqual(revs["Dark Magician"]["revid"], 42)
+
+
+class TestBatchRetry429(unittest.TestCase):
+    @patch("ygo_app.yugipedia.http_client.time.sleep")
+    def test_retries_on_429_with_retry_after(self, mock_sleep):
+        session = create_session()
+        fail_response = MagicMock()
+        fail_response.status_code = 429
+        fail_response.headers = {"Retry-After": "2"}
+        fail_response.content = b"rate limited"
+        http_error = requests.HTTPError("429 Too Many Requests")
+        http_error.response = fail_response
+        fail_response.raise_for_status.side_effect = http_error
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Dark Magician",
+                        "parse": {"text": {"*": "<html>ok</html>"}},
+                    }
+                }
+            }
+        }
+        ok_response.raise_for_status = MagicMock()
+
+        with patch.object(session, "get", side_effect=[fail_response, ok_response]):
+            results = fetch_pages_batch(session, ["Dark_Magician"], retries=2)
+
+        self.assertEqual(results["Dark Magician"].html, "<html>ok</html>")
+        mock_sleep.assert_called()
+
+
+class TestBatchMaxlag(unittest.TestCase):
+    @patch("ygo_app.yugipedia.http_client.time.sleep")
+    def test_retries_on_maxlag_json_error(self, mock_sleep):
+        session = create_session()
+        lag_response = MagicMock()
+        lag_response.status_code = 200
+        lag_response.json.return_value = {
+            "error": {"code": "maxlag", "info": "Waiting", "lag": 7}
+        }
+        lag_response.raise_for_status = MagicMock()
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Dark Magician",
+                        "parse": {"text": {"*": "<html>ok</html>"}},
+                    }
+                }
+            }
+        }
+        ok_response.raise_for_status = MagicMock()
+
+        with patch.object(session, "get", side_effect=[lag_response, ok_response]):
+            results = fetch_pages_batch(session, ["Dark_Magician"], retries=2)
+
+        self.assertEqual(results["Dark Magician"].html, "<html>ok</html>")
+        mock_sleep.assert_called()
+
+
 class TestFetchPageParsePath(unittest.TestCase):
     def setUp(self):
         self.fixture_html = (FIXTURES / "black_feather_counter.html").read_text(
@@ -65,9 +232,16 @@ class TestFetchPageParsePath(unittest.TestCase):
     def test_uses_parse_api_without_wiki_fallback(self, mock_create_scraper):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.content = b'{"parse":{"text":{"*":"<html>parsed</html>"}}}'
+        mock_response.content = b'{"query":{"pages":{}}}'
         mock_response.json.return_value = {
-            "parse": {"text": {"*": self.fixture_html}}
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Black_Feather_Counter",
+                        "parse": {"text": {"*": self.fixture_html}},
+                    }
+                }
+            }
         }
         mock_response.raise_for_status = MagicMock()
 
@@ -78,8 +252,8 @@ class TestFetchPageParsePath(unittest.TestCase):
         self.assertEqual(html, self.fixture_html)
         mock_get.assert_called_once()
         call_kwargs = mock_get.call_args.kwargs
-        self.assertEqual(call_kwargs["params"]["action"], "parse")
-        self.assertEqual(call_kwargs["params"]["page"], "Black_Feather_Counter")
+        self.assertEqual(call_kwargs["params"]["action"], "query")
+        self.assertIn("Black_Feather_Counter", call_kwargs["params"]["titles"])
         self.assertEqual(mock_get.call_args.args[0], YUGIPEDIA_API_URL)
         mock_create_scraper.assert_not_called()
 
@@ -95,7 +269,16 @@ class TestFetchPageParsePath(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = b'{"error":{"info":"bad"}}'
-        mock_response.json.return_value = {"error": {"info": "bad"}}
+        mock_response.json.return_value = {
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Black_Feather_Counter",
+                        "missing": "",
+                    }
+                }
+            }
+        }
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(self.session, "get", return_value=mock_response):
@@ -120,7 +303,14 @@ class TestFetchPageParsePath(unittest.TestCase):
         ok_response.status_code = 200
         ok_response.content = b"{}"
         ok_response.json.return_value = {
-            "parse": {"text": {"*": "<html>ok</html>"}}
+            "query": {
+                "pages": {
+                    "1": {
+                        "title": "Black_Feather_Counter",
+                        "parse": {"text": {"*": "<html>ok</html>"}},
+                    }
+                }
+            }
         }
         ok_response.raise_for_status = MagicMock()
 

@@ -81,7 +81,7 @@ class TestMaxCardsPreservesCatalog(unittest.TestCase):
 
 
 class TestProcessSupplementsSkip(unittest.TestCase):
-    @patch("ygo_app.jobs.scrape_yugipedia_supplements._fetch_supplement_html")
+    @patch("ygo_app.yugipedia.supplements.fetch_supplement_html")
     def test_skips_unavailable_tips_after_timeout(self, mock_fetch):
         mock_fetch.side_effect = [
             (None, "HTTPError: 404 Client Error: Not Found"),
@@ -100,7 +100,7 @@ class TestProcessSupplementsSkip(unittest.TestCase):
         self.assertFalse(result["update"]["has_errata"])
         self.assertEqual(result["update"]["tips"], [])
 
-    @patch("ygo_app.jobs.scrape_yugipedia_supplements._fetch_supplement_html")
+    @patch("ygo_app.yugipedia.supplements.fetch_supplement_html")
     def test_no_http_when_detail_scrape_recorded_no_errata_page(self, mock_fetch):
         card = {
             "id": "483",
@@ -125,7 +125,7 @@ class TestProcessSupplementsSkip(unittest.TestCase):
         mock_fetch.assert_called_once()
         self.assertIn("Card_Tips", mock_fetch.call_args[0][1])
 
-    @patch("ygo_app.jobs.scrape_yugipedia_supplements._fetch_supplement_html")
+    @patch("ygo_app.yugipedia.supplements.fetch_supplement_html")
     def test_empty_tips_page_stores_empty_list(self, mock_fetch):
         empty_html = (
             FIXTURES / "tips_empty.html"

@@ -47,6 +47,8 @@ def is_retryable_error(error: str | None) -> bool:
         "503",
         "504",
         "500",
+        "429",
+        "maxlag",
         "pooltimeout",
         "workererror",
         "failed after",

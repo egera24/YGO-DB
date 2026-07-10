@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from ygo_app.jobs.scrape_yugipedia_set_chronology import scrape_set_chronology
 from ygo_app.yugipedia.details import scrape_card_details
 from ygo_app.yugipedia.scrape_progress import (
     BatchIncompleteError,
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         "--batch-count",
         type=int,
         default=None,
-        help="Total number of details batches (e.g. 6 for GHA)",
+        help="Total number of details batches (e.g. 2 for GHA)",
     )
     parser.add_argument(
         "--max-cards",
@@ -79,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.full or args.passcodes_only:
             run_passcode_scrape(output_path=input_path, max_cards=args.max_cards)
+
+        if args.full:
+            scrape_set_chronology()
 
         if args.full or args.details_only:
             if not input_path.exists():

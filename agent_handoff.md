@@ -57,8 +57,9 @@ flowchart TB
     Wiki[Yugipedia API + wiki pages] --> JSON["data/catalog/*.json"]
   end
   subgraph gha [GitHub Actions - chained jobs]
-    P[prepare] --> PC[passcodes] --> B0[scrape_batch_0..5] --> IMG[images] --> IM[import]
+    P[prepare] --> PC[passcodes] --> SC[set_chronology] --> B0[scrape_batch_0..1] --> IMG[images] --> IM[import]
     PC --> Art["artifact catalog-state"]
+    SC --> Art
     B0 --> Art --> IM
     IMG --> Man["artifact images-manifest"] --> IM
   end
@@ -273,7 +274,7 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 
 | Workflow | UI name | Notes |
 |----------|---------|-------|
-| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → scrape_batch_0..5 → images → import`; `BATCH_COUNT=6`; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
+| [`import-catalog-yugipedia.yml`](.github/workflows/import-catalog-yugipedia.yml) | Import Yugipedia catalog | `prepare → passcodes → set_chronology → scrape_batch_0..1 → images → import`; `BATCH_COUNT=2`; errata/tips inlined in detail scrape (no supplements GHA jobs); pip cache via [`.github/actions/yugipedia-python-deps`](.github/actions/yugipedia-python-deps/action.yml); revision-aware `--resume` skip; inputs `test_mode` + `card_limit` (default 500); **environment** `dev`\|`production`; scheduled 1st & 15th → prod. Repair CLI: `python -m ygo_app.jobs.scrape_yugipedia_supplements --resume`. Baseline: [`docs/yugipedia-scrape-baseline.md`](docs/yugipedia-scrape-baseline.md). `images` mirrors card art to R2 (skips without `S3_BUCKET` secret; import tolerates its failure) |
 | [`import-catalog-ygoprodeck.yml`](.github/workflows/import-catalog-ygoprodeck.yml) | Import YGO catalog (YGOProDeck fallback) | Manual emergency only |
 | [`sync-cardmarket-catalog.yml`](.github/workflows/sync-cardmarket-catalog.yml) | Sync Cardmarket catalog | Weekly Sun 04:00 UTC → **production**; downloads official S3 JSON, archives to R2 bucket `ygo-cardmarket` (`archives/`), matches Yugipedia printings, SCD import. `workflow_dispatch` + `environment` `dev`\|`production` |
 | [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `archives/cardmarket_prices_{ts}.zip` from R2 bucket `ygo-cardmarket` |
@@ -395,6 +396,9 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 **2026-06-21**
 - **Search preset save choice** — removed redundant **Clear preset** button (deselect via dropdown "— None —"). When a preset is selected, **Save** opens `#search-preset-save-modal` to **Overwrite** the active preset or **Save as new** (name prompt). Static `app.js?v=71`, `style.css?v=57`.
 
+**2026-07-10**
+- **Yugipedia scrape speedup** — MediaWiki batch parse (`fetch_pages_batch`, 50 titles/request, 3 req/s, maxlag/429 retry, gzip); errata/tips inlined during detail scrape ([`ygo_app/yugipedia/supplements.py`](ygo_app/yugipedia/supplements.py)); `page_revid`/`page_touched` + revision skip on `--resume`; GHA `BATCH_COUNT=2`, `set_chronology` before details, supplements jobs removed, 120 min detail timeouts, composite pip cache. `--full` catalog scrape runs set chronology after passcodes. Tests: `test_yugipedia_http_client.py`, `test_yugipedia_revision_skip.py`. Baseline run `29084640684` (~3h 53m) in [`docs/yugipedia-scrape-baseline.md`](docs/yugipedia-scrape-baseline.md).
+
 **2026-07-07**
 - **Formats, banlists, deck validation** — Alembic `015`: `formats`, `banlist_revisions`/`banlist_entries`, `genesys_point_lists`/`genesys_point_entries`, `card_format_legality`, deck `format_code`/`banlist_revision_id`/`genesys_point_list_id`. Packages: `ygo_app/formats/` (rules engine), `ygo_app/banlist/` (Konami EU JSON), `ygo_app/genesys/` (Yugipedia point lists). Jobs: `sync_banlists`, `sync_genesys_points`, `refresh_format_legality`. GHA: `sync-banlists.yml`, `sync-genesys-points.yml`; catalog import runs legality refresh. API: `GET /api/formats`, format-aware search/card detail, deck `validation` payload. UI: deck format/banlist selectors, validation panel, search format filter, format guide modal. Docs: [`docs/formats-and-banlists.md`](docs/formats-and-banlists.md). Static `app.js?v=104`.
 
@@ -466,7 +470,7 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 | Quoted phrase matched scattered words | Replaced FTS/`plainto_tsquery` with `search_query` ILIKE phrase compiler |
 | Search `total` wrong on large results | `COUNT` uses the same `compile_filter` as results |
 | `varchar(16)` too narrow | Migration `002` widens `rarity_code` |
-| GHA scrape canceled at 180 min | Chained jobs (`BATCH_COUNT=6`), per-job 60–90 min timeouts |
+| GHA scrape canceled at 180 min | Was chained `BATCH_COUNT=6` + separate supplements; now `BATCH_COUNT=2` with inline supplements, 120 min detail timeouts |
 | Scrape appeared stuck | `[HEARTBEAT]`/`[FAIL]`/`[BATCH_RESULT]` + pool & batch retries |
 | GHA import `ForeignKeyViolation` on `printings` | Detach/re-link `collection_items.printing_id`; run from `develop`, not Re-run |
 | GHA import skipped after test `scrape_batch_0` | `import` job needs `always()` when later batches skip (`3ef9be1`) |
@@ -488,7 +492,7 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 ```
 ygo_app/
   api/                 # FastAPI: main.py + routes/{auth,cards,collection,decks,formats,meta,search_presets}.py
-  yugipedia/           # passcodes, details, parsing, card_sets, adapter, card_import,
+  yugipedia/           # passcodes, details, supplements, parsing, card_sets, adapter, card_import,
                        #   images, http_client, scrape_progress, constants, paths
   card_filters.py      # advanced search SQL helpers
   jobs/
@@ -512,8 +516,10 @@ ygo_app/
 alembic/versions/  001 … 004_search_presets.py
 tests/                         # 23 unittest modules (search, presets, scrape, collection list/stats/rename, import/export CSV, …)
 .github/workflows/             # import-catalog-yugipedia.yml, import-cardmarket-prices.yml, …
+.github/actions/               # yugipedia-python-deps (setup-python pip cache)
 .cursor/rules/                 # github-actions-yugipedia-workflow-sync.mdc
-docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md
+docs/                          # LOCAL_DEV.md, ENVIRONMENTS.md, DEPLOY_FREE.md, yugipedia-scrape-baseline.md
+scripts/                       # gha_run_job_durations.py (GHA timing helper)
 yugipedia/                     # legacy standalone scrapers (NOT ygo_app/yugipedia)
 data/catalog/                  # gitignored scrape JSON
 ```
@@ -528,8 +534,9 @@ data/catalog/                  # gitignored scrape JSON
 | `GET /api/status` (auth) | `ready: true`; `cards` count TCG-printed only (< ~14k passcodes; ~500 in test_mode) |
 | Anonymous `GET /api/filters`, `/api/status`, `/api/cards/*` read routes | **401** Not authenticated |
 | `python -m unittest discover -s tests` | All pass |
-| GHA scrape (full) | Green `passcodes` + `scrape_batch_0..5` + `import`; each batch `[BATCH_RESULT] missing=0` |
-| GHA scrape (test) | Green `passcodes` + `scrape_batch_0` + `import`; batches 1–5 skipped; ~500 cards on dev |
+| GHA scrape (full) | Green `passcodes` + `set_chronology` + `scrape_batch_0..1` + `import`; each batch `[BATCH_RESULT] missing=0`; `[HEARTBEAT] rate=` ~3 req/s |
+| GHA scrape (test) | Green `passcodes` + `set_chronology` + `scrape_batch_0` + `import`; batch 1 skipped; ~500 cards on dev |
+| `python -m unittest discover -s tests -p "test_yugipedia*.py"` | All pass (83 tests) |
 | `GET /api/cards/{passcode}` | `image_url` host is `IMAGE_BASE_URL` (mirrored) or `ms.yugipedia.com` (fallback) — never `images.ygoprodeck.com` |
 | `GET /api/cards/search?q=reveal` | Cards whose name/desc/archetype contain `reveal` |
 | `GET /api/cards/search?q="You can reveal"` | Only the contiguous phrase (case-insensitive) |

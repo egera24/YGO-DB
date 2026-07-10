@@ -24,6 +24,12 @@ from ygo_app.yugipedia.errata import ERRATA_UI_LANGUAGE
 from ygo_app.yugipedia.set_chronology import set_abbr_from_code
 from ygo_app.import_progress import ProgressThrottle
 from ygo_app.utils import normalize_rarity_code, rarity_display
+from ygo_app.rarity_registry import (
+    rarity_label_for_error,
+    rarity_match_variants,
+    resolve_rarity,
+    variants_for_printing,
+)
 
 IMPORT_ERROR_COLUMN = "Import Error"
 
@@ -338,6 +344,73 @@ def _relink_collection_printing_links(session: Session) -> int:
     return result.rowcount or 0
 
 
+def refresh_collection_printing_links(session: Session) -> int:
+    """Re-attach all collection_items to printings by set_code + rarity_code."""
+    if is_postgres():
+        result = session.execute(
+            text(
+                """
+                UPDATE collection_items AS ci
+                SET printing_id = p.id
+                FROM printings AS p
+                WHERE p.set_code = ci.set_code
+                  AND p.set_rarity_code = ci.rarity_code
+                """
+            )
+        )
+    else:
+        result = session.execute(
+            text(
+                """
+                UPDATE collection_items
+                SET printing_id = (
+                    SELECT p.id FROM printings AS p
+                    WHERE p.set_code = collection_items.set_code
+                      AND p.set_rarity_code = collection_items.rarity_code
+                    LIMIT 1
+                )
+                WHERE EXISTS (
+                    SELECT 1 FROM printings AS p
+                    WHERE p.set_code = collection_items.set_code
+                      AND p.set_rarity_code = collection_items.rarity_code
+                )
+                """
+            )
+        )
+    return result.rowcount or 0
+
+
+def normalize_rarity_codes_in_db(session: Session) -> dict[str, int]:
+    """Canonicalize stored rarity codes and refresh collection printing links."""
+    printing_updates = 0
+    for printing in session.scalars(select(Printing)):
+        resolved = resolve_rarity(printing.set_rarity_code or "")
+        if resolved is None and printing.set_rarity:
+            resolved = resolve_rarity(printing.set_rarity)
+        if resolved is None:
+            continue
+        if printing.set_rarity_code != resolved.normalized_code:
+            printing.set_rarity_code = resolved.normalized_code
+            printing_updates += 1
+
+    collection_updates = 0
+    for item in session.scalars(select(CollectionItem)):
+        resolved = resolve_rarity(item.rarity_code)
+        if resolved is None:
+            continue
+        if item.rarity_code != resolved.normalized_code:
+            item.rarity_code = resolved.normalized_code
+            collection_updates += 1
+
+    session.flush()
+    relinked = refresh_collection_printing_links(session)
+    return {
+        "printings_updated": printing_updates,
+        "collection_items_updated": collection_updates,
+        "collection_links_refreshed": relinked,
+    }
+
+
 def reset_db():
     if is_sqlite() and engine.url.database:
         db_file = Path(engine.url.database)
@@ -409,10 +482,16 @@ def _card_natural_key(passcode: int | None, source_url: str | None) -> tuple[str
 
 
 def _printing_rarity_code(card_set: dict) -> str:
-    code = normalize_rarity_code(card_set.get("set_rarity_code", ""))
-    if code:
-        return code
+    code_raw = (card_set.get("set_rarity_code") or "").strip()
+    if code_raw:
+        resolved = resolve_rarity(code_raw)
+        if resolved is not None:
+            return resolved.normalized_code
+        return normalize_rarity_code(code_raw)
     label = (card_set.get("set_rarity") or "Unknown").strip()
+    resolved = resolve_rarity(label)
+    if resolved is not None:
+        return resolved.normalized_code
     if label.startswith("(") and label.endswith(")"):
         return label
     return f"({label})"
@@ -665,31 +744,50 @@ def import_cards_from_api(*, limit: int | None = None) -> tuple[int, int]:
     return import_cards_entries(entries, limit=limit)
 
 
-def _link_printing(session: Session, set_code: str, rarity_code: str) -> int | None:
-    stmt = (
-        select(Printing.id)
-        .where(Printing.set_code == set_code)
-        .where(Printing.set_rarity_code == rarity_code)
-        .limit(1)
-    )
-    row = session.execute(stmt).first()
-    return row[0] if row else None
+def _link_printing(session: Session, set_code: str, rarity_raw: str) -> int | None:
+    for variant in rarity_match_variants(rarity_raw):
+        stmt = (
+            select(Printing.id)
+            .where(Printing.set_code == set_code)
+            .where(Printing.set_rarity_code == variant)
+            .limit(1)
+        )
+        row = session.execute(stmt).first()
+        if row is not None:
+            return row[0]
+    return None
+
+
+def _lookup_printing_id_cached(
+    set_code: str,
+    rarity_raw: str,
+    printing_by_key: dict[tuple[str, str], int],
+) -> int | None:
+    for variant in rarity_match_variants(rarity_raw):
+        printing_id = printing_by_key.get((set_code, variant))
+        if printing_id is not None:
+            return printing_id
+    return None
 
 
 def _match_printing(
-    session: Session, set_code: str, rarity_code: str
+    session: Session, set_code: str, rarity_raw: str
 ) -> tuple[int | None, str | None]:
     if not set_code:
         return None, "Missing card number"
-    printing_id = _link_printing(session, set_code, rarity_code)
+    resolved = resolve_rarity(rarity_raw)
+    if (rarity_raw or "").strip() and resolved is None:
+        return None, f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'"
+    printing_id = _link_printing(session, set_code, rarity_raw)
     if printing_id is not None:
         return printing_id, None
     has_set = session.execute(
         select(Printing.id).where(Printing.set_code == set_code).limit(1)
     ).scalar()
     if has_set:
+        label = rarity_label_for_error(rarity_raw, resolved)
         return None, (
-            f"Rarity '{rarity_display(rarity_code)}' not found for set code '{set_code}'"
+            f"Rarity '{label}' not found for set code '{set_code}'"
         )
     return None, f"Set code '{set_code}' not found in catalog"
 
@@ -703,18 +801,22 @@ def _nonempty(value) -> str | None:
 
 def _match_printing_cached(
     set_code: str,
-    rarity_code: str,
+    rarity_raw: str,
     printing_by_key: dict[tuple[str, str], int],
     catalog_set_codes: set[str],
 ) -> tuple[int | None, str | None]:
     if not set_code:
         return None, "Missing card number"
-    printing_id = printing_by_key.get((set_code, rarity_code))
+    resolved = resolve_rarity(rarity_raw)
+    if (rarity_raw or "").strip() and resolved is None:
+        return None, f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'"
+    printing_id = _lookup_printing_id_cached(set_code, rarity_raw, printing_by_key)
     if printing_id is not None:
         return printing_id, None
     if set_code in catalog_set_codes:
+        label = rarity_label_for_error(rarity_raw, resolved)
         return None, (
-            f"Rarity '{rarity_display(rarity_code)}' not found for set code '{set_code}'"
+            f"Rarity '{label}' not found for set code '{set_code}'"
         )
     return None, f"Set code '{set_code}' not found in catalog"
 
@@ -876,9 +978,25 @@ def import_collection_csv(
     def _process_row(row: dict) -> None:
         nonlocal imported, merged
         set_code = (row.get("Card Number") or "").strip()
-        rarity_code = normalize_rarity_code(row.get("Rarity") or "")
+        rarity_raw = (row.get("Rarity") or "").strip()
+        resolved = resolve_rarity(rarity_raw)
+        if rarity_raw and resolved is None:
+            rejected.append(
+                {
+                    **row,
+                    IMPORT_ERROR_COLUMN: (
+                        f"Unknown rarity '{rarity_display(normalize_rarity_code(rarity_raw))}'"
+                    ),
+                }
+            )
+            return
+        rarity_code = (
+            resolved.normalized_code
+            if resolved is not None
+            else normalize_rarity_code(rarity_raw)
+        )
         printing_id, reason = _match_printing_cached(
-            set_code, rarity_code, printing_by_key, catalog_set_codes
+            set_code, rarity_raw, printing_by_key, catalog_set_codes
         )
         if reason:
             rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
@@ -961,13 +1079,17 @@ def import_collection_csv(
             }
         )
         for chunk in _chunked(wanted_set_codes, 1000):
-            for sc, rc, pid in session.execute(
-                select(Printing.set_code, Printing.set_rarity_code, Printing.id).where(
-                    Printing.set_code.in_(chunk)
-                )
+            for sc, rc, sr, pid in session.execute(
+                select(
+                    Printing.set_code,
+                    Printing.set_rarity_code,
+                    Printing.set_rarity,
+                    Printing.id,
+                ).where(Printing.set_code.in_(chunk))
             ).all():
-                printing_by_key.setdefault((sc, rc), pid)
                 catalog_set_codes.add(sc)
+                for variant in variants_for_printing(rc, sr):
+                    printing_by_key.setdefault((sc, variant), pid)
 
         # Preload the user's existing collection (with folder allocations) so
         # append merges happen in memory instead of one query per row.

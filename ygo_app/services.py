@@ -32,10 +32,39 @@ from ygo_app.search_query import (
     text_search_filter,
 )
 from ygo_app.utils import normalize_rarity_code, rarity_display
+from ygo_app.rarity_registry import rarity_match_variants, resolve_rarity
 
 
 class SearchPresetConflictError(Exception):
     """Raised when a preset name already exists for the user."""
+
+
+def find_printing_for_rarity(
+    session: Session, set_code: str, rarity_raw: str
+) -> Printing | None:
+    for variant in rarity_match_variants(rarity_raw):
+        printing = session.execute(
+            select(Printing)
+            .where(Printing.set_code == set_code)
+            .where(Printing.set_rarity_code == variant)
+            .limit(1)
+        ).scalars().first()
+        if printing is not None:
+            return printing
+    return None
+
+
+def resolve_collection_rarity(rarity_raw: str) -> tuple[str, str]:
+    """Return (canonical normalized code, raw display) or raise ValueError."""
+    text = (rarity_raw or "").strip()
+    if not text:
+        raise ValueError("Rarity is required")
+    resolved = resolve_rarity(text)
+    if resolved is None:
+        raise ValueError(
+            f"Unknown rarity '{rarity_display(normalize_rarity_code(text))}'"
+        )
+    return resolved.normalized_code, text
 
 
 def _preset_params_from_db(raw: str) -> dict[str, str]:
@@ -1607,7 +1636,7 @@ def update_deck(session: Session, deck: Deck, updates: dict) -> Deck:
 
 
 def add_collection_item(session: Session, user_id: int, data: dict) -> CollectionItem:
-    rarity_code = normalize_rarity_code(data["rarity"])
+    rarity_code, rarity_raw = resolve_collection_rarity(data["rarity"])
     quantity = data.get("quantity", 1)
     set_code = data["set_code"].strip()
     sell_price = (
@@ -1629,13 +1658,11 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         date_bought=data.get("date_bought"),
         sell_price=sell_price,
         notes=data.get("notes"),
-        printing_id=session.execute(
-            select(Printing.id)
-            .where(Printing.set_code == set_code)
-            .where(Printing.set_rarity_code == rarity_code)
-            .limit(1)
-        ).scalar(),
+        printing_id=None,
     )
+    printing = find_printing_for_rarity(session, set_code, rarity_raw)
+    if printing is not None:
+        item.printing_id = printing.id
     session.add(item)
     session.flush()
 
@@ -1689,18 +1716,18 @@ def _reassign_collection_item_printing(
     user_id: int,
     item: CollectionItem,
     set_code: str,
+    rarity_raw: str,
     rarity_code: str,
 ) -> None:
     """Move a collection row to another catalog printing (set code + rarity)."""
-    printing = session.execute(
-        select(Printing)
-        .where(Printing.set_code == set_code)
-        .where(Printing.set_rarity_code == rarity_code)
-        .limit(1)
-    ).scalars().first()
+    printing = find_printing_for_rarity(session, set_code, rarity_raw)
     if printing is None:
+        resolved = resolve_rarity(rarity_raw)
+        label = rarity_display(rarity_code)
+        if resolved is not None:
+            label = f"{label} ({resolved.name})"
         raise ValueError(
-            f"No catalog printing found for {set_code} ({rarity_display(rarity_code)})"
+            f"No catalog printing found for {set_code} ({label})"
         )
     duplicate = session.execute(
         select(CollectionItem.id)
@@ -1741,17 +1768,18 @@ def update_collection_item(
     new_rarity = data.pop("rarity", None)
     if new_set_code is not None or new_rarity is not None:
         set_code = (new_set_code or item.set_code).strip()
-        rarity_code = (
-            normalize_rarity_code(new_rarity)
-            if new_rarity is not None
-            else item.rarity_code
-        )
+        if new_rarity is not None:
+            rarity_code, rarity_raw = resolve_collection_rarity(new_rarity)
+        else:
+            rarity_code = item.rarity_code
+            rarity_raw = rarity_display(item.rarity_code)
         if set_code != item.set_code or rarity_code != item.rarity_code:
             _reassign_collection_item_printing(
                 session,
                 user_id=user_id,
                 item=item,
                 set_code=set_code,
+                rarity_raw=rarity_raw,
                 rarity_code=rarity_code,
             )
     old_quantity = item.quantity

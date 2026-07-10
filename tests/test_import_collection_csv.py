@@ -233,7 +233,83 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertEqual(result.imported, 0)
         self.assertEqual(len(result.rejected), 1)
         self.assertIn(
-            "Rarity 'ScR' not found for set code 'LOB-001'",
+            "ScR",
+            result.rejected[0][IMPORT_ERROR_COLUMN],
+        )
+        self.assertIn(
+            "not found for set code 'LOB-001'",
+            result.rejected[0][IMPORT_ERROR_COLUMN],
+        )
+
+    def test_import_resolves_short_print_alias(self):
+        session = self.Session()
+        session.add(
+            Printing(
+                card_id=89631139,
+                set_code="CROS-EN063",
+                set_rarity_code="(Short Print)",
+                set_rarity="Short Print",
+            )
+        )
+        session.commit()
+        session.close()
+
+        csv_path = Path(self._tmp.name).with_suffix(".sp.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "CROS-EN063", "Rarity": "SP", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(result.rejected, [])
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.rarity_code, "(SP)")
+
+    def test_import_resolves_cross_portal_quarter_century_alias(self):
+        session = self.Session()
+        session.add(
+            Printing(
+                card_id=89631139,
+                set_code="RA01-EN001",
+                set_rarity_code="(QCSR)",
+                set_rarity="Quarter Century Secret Rare",
+            )
+        )
+        session.commit()
+        session.close()
+
+        csv_path = Path(self._tmp.name).with_suffix(".qcsr.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "RA01-EN001", "Rarity": "QCScR", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(result.rejected, [])
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.rarity_code, "(QCSR)")
+
+    def test_rejects_unknown_rarity_code(self):
+        csv_path = Path(self._tmp.name).with_suffix(".unknown.csv")
+        self._write_csv(
+            csv_path,
+            [{"Card Number": "LOB-001", "Rarity": "ZZZ", "Card Name": "X", "Quantity": "1"}],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(len(result.rejected), 1)
+        self.assertIn(
+            "Unknown rarity 'ZZZ'",
             result.rejected[0][IMPORT_ERROR_COLUMN],
         )
 

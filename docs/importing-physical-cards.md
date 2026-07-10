@@ -83,21 +83,51 @@ Spreadsheet tips (Excel / Google Sheets / LibreOffice):
 Enter the rarity **plain** - the importer wraps it internally, so type `UR`, not
 `(UR)`.
 
-| Code   | Rarity                |
-| ------ | --------------------- |
-| `C`    | Common                |
-| `R`    | Rare                  |
-| `SR`   | Super Rare            |
-| `UR`   | Ultra Rare            |
-| `ScR`  | Secret Rare           |
-| `UtR`  | Ultimate Rare         |
-| `GR`   | Ghost Rare            |
-| `PScR` | Prismatic Secret Rare |
-| `QCScR`| Quarter Century Secret Rare |
+| Code    | Rarity                              |
+| ------- | ----------------------------------- |
+| `C`     | Common                              |
+| `R`     | Rare                                |
+| `SR`    | Super Rare                          |
+| `UR`    | Ultra Rare                          |
+| `ScR`   | Secret Rare                         |
+| `UtR`   | Ultimate Rare                       |
+| `GR`    | Ghost Rare                          |
+| `SP`    | Short Print                         |
+| `PlScR` | Platinum Secret Rare                |
+| `PScR`  | Prismatic Secret Rare               |
+| `DUPR`  | Duel Terminal Ultra Parallel Rare   |
+| `QCScR` | Quarter Century Secret Rare         |
 
-If a rarity is rejected, it usually means the code doesn't match how that printing
-is stored in the catalog - open the card in the app to confirm the exact rarity,
-then correct the CSV.
+The importer recognizes common abbreviations from DragonShield, YGOProDeck, and
+other portals. For example, `SP` matches catalog rows stored as Short Print, and
+`QCScR` matches `QCSR` / `QCR` variants.
+
+If a rarity is rejected:
+
+- `Unknown rarity '…'` — the abbreviation is not in the registry yet.
+- `Rarity '…' (Full Name) not found for set code '…'` — the abbreviation is known
+  but that printing is missing from the catalog (sync or Yugipedia import may be
+  needed).
+
+### Adding new portal abbreviations
+
+Edit [`ygo_app/data/rarity_aliases.json`](../ygo_app/data/rarity_aliases.json)
+and add an entry mapping the alias to the canonical rarity name:
+
+```json
+{
+  "aliases": [
+    { "alias": "NEWCODE", "canonical_name": "Grand Master Rare" }
+  ]
+}
+```
+
+Canonical names and codes are defined in the app's rarity registry (aligned with
+Cardmarket rarity tiers). After adding aliases, restart the app (or re-run import)
+so the registry reloads.
+
+> **Note:** `PScR` (Prismatic Secret Rare) and `PlScR` (Platinum Secret Rare) are
+> different rarities — do not interchange them.
 
 ## Importing the CSV
 
@@ -136,8 +166,10 @@ Rows that don't match are returned as a **rejected CSV** with an extra
 
 - `Set code 'XXX-EN000' not found in catalog` - the set code is mistyped or the
   set isn't in the catalog yet.
-- `Rarity 'UR' not found for set code 'XXX-EN000'` - the set code is right but the
-  rarity is wrong for that printing.
+- `Unknown rarity 'ZZZ'` — abbreviation not recognized; add it to
+  `ygo_app/data/rarity_aliases.json` or fix the CSV.
+- `Rarity 'UR' not found for set code 'XXX-EN000'` — the set code is right but the
+  rarity is wrong for that printing, or the printing is missing from the catalog.
 
 Workflow:
 
@@ -152,5 +184,16 @@ Workflow:
   Check whether the printing exists in the catalog before spending time on them.
 - **Rarity is part of the key**, so the same card in a different rarity is a
   different row. When in doubt, confirm the exact rarity in the app.
-- **The match is exact on `(Card Number, Rarity)`** - trailing spaces or wrong
-  casing on the rarity code can cause a reject.
+- **The match is exact on `(Card Number, Rarity)`** after alias resolution — trailing
+  spaces or wrong casing on an unrecognized rarity code can cause a reject.
+
+## Normalizing existing database rarity codes
+
+If catalog rows were imported before alias support (e.g. stored as `(Short Print)`
+instead of `(SP)`), run:
+
+```powershell
+python -m ygo_app.jobs.normalize_rarity_codes
+```
+
+Use `--dry-run` to preview how many rows would change.

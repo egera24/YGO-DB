@@ -7,6 +7,7 @@ import re
 from bs4 import BeautifulSoup, Tag
 
 from ygo_app.yugipedia.constants import RARITY_CODES
+from ygo_app.rarity_registry import rarity_code_for_name as registry_rarity_code_for_name
 
 # Yugipedia Card Timeline Set table suffixes for English TCG regions
 # (see Module:Data/static/region/data on yugipedia.com).
@@ -23,6 +24,9 @@ def _is_english_tcg_set_table(table_id: str | None) -> bool:
 
 def rarity_code_for(rarity_name: str) -> str:
     """Return short rarity code, or empty string if unknown (import uses full label)."""
+    code = registry_rarity_code_for_name(rarity_name)
+    if code:
+        return code
     return RARITY_CODES.get(rarity_name.strip(), "")
 
 

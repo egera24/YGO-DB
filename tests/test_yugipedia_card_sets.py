@@ -100,8 +100,8 @@ class TestExtractCardSets(unittest.TestCase):
             rarities,
             {"Platinum Secret Rare", "Quarter Century Secret Rare"},
         )
-        self.assertEqual(sets[0]["set_rarity_code"], "PScR")
-        self.assertEqual(sets[1]["set_rarity_code"], "QCR")
+        self.assertEqual(sets[0]["set_rarity_code"], "PlScR")
+        self.assertEqual(sets[1]["set_rarity_code"], "QCSR")
 
     def test_dual_rarity_spell(self):
         sets = self._sets_from_rows(DUAL_RARITY_SPELL_ROW)

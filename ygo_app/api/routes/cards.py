@@ -118,7 +118,7 @@ def search(
     points_max: int | None = None,
     sort: str = Query(
         "name",
-        pattern="^(name|passcode|release_date|owned_quantity)$",
+        pattern="^(name|passcode|release_date|owned_quantity|trade_quantity|total_quantity)$",
     ),
     sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     limit: int = Query(None, le=SEARCH_MAX_LIMIT),

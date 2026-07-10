@@ -16,7 +16,9 @@ from ygo_app.models import (
 )
 
 
-CARD_SEARCH_SORT_FIELDS = frozenset({"name", "passcode", "release_date", "owned_quantity"})
+CARD_SEARCH_SORT_FIELDS = frozenset(
+    {"name", "passcode", "release_date", "owned_quantity", "trade_quantity", "total_quantity"}
+)
 COLLECTION_SORT_FIELDS = frozenset(
     {
         "set_code",
@@ -64,11 +66,11 @@ def apply_sort_direction(
     return column.asc()
 
 
-def card_owned_quantity_subquery(user_id: int | None):
+def _card_quantity_subquery(user_id: int | None, sum_expr):
     if user_id is None:
         return literal(0)
     return (
-        select(func.coalesce(func.sum(CollectionItem.quantity), 0))
+        select(func.coalesce(func.sum(sum_expr), 0))
         .select_from(Printing)
         .join(
             CollectionItem,
@@ -79,6 +81,20 @@ def card_owned_quantity_subquery(user_id: int | None):
         .where(Printing.card_id == Card.id)
         .correlate(Card)
         .scalar_subquery()
+    )
+
+
+def card_owned_quantity_subquery(user_id: int | None):
+    return _card_quantity_subquery(user_id, CollectionItem.quantity)
+
+
+def card_trade_quantity_subquery(user_id: int | None):
+    return _card_quantity_subquery(user_id, CollectionItem.trade_quantity)
+
+
+def card_total_quantity_subquery(user_id: int | None):
+    return _card_quantity_subquery(
+        user_id, CollectionItem.quantity + CollectionItem.trade_quantity
     )
 
 
@@ -105,6 +121,12 @@ def build_card_search_order_by(
     if field == "owned_quantity":
         owned = card_owned_quantity_subquery(user_id)
         return [apply_sort_direction(owned, direction), tie]
+    if field == "trade_quantity":
+        trade = card_trade_quantity_subquery(user_id)
+        return [apply_sort_direction(trade, direction), tie]
+    if field == "total_quantity":
+        total = card_total_quantity_subquery(user_id)
+        return [apply_sort_direction(total, direction), tie]
     return [apply_sort_direction(Card.name, direction), tie]
 
 

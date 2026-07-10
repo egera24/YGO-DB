@@ -88,18 +88,21 @@ class TestSearchSort(unittest.TestCase):
                     set_code="OLD-EN001",
                     rarity_code="(C)",
                     quantity=2,
+                    trade_quantity=1,
                 ),
                 CollectionItem(
                     user_id=self.user_id,
                     set_code="NEW-EN001",
                     rarity_code="(C)",
                     quantity=5,
+                    trade_quantity=3,
                 ),
                 CollectionItem(
                     user_id=self.user_id,
                     set_code="MID-EN001",
                     rarity_code="(R)",
                     quantity=1,
+                    trade_quantity=5,
                 ),
             ]
         )
@@ -177,6 +180,24 @@ class TestSearchSort(unittest.TestCase):
     def test_sort_owned_quantity_without_user(self):
         self.assertEqual(
             self._ids(sort="owned_quantity", sort_dir="desc", user_id=None),
+            [3, 2, 1],
+        )
+
+    def test_sort_trade_quantity_asc(self):
+        self.assertEqual(self._ids(sort="trade_quantity", sort_dir="asc"), [3, 1, 2])
+
+    def test_sort_trade_quantity_desc(self):
+        self.assertEqual(self._ids(sort="trade_quantity", sort_dir="desc"), [2, 1, 3])
+
+    def test_sort_total_quantity_asc(self):
+        self.assertEqual(self._ids(sort="total_quantity", sort_dir="asc"), [3, 2, 1])
+
+    def test_sort_total_quantity_desc(self):
+        self.assertEqual(self._ids(sort="total_quantity", sort_dir="desc"), [1, 2, 3])
+
+    def test_sort_trade_quantity_without_user(self):
+        self.assertEqual(
+            self._ids(sort="trade_quantity", sort_dir="desc", user_id=None),
             [3, 2, 1],
         )
 

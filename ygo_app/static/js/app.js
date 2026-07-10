@@ -2597,27 +2597,114 @@ let searchHelpRepositionHandler = null;
 
 const SEARCH_HELP_DESKTOP_MQ = "(min-width: 800px)";
 
-const SEARCH_SYNTAX_ROWS = [
-  { example: "reveal", description: "Anywhere in name, description, or archetype" },
-  { example: '"You can reveal"', description: "Exact phrase (words adjacent)" },
-  { example: "reveal hand", description: "Both terms (AND)" },
-  { example: "reveal OR hand", description: "Either term" },
-  { example: "reveal -hand", description: "Include first term, exclude second" },
+const SEARCH_SYNTAX_SECTIONS = [
   {
-    example: "reveal NOT hand",
-    description: "Include first term, exclude second (alternate)",
+    title: "Basics",
+    rows: [
+      { example: "reveal", description: "Anywhere in name, description, or archetype" },
+      { example: '"You can reveal"', description: "Exact phrase (words adjacent)" },
+      { example: "reveal hand", description: "Both terms (AND)" },
+      { example: "reveal OR hand", description: "Either term" },
+      { example: "reveal -hand", description: "Include first term, exclude second" },
+      {
+        example: "reveal NOT hand",
+        description: "Include first term, exclude second (alternate)",
+      },
+      {
+        example: "millenn?um",
+        description: "<code>?</code> matches one character",
+        descriptionIsHtml: true,
+      },
+      {
+        example: "reveal*",
+        description: "<code>*</code> matches any characters",
+        descriptionIsHtml: true,
+      },
+      { example: "12345678", description: "Passcode when the whole query is digits" },
+      { example: "(reveal OR summon) hand", description: "Group with parentheses" },
+    ],
   },
   {
-    example: "millenn?um",
-    description: "<code>?</code> matches one character",
-    descriptionIsHtml: true,
+    title: "Fields",
+    rows: [
+      { example: "name:Utopia", description: "Search card name only" },
+      { example: "desc:destroy", description: "Search description only" },
+      { example: "archetype:Hero", description: "Search archetype only" },
+      { example: "summoning:\"2+ monsters\"", description: "Summoning condition text" },
+      { example: "text:reveal", description: "Explicit name + description + archetype" },
+      { example: "passcode:89631139", description: "Passcode inside a compound query" },
+    ],
   },
   {
-    example: "reveal*",
-    description: "<code>*</code> matches any characters",
-    descriptionIsHtml: true,
+    title: "Case sensitivity",
+    rows: [
+      {
+        example: "name:=Number",
+        description: "Case-sensitive match in name (e.g. Xyz Number cards)",
+        descriptionIsHtml: false,
+      },
+      {
+        example: 'name:="Number 39"',
+        description: "Case-sensitive phrase in name",
+      },
+      {
+        example: "name:number",
+        description: "Case-insensitive name search (also matches Number)",
+      },
+    ],
   },
-  { example: "12345678", description: "Passcode (digits only)" },
+  {
+    title: "Stats",
+    rows: [
+      { example: "atk:>=3000", description: "ATK greater than or equal to 3000" },
+      { example: "def:2000", description: "Exact DEF" },
+      { example: "level:4..8", description: "Level range (inclusive)" },
+      { example: "rank:2", description: "Exact rank" },
+      { example: "link:2", description: "Link rating" },
+      { example: "scale:1", description: "Pendulum scale" },
+    ],
+  },
+  {
+    title: "Properties",
+    rows: [
+      { example: "category:Monster", description: "Card category" },
+      { example: "type:Effect", description: "Monster / spell type label" },
+      { example: "mechanic:Xyz", description: "Summoning mechanic" },
+      { example: "attribute:DARK", description: "Monster attribute" },
+      { example: "cardtype:Spell", description: "Spell / Trap / Monster card type" },
+      { example: "markers:Top,Bottom", description: "Link markers (all required)" },
+      { example: "set:LOB", description: "Set code substring" },
+    ],
+  },
+  {
+    title: "Collection",
+    rows: [
+      { example: "tag:staple", description: "Your tag on a card (logged in)" },
+      { example: "owned:true", description: "Cards in your collection" },
+      { example: "favorite:true", description: "Your favorited cards" },
+    ],
+  },
+  {
+    title: "Format",
+    rows: [
+      { example: "format:Advanced", description: "Format-legal card pool" },
+      { example: "banlist:Forbidden", description: "Banlist status (with format)" },
+      { example: "points:>=5", description: "Genesys points (with format)" },
+    ],
+  },
+  {
+    title: "Combined example",
+    rows: [
+      {
+        example: "name:=Number mechanic:Xyz",
+        description: "Xyz Number cards by case-sensitive name + mechanic",
+      },
+      {
+        example: "name:=Number -desc:number",
+        description: "Number in name, exclude lowercase in description",
+      },
+    ],
+  },
 ];
 
 function prefersSearchHelpPopover() {
@@ -2638,40 +2725,119 @@ function searchHelpDismissButtonHtml() {
     </button>`;
 }
 
-function renderSearchHelpContent(container, titleId) {
-  if (!container) return;
-  const rows = SEARCH_SYNTAX_ROWS.map(
-    (row) => `
+function searchHelpIdPrefix(titleId) {
+  return titleId.replace(/-title$/, "");
+}
+
+function renderSearchHelpTableRows(rows) {
+  return rows
+    .map(
+      (row) => `
     <tr>
       <td class="search-help-example" data-example="${escapeHtml(row.example)}" tabindex="0" role="button" title="Use this example">
         <code>${escapeHtml(row.example)}</code>
       </td>
       <td>${row.descriptionIsHtml ? row.description : escapeHtml(row.description)}</td>
     </tr>`
+    )
+    .join("");
+}
+
+function initSearchHelpTabs(shell) {
+  const tablist = shell.querySelector(".search-help-tabs");
+  const tabs = [...shell.querySelectorAll(".search-help-tab")];
+  const panels = [...shell.querySelectorAll(".search-help-panel")];
+  const scrollWrap = shell.querySelector(".search-help-table-wrap");
+  if (!tablist || !tabs.length) return;
+
+  function activateTab(index) {
+    tabs.forEach((tab, i) => {
+      const selected = i === index;
+      tab.setAttribute("aria-selected", selected ? "true" : "false");
+      tab.tabIndex = selected ? 0 : -1;
+      tab.classList.toggle("active", selected);
+    });
+    panels.forEach((panel, i) => {
+      panel.hidden = i !== index;
+    });
+    if (scrollWrap) scrollWrap.scrollTop = 0;
+  }
+
+  tablist.addEventListener("click", (e) => {
+    const tab = e.target.closest(".search-help-tab");
+    if (!tab) return;
+    const index = tabs.indexOf(tab);
+    if (index >= 0) activateTab(index);
+  });
+
+  tablist.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const current = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+    if (current < 0) return;
+    const next =
+      e.key === "ArrowRight"
+        ? (current + 1) % tabs.length
+        : (current - 1 + tabs.length) % tabs.length;
+    e.preventDefault();
+    tabs[next].focus();
+    activateTab(next);
+  });
+}
+
+function renderSearchHelpContent(container, titleId) {
+  if (!container) return;
+  const prefix = searchHelpIdPrefix(titleId);
+
+  const tabsHtml = SEARCH_SYNTAX_SECTIONS.map(
+    (section, i) => `
+    <button
+      type="button"
+      class="search-help-tab${i === 0 ? " active" : ""}"
+      role="tab"
+      id="${escapeHtml(prefix)}-tab-${i}"
+      aria-selected="${i === 0 ? "true" : "false"}"
+      aria-controls="${escapeHtml(prefix)}-panel-${i}"
+      tabindex="${i === 0 ? "0" : "-1"}"
+    >${escapeHtml(section.title)}</button>`
   ).join("");
+
+  const panelsHtml = SEARCH_SYNTAX_SECTIONS.map((section, i) => {
+    const rows = renderSearchHelpTableRows(section.rows);
+    return `
+    <div
+      class="search-help-panel"
+      role="tabpanel"
+      id="${escapeHtml(prefix)}-panel-${i}"
+      aria-labelledby="${escapeHtml(prefix)}-tab-${i}"
+      ${i !== 0 ? "hidden" : ""}
+    >
+      <table class="search-help-table">
+        <thead>
+          <tr>
+            <th scope="col">Example</th>
+            <th scope="col">Description</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join("");
 
   container.innerHTML = `
     <div class="search-help-shell">
       <div class="search-help-topbar">
         <header class="search-help-header">
           <h2 id="${escapeHtml(titleId)}">Search syntax</h2>
-          <p class="muted">Search name, description, and archetype. Not case-sensitive.</p>
+          <p class="muted">Unqualified terms are case-insensitive. Use <code>field:=value</code> for case-sensitive matches.</p>
         </header>
         ${searchHelpDismissButtonHtml()}
       </div>
-      <div class="search-help-table-wrap">
-        <table class="search-help-table">
-          <thead>
-            <tr>
-              <th scope="col">Example</th>
-              <th scope="col">Description</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      <div class="search-help-tabs" role="tablist" aria-label="Search syntax sections">${tabsHtml}</div>
+      <div class="search-help-table-wrap">${panelsHtml}</div>
       <p class="search-help-footnote">Click an example to insert it, then press Enter or Search to run.</p>
     </div>`;
+
+  initSearchHelpTabs(container.querySelector(".search-help-shell"));
 
   if (!container.dataset.examplesBound) {
     container.dataset.examplesBound = "1";
@@ -2716,11 +2882,24 @@ function positionSearchHelpPopover() {
   if (!popover || popover.hidden || !anchor) return;
 
   const rect = anchor.getBoundingClientRect();
-  const width = Math.min(480, Math.max(rect.width, 320));
+  const width = Math.min(520, Math.max(rect.width, 320));
+  const margin = 8;
+  const gap = 6;
 
   popover.style.width = `${width}px`;
-  popover.style.top = `${rect.bottom + 6}px`;
-  popover.style.left = `${Math.max(8, rect.left)}px`;
+  popover.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))}px`;
+  popover.style.top = `${rect.bottom + gap}px`;
+
+  const popRect = popover.getBoundingClientRect();
+  const maxBottom = window.innerHeight - margin;
+  if (popRect.bottom > maxBottom) {
+    const aboveTop = rect.top - popRect.height - gap;
+    if (aboveTop >= margin) {
+      popover.style.top = `${aboveTop}px`;
+    } else {
+      popover.style.top = `${margin}px`;
+    }
+  }
 }
 
 function attachSearchHelpPopoverListeners() {

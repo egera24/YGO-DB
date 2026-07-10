@@ -801,7 +801,11 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .search-help-popover {
   position: fixed;
   z-index: 200;
-  max-width: min(30rem, calc(100vw - 1rem));
+  display: flex;
+  flex-direction: column;
+  max-width: min(36rem, calc(100vw - 1rem));
+  max-height: min(75vh, 560px);
+  overflow: hidden;
   padding: 0;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -813,8 +817,16 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 }
 .search-help-body {
   color: var(--text);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .search-help-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   padding: 1rem 1.25rem 1.25rem;
 }
 .search-help-topbar {
@@ -823,6 +835,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+  flex-shrink: 0;
 }
 .search-help-dismiss {
   flex-shrink: 0;
@@ -851,6 +864,11 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 }
 .modal-card--search-help {
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: min(36rem, calc(100vw - 2rem));
+  max-height: min(75vh, 560px);
+  overflow: hidden;
 }
 .icon-btn {
   flex-shrink: 0;
@@ -1077,7 +1095,44 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   font-size: 0.9rem;
 }
 .search-help-table-wrap {
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: auto;
+}
+.search-help-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+}
+.search-help-tab {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.search-help-tab.active,
+.search-help-tab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.search-help-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.search-help-panel[hidden] {
+  display: none;
 }
 .search-help-table {
   width: 100%;
@@ -1133,6 +1188,7 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   font-size: 0.85rem;
   color: var(--muted);
   line-height: 1.4;
+  flex-shrink: 0;
 }
 .search-help-table tbody td:last-child {
   color: var(--muted, #94a3b8);

@@ -31,6 +31,7 @@ from ygo_app.search_sort import (
     build_collection_order_by,
 )
 from ygo_app.search_query import (
+    SearchCompileContext,
     SearchQueryError,
     Term,
     compile_search_filter,
@@ -415,10 +416,16 @@ def search_cards(
                 select(func.count()).select_from(Card).where(Card.passcode == int(term))
             )
         else:
+            search_ctx = SearchCompileContext(
+                user_id=user_id,
+                session=session,
+                format_code=format_code,
+                dialect=session.get_bind().dialect.name,
+            )
             try:
-                filt = text_search_filter(term)
+                filt = text_search_filter(term, search_ctx)
             except SearchQueryError:
-                filt = compile_search_filter(Term(term))
+                filt = compile_search_filter(Term(term), search_ctx)
             if filt is not None:
                 stmt = stmt.where(filt)
                 count_stmt = count_stmt.where(filt)

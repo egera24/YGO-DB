@@ -162,7 +162,23 @@ JSON shape per card in `yugipedia_all_cards.json`:
 
 ### Text (`q` on `/api/cards/search`)
 
-Google-style query → case-insensitive `ILIKE` on `name` / `desc` / `archetype` via [`search_query.py`](ygo_app/search_query.py) (`Phrase`, `Term`, `And`, `Or`, `Not`, `?`, `*`). All-digit `q` → passcode only. Help: `#search-help-modal` + `?` button. Invalid syntax → plain term. FTS/`cards_fts` removed.
+Lucene-style query language via [`search_query.py`](ygo_app/search_query.py). Unqualified terms use case-insensitive `ILIKE` on `name` / `desc` / `archetype`. All-digit `q` alone → passcode only. Invalid syntax → plain term fallback. Help: `#search-help-modal` + `?` button (grouped sections).
+
+**Basics (unchanged):** `Phrase`, `Term`, implicit/explicit `AND`, `OR`, `NOT` / `-term`, `?`, `*`, parentheses.
+
+**Field qualifiers:** `name:`, `desc:`, `archetype:`, `summoning:`, `text:`, `passcode:` (aliases: `n`, `d`, `a`, `summon`, `id`).
+
+**Case sensitivity:** `name:=Number` — case-sensitive substring in name (`instr` / `LIKE` by dialect). `name:Number` stays case-insensitive.
+
+**Stats in `q`:** `atk:>=3000`, `def:2000`, `level:4..8`, `rank:`, `link:`, `scale:` / `pendulum_scale:`.
+
+**Properties in `q`:** `category:`, `type:`, `mechanic:`, `attribute:`, `race:`, `cardtype:`, `marker:` / `markers:Top,Bottom`, `set:`.
+
+**Collection (logged in):** `tag:`, `owned:true`, `favorite:true`.
+
+**Format (needs session + format context):** `format:`, `banlist:`, `points:>=N` — uses same rules as Advanced Filters; `banlist` / `points` require a format (from `q` or the `format=` API param).
+
+`q` is **AND**-merged with legacy query params (`category`, `atk_min`, `tag`, etc.) so presets and the Advanced Filters panel keep working.
 
 ### Yugipedia filters (advanced panel in UI)
 
@@ -419,7 +435,7 @@ Recent work, newest first. Keep the body above timeless; record dated changes he
 **2026-06-04**
 - **Advanced filter UI layout** — compact Category–Attribute dropdowns; Level/Rank/Link/Pendulum min/max `<select>` + `initStatRangeSelects()`; ATK/DEF numeric; `.filter-ranges` flex wrap (`gap: 1.5rem`). API/query params unchanged. Static-only (`style.css`, `app.js`, `index.html`).
 - **Yugipedia-native filters** — Alembic `003`; `card_import.py` maps scrape → `category`, `types`, `mechanic`, `rank`, `link_rating`, `pendulum_scale`, `link_markers`, `summoning_condition`; advanced search UI + `/api/filters` (no auth for catalog lists); `parse_skill_card`; assets `style.css?v=11`, `app.js?v=13`. **Re-import** after deploy to populate new columns (GHA workflow unchanged).
-- **Text search (`q`)** — `search_query.py` → `ILIKE`; removed `search_index.py` / `cards_fts` / `plainto_tsquery`.
+- **Text search (`q`)** — `search_query.py` Lucene-style field/range/boolean language; removed `search_index.py` / `cards_fts` / `plainto_tsquery`.
 - **Search help UI** — `?` button + `#search-help-modal`.
 - **TCG-only filter** — reject cards with empty `card_sets` in `details._process_card` + `adapter.yugipedia_entries_to_api`.
 - **Yugipedia images** — `extract_card_image` scrapes `ms.yugipedia.com` art from the metadata page; adapter uses scraped URLs with no YGOProDeck fallback.

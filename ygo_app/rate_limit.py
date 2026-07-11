@@ -2,41 +2,13 @@
 
 from __future__ import annotations
 
-import json
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from ygo_app.models import AuthRateLimit
-
-_DEBUG_LOG = Path(__file__).resolve().parent.parent / "debug-3b87b6.log"
-
-
-def _agent_log(location: str, message: str, data: dict, hypothesis_id: str, run_id: str = "pre-fix") -> None:
-    # #region agent log
-    try:
-        with _DEBUG_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(
-                json.dumps(
-                    {
-                        "sessionId": "3b87b6",
-                        "runId": run_id,
-                        "hypothesisId": hypothesis_id,
-                        "location": location,
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
 
 
 @dataclass(frozen=True)
@@ -87,34 +59,7 @@ def enforce_rate_limit(
     spec: RateLimitSpec,
     now: datetime | None = None,
 ) -> None:
-    # #region agent log
-    _agent_log(
-        "rate_limit.py:enforce_rate_limit",
-        "rate_limit_check_start",
-        {"key_prefix": key.split(":", 1)[0], "dialect": session.bind.dialect.name if session.bind else None},
-        "A",
-    )
-    # #endregion
-    try:
-        result = check_rate_limit(session, key, spec, now=now)
-    except Exception as exc:
-        # #region agent log
-        _agent_log(
-            "rate_limit.py:enforce_rate_limit",
-            "rate_limit_check_failed",
-            {"error_type": type(exc).__name__, "error": str(exc)[:500]},
-            "A",
-        )
-        # #endregion
-        raise
-    # #region agent log
-    _agent_log(
-        "rate_limit.py:enforce_rate_limit",
-        "rate_limit_check_ok",
-        {"allowed": result.allowed, "retry_after": result.retry_after_seconds},
-        "A",
-    )
-    # #endregion
+    result = check_rate_limit(session, key, spec, now=now)
     if not result.allowed:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,

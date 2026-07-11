@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,20 @@ from ygo_app.config import TURNSTILE_SITE_KEY
 from ygo_app.database import get_db
 from ygo_app.email import send_verification_code
 from ygo_app.models import PendingRegistration, User
+from ygo_app.oauth import (
+    SUPPORTED_PROVIDERS,
+    build_authorize_redirect,
+    create_oauth_exchange_token,
+    create_oauth_state,
+    exchange_code_and_fetch_profile,
+    list_enabled_providers,
+    oauth_error_redirect,
+    oauth_start_url,
+    oauth_success_redirect,
+    resolve_oauth_user,
+    verify_oauth_exchange_token,
+    verify_oauth_state,
+)
 from ygo_app.rate_limit import RateLimitSpec, enforce_rate_limit
 from ygo_app.turnstile import turnstile_required, verify_turnstile_token
 from ygo_app.verification import (
@@ -37,6 +52,8 @@ RESEND_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
 VERIFY_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
 LOGIN_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=900)
 LOGIN_EMAIL_LIMIT = RateLimitSpec(max_count=10, window_seconds=900)
+OAUTH_START_IP_LIMIT = RateLimitSpec(max_count=20, window_seconds=900)
+OAUTH_COMPLETE_IP_LIMIT = RateLimitSpec(max_count=20, window_seconds=900)
 
 
 class RegisterIn(BaseModel):
@@ -84,6 +101,17 @@ class UserOut(BaseModel):
 
 class AuthConfigOut(BaseModel):
     turnstile_site_key: str | None = None
+    oauth_providers: list["OAuthProviderOut"] = []
+
+
+class OAuthProviderOut(BaseModel):
+    id: str
+    name: str
+    start_url: str
+
+
+class OAuthCompleteIn(BaseModel):
+    exchange_token: str = Field(min_length=10)
 
 
 def _client_ip(request: Request) -> str:
@@ -126,7 +154,18 @@ def _start_pending_registration(
 
 @router.get("/config", response_model=AuthConfigOut)
 def auth_config():
-    return AuthConfigOut(turnstile_site_key=TURNSTILE_SITE_KEY)
+    oauth_providers = [
+        OAuthProviderOut(
+            id=provider.id,
+            name=provider.name,
+            start_url=oauth_start_url(provider.id),
+        )
+        for provider in list_enabled_providers()
+    ]
+    return AuthConfigOut(
+        turnstile_site_key=TURNSTILE_SITE_KEY,
+        oauth_providers=oauth_providers,
+    )
 
 
 @router.post("/register", response_model=NeedsVerificationOut, status_code=status.HTTP_200_OK)
@@ -145,7 +184,13 @@ def register(
     if turnstile_required() and not verify_turnstile_token(body.turnstile_token, client_ip):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Captcha verification failed")
 
-    if get_user_by_email(db, email):
+    existing = get_user_by_email(db, email)
+    if existing:
+        if existing.hashed_password is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "This email uses social sign-in. Continue with Google, Discord, GitHub, or Microsoft.",
+            )
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already registered")
 
     return _start_pending_registration(db, background_tasks, email, body.password)
@@ -228,6 +273,11 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
                 status.HTTP_403_FORBIDDEN,
                 detail={"code": "email_not_verified", "message": "Email not verified"},
             )
+        if user.hashed_password is None:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "This account uses social sign-in. Continue with Google, Discord, GitHub, or Microsoft.",
+            )
         if not verify_password(body.password, user.hashed_password):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
         return TokenOut(access_token=create_access_token(user.id))
@@ -249,3 +299,54 @@ def me(user: User = Depends(get_current_user)):
         email=user.email,
         email_verified=user.email_verified_at is not None,
     )
+
+
+@router.get("/oauth/{provider}/start")
+def oauth_start(provider: str, request: Request, db: Session = Depends(get_db)):
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "OAuth provider not supported")
+    client_ip = _client_ip(request)
+    enforce_rate_limit(db, f"oauth_start:ip:{client_ip}", OAUTH_START_IP_LIMIT)
+    db.commit()
+    state = create_oauth_state(provider)
+    return RedirectResponse(build_authorize_redirect(provider, state), status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/oauth/{provider}/callback")
+def oauth_callback(
+    provider: str,
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if provider not in SUPPORTED_PROVIDERS:
+        return RedirectResponse(oauth_error_redirect("OAuth provider not supported"))
+    if error:
+        return RedirectResponse(oauth_error_redirect("Sign-in was cancelled or denied."))
+    if not code or not state:
+        return RedirectResponse(oauth_error_redirect("Missing OAuth response."))
+    try:
+        verify_oauth_state(state, provider)
+        profile = exchange_code_and_fetch_profile(provider, code)
+        user = resolve_oauth_user(db, provider, profile)
+        exchange_token = create_oauth_exchange_token(user.id)
+        return RedirectResponse(oauth_success_redirect(exchange_token), status_code=status.HTTP_302_FOUND)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "OAuth sign-in failed."
+        return RedirectResponse(oauth_error_redirect(detail))
+    except Exception:
+        return RedirectResponse(oauth_error_redirect("OAuth sign-in failed. Please try again."))
+
+
+@router.post("/oauth/complete", response_model=TokenOut)
+def oauth_complete(body: OAuthCompleteIn, request: Request, db: Session = Depends(get_db)):
+    client_ip = _client_ip(request)
+    enforce_rate_limit(db, f"oauth_complete:ip:{client_ip}", OAUTH_COMPLETE_IP_LIMIT)
+    db.commit()
+    user_id = verify_oauth_exchange_token(body.exchange_token)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+    return TokenOut(access_token=create_access_token(user.id))

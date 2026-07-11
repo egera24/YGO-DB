@@ -465,10 +465,21 @@ function validatePasswordStrength(password) {
 }
 
 let authActiveTab = "login";
-let authConfig = { turnstile_site_key: null };
+let authConfig = { turnstile_site_key: null, oauth_providers: [] };
 let turnstileWidgetId = null;
 let pendingVerifyEmail = null;
 let resendCooldownInterval = null;
+
+const OAUTH_ICONS = {
+  google:
+    '<svg class="auth-oauth-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#EA4335" d="M12 10.2v3.6h5.1c-.2 1.2-1.6 3.6-5.1 3.6-3.1 0-5.6-2.6-5.6-5.8S8.9 5.8 12 5.8c1.8 0 3 .8 3.7 1.5l2.5-2.4C16.5 3.4 14.4 2.4 12 2.4 6.9 2.4 2.8 6.5 2.8 11.6S6.9 20.8 12 20.8c6.9 0 8.6-4.8 8.6-7.2 0-.5 0-.9-.1-1.2H12z"/><path fill="#34A853" d="M3.9 7.5l3 2.2c.8-2.4 2.9-4 5.1-4 .8 0 1.5.2 2.1.5l2.5-2.4C15.2 2.7 13.7 2 12 2 8.1 2 4.8 4.5 3.9 7.5z"/><path fill="#4A90E2" d="M12 22c3.2 0 5.9-1 7.9-2.8l-3.7-3c-1 .7-2.3 1.2-4.2 1.2-3.2 0-5.9-2.2-6.9-5.1l-3 2.3C5.4 19.8 8.4 22 12 22z"/><path fill="#FBBC05" d="M21.6 13.2c.1-.5.2-1 .2-1.6 0-.6-.1-1.1-.2-1.6H12v3.1h5.4c-.3 1.4-1.2 2.6-2.5 3.4l3.7 3c2.2-2 3.5-5 3.5-8.3z"/></svg>',
+  discord:
+    '<svg class="auth-oauth-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.3 4.4A17.7 17.7 0 0 0 15.5 3l-.2.4a16.2 16.2 0 0 1 7.7 0l-.2-.4a17.5 17.5 0 0 0-4.8 1.4A17.1 17.1 0 0 0 12 3c-.7 0-1.4.1-2.1.2a17.5 17.5 0 0 0-4.8-1.4l-.2.4a16.2 16.2 0 0 1 7.7 0l-.2-.4A17.7 17.7 0 0 0 8.5 3C4.7 4.1 1.6 6.7.1 10.1a17.8 17.8 0 0 0 5.4 7.2l.4-.5a11.4 11.4 0 0 1-1.7-2.6l.4.2a12.5 12.5 0 0 0 10.1 0l.4-.2a11.4 11.4 0 0 1-1.7 2.6l.4.5a17.8 17.8 0 0 0 5.4-7.2c-.6-1.9-1.6-3.6-3-5.1ZM8.7 14.1c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>',
+  github:
+    '<svg class="auth-oauth-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.9.6-3.5-1.2-3.5-1.2-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.4-1.1.7-1.4-2.3-.3-4.7-1.1-4.7-5.1 0-1.1.4-2 1.1-2.7-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.9 1a10 10 0 0 1 5.3 0c2-1.3 2.9-1 2.9-1 .6 1.4.2 2.4.1 2.7.7.7 1.1 1.6 1.1 2.7 0 4-2.4 4.8-4.7 5.1.4.3.8 1 .8 2v3c0 .3.2.6.7.5A10 10 0 0 0 12 2Z"/></svg>',
+  microsoft:
+    '<svg class="auth-oauth-icon" viewBox="0 0 24 24" aria-hidden="true"><rect fill="#F25022" x="2" y="2" width="9" height="9"/><rect fill="#7FBA00" x="13" y="2" width="9" height="9"/><rect fill="#00A4EF" x="2" y="13" width="9" height="9"/><rect fill="#FFB900" x="13" y="13" width="9" height="9"/></svg>',
+};
 
 function maskEmail(email) {
   const parts = String(email || "").split("@");
@@ -483,9 +494,103 @@ function maskEmail(email) {
 async function loadAuthConfig() {
   try {
     const res = await fetch(`${API}/auth/config`, { headers: { Accept: "application/json" } });
-    if (res.ok) authConfig = await res.json();
+    if (res.ok) {
+      authConfig = await res.json();
+      if (!Array.isArray(authConfig.oauth_providers)) {
+        authConfig.oauth_providers = [];
+      }
+    }
   } catch {
     /* optional */
+  }
+  renderOAuthButtons();
+}
+
+function renderOAuthButtons() {
+  const providers = authConfig.oauth_providers || [];
+  const hasOAuth = providers.length > 0;
+  for (const { containerId, dividerId } of [
+    { containerId: "auth-oauth-login", dividerId: "auth-divider-login" },
+    { containerId: "auth-oauth-register", dividerId: "auth-divider-register" },
+  ]) {
+    const container = $(`#${containerId}`);
+    const divider = $(`#${dividerId}`);
+    if (!container) continue;
+    container.innerHTML = "";
+    container.hidden = !hasOAuth;
+    if (divider) divider.classList.toggle("hidden", !hasOAuth);
+    if (!hasOAuth) continue;
+    for (const provider of providers) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "auth-oauth-btn secondary";
+      btn.setAttribute("aria-label", `Continue with ${provider.name}`);
+      btn.innerHTML = `${OAUTH_ICONS[provider.id] || ""}<span>Continue with ${provider.name}</span>`;
+      btn.addEventListener("click", () => {
+        clearAuthError();
+        window.location.href = provider.start_url;
+      });
+      container.appendChild(btn);
+    }
+  }
+}
+
+function parseOAuthHashParams() {
+  const raw = window.location.hash.replace(/^#/, "");
+  if (!raw) return null;
+  const params = new URLSearchParams(raw.includes("=") ? raw : "");
+  const exchange = params.get("oauth_exchange");
+  const error = params.get("oauth_error");
+  if (!exchange && !error) return null;
+  return { exchange, error };
+}
+
+function clearOAuthHash() {
+  const { pathname, search } = window.location;
+  history.replaceState(null, "", `${pathname}${search}`);
+}
+
+async function handleOAuthReturn() {
+  const oauthParams = parseOAuthHashParams();
+  if (!oauthParams) return false;
+
+  clearOAuthHash();
+  if (oauthParams.error) {
+    showAuthError(decodeURIComponent(oauthParams.error));
+    showToast(decodeURIComponent(oauthParams.error), {
+      variant: "error",
+      durationMs: 5000,
+    });
+    return true;
+  }
+
+  showAuthChecking();
+  try {
+    const data = await api("/auth/oauth/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ exchange_token: oauthParams.exchange }),
+    });
+    state.token = data.access_token;
+    localStorage.setItem("ygo_token", state.token);
+    state.user = await api("/auth/me");
+    setAuthenticatedShell(true);
+    updateAuthUI();
+    await bootstrapAuthenticatedApp();
+    return true;
+  } catch (err) {
+    state.token = null;
+    state.user = null;
+    localStorage.removeItem("ygo_token");
+    setAuthenticatedShell(false);
+    switchAuthTab("login");
+    showAuthLanding();
+    showAuthError(err.message || "Social sign-in failed.");
+    showToast(err.message || "Social sign-in failed.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+    return true;
   }
 }
 
@@ -7507,6 +7612,9 @@ async function init() {
   await loadAuthConfig();
   updateAuthUI();
   try {
+    if (await handleOAuthReturn()) {
+      return;
+    }
     if (state.token) {
       showAuthChecking();
       try {

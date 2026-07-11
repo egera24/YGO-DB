@@ -115,6 +115,17 @@ EMAIL_OTP_MAX_ATTEMPTS = int(os.getenv("EMAIL_OTP_MAX_ATTEMPTS", "5"))
 TURNSTILE_SITE_KEY = (os.getenv("TURNSTILE_SITE_KEY") or "").strip() or None
 TURNSTILE_SECRET_KEY = (os.getenv("TURNSTILE_SECRET_KEY") or "").strip() or None
 
+OAUTH_REDIRECT_BASE_URL = (os.getenv("OAUTH_REDIRECT_BASE_URL") or "http://localhost:8000").strip().rstrip("/")
+GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip() or None
+GOOGLE_CLIENT_SECRET = (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip() or None
+DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID") or "").strip() or None
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET") or "").strip() or None
+GITHUB_CLIENT_ID = (os.getenv("GITHUB_CLIENT_ID") or "").strip() or None
+GITHUB_CLIENT_SECRET = (os.getenv("GITHUB_CLIENT_SECRET") or "").strip() or None
+MICROSOFT_CLIENT_ID = (os.getenv("MICROSOFT_CLIENT_ID") or "").strip() or None
+MICROSOFT_CLIENT_SECRET = (os.getenv("MICROSOFT_CLIENT_SECRET") or "").strip() or None
+MICROSOFT_TENANT_ID = (os.getenv("MICROSOFT_TENANT_ID") or "common").strip() or "common"
+
 YGO_API_URL = os.getenv(
     "YGO_API_URL", "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 )

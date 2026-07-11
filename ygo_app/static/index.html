@@ -7,7 +7,7 @@
   <title>YGO Collection & Deck Builder</title>
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=97" />
+  <link rel="stylesheet" href="/static/css/style.css?v=98" />
 </head>
 <body>
   <header class="app-header">
@@ -64,6 +64,8 @@
         </div>
 
         <div id="auth-panel-login" class="auth-panel-view" role="tabpanel" aria-labelledby="auth-tab-login" tabindex="0">
+          <div id="auth-oauth-login" class="auth-oauth" hidden></div>
+          <p id="auth-divider-login" class="auth-divider hidden">or continue with email</p>
           <form id="auth-login-form" class="auth-form auth-form--stacked">
             <label for="login-email">Email</label>
             <input type="email" id="login-email" placeholder="you@example.com" required autocomplete="username" />
@@ -74,6 +76,8 @@
         </div>
 
         <div id="auth-panel-register" class="auth-panel-view hidden" role="tabpanel" aria-labelledby="auth-tab-register" hidden tabindex="0">
+          <div id="auth-oauth-register" class="auth-oauth" hidden></div>
+          <p id="auth-divider-register" class="auth-divider hidden">or continue with email</p>
           <form id="auth-register-form" class="auth-form auth-form--stacked">
             <label for="register-email">Email</label>
             <input type="email" id="register-email" placeholder="you@example.com" required autocomplete="email" />
@@ -912,6 +916,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=157" type="module"></script>
+  <script src="/static/js/app.js?v=158" type="module"></script>
 </body>
 </html>

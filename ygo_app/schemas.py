@@ -561,6 +561,7 @@ class PublicTradeItemOut(BaseModel):
     set_name: str | None
     rarity_code: str
     rarity_display: str | None = None
+    rarity_name: str | None = None
     condition: str | None
     trade_quantity: int
     sell_price: float | None = None

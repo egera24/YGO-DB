@@ -7,7 +7,7 @@
   <title>Trade list</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
   <link rel="stylesheet" href="/static/css/style.css?v=100" />
-  <link rel="stylesheet" href="/static/css/trade.css?v=5" />
+  <link rel="stylesheet" href="/static/css/trade.css?v=8" />
 </head>
 <body class="trade-page">
   <header class="trade-header">
@@ -28,9 +28,10 @@
   <main class="trade-main">
     <form id="trade-filter-form" class="trade-toolbar">
       <input type="search" id="trade-q" placeholder="Search name or set…" autocomplete="off" />
-      <select id="trade-set-code" aria-label="Filter by set code">
-        <option value="">All sets</option>
-      </select>
+      <div class="trade-set-combobox" id="trade-set-combobox">
+        <input type="text" id="trade-set-code" placeholder="All sets" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="trade-set-list" aria-label="Filter by set code" />
+        <div id="trade-set-list" class="trade-set-list" role="listbox" hidden></div>
+      </div>
       <select id="trade-sort" aria-label="Sort">
         <option value="set_code">Sort: Set code</option>
         <option value="card_name">Sort: Name</option>
@@ -179,6 +180,6 @@
 
   <div id="trade-toast" class="trade-toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/trade.js?v=5" defer></script>
+  <script src="/static/js/trade.js?v=9" defer></script>
 </body>
 </html>

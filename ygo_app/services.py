@@ -1203,7 +1203,11 @@ def _collection_item_row(
 ) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
     linked = item.linked_printing
-    rarity_name = linked.set_rarity if linked is not None else None
+    resolved = resolve_rarity(item.rarity_code)
+    if resolved is not None:
+        rarity_name = resolved.name
+    else:
+        rarity_name = linked.set_rarity if linked is not None else None
     row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
     row["condition"] = normalize_collection_condition(row.get("condition"))
     row["edition"] = normalize_collection_edition(row.get("edition"))
@@ -1927,6 +1931,30 @@ PUBLIC_TRADE_SORT_FIELDS = frozenset(
 )
 
 
+def _expansion_code_for_item(set_code: str, expansion_code: str | None = None) -> str:
+    for candidate in (expansion_code, set_code):
+        text = (candidate or "").strip()
+        if not text:
+            continue
+        if "-" in text:
+            return text.split("-", 1)[0]
+        return text
+    return ""
+
+
+def _apply_public_trade_expansion_filter(stmt, expansion: str):
+    expansion = expansion.strip()
+    if not expansion:
+        return stmt
+    return stmt.where(
+        or_(
+            CollectionItem.expansion_code == expansion,
+            CollectionItem.set_code.ilike(f"{expansion}-%"),
+            CollectionItem.set_code == expansion,
+        )
+    )
+
+
 def _build_public_trade_order_by(sort: str, sort_dir: str) -> list:
     field = sort if sort in PUBLIC_TRADE_SORT_FIELDS else "set_code"
     direction = sort_dir if sort_dir in ("asc", "desc") else "asc"
@@ -1994,6 +2022,7 @@ def _public_trade_item_row(item: CollectionItem, *, set_code_fallback: dict | No
         "set_name": row.get("set_name"),
         "rarity_code": row["rarity_code"],
         "rarity_display": row.get("rarity_display"),
+        "rarity_name": row.get("rarity_name"),
         "condition": row.get("condition"),
         "trade_quantity": row["trade_quantity"],
         "sell_price": row.get("sell_price"),
@@ -2026,7 +2055,7 @@ def list_public_trade_items(
             )
         )
     if set_code:
-        stmt = stmt.where(CollectionItem.set_code.ilike(f"%{set_code.strip()}%"))
+        stmt = _apply_public_trade_expansion_filter(stmt, set_code)
 
     total = session.execute(
         select(func.count()).select_from(stmt.subquery())
@@ -2064,15 +2093,22 @@ def list_public_trade_items(
 
 
 def public_trade_filters(session: Session, *, user_id: int) -> dict:
-    set_codes = session.execute(
-        select(CollectionItem.set_code)
+    rows = session.execute(
+        select(CollectionItem.set_code, CollectionItem.expansion_code)
         .where(
             CollectionItem.user_id == user_id,
             CollectionItem.trade_quantity > 0,
         )
         .distinct()
-        .order_by(CollectionItem.set_code)
-    ).scalars().all()
+    ).all()
+
+    expansion_codes = sorted(
+        {
+            code
+            for set_code, expansion_code in rows
+            if (code := _expansion_code_for_item(set_code, expansion_code))
+        }
+    )
 
     conditions = session.execute(
         select(CollectionItem.condition)
@@ -2087,7 +2123,7 @@ def public_trade_filters(session: Session, *, user_id: int) -> dict:
     ).scalars().all()
 
     return {
-        "set_codes": list(set_codes),
+        "set_codes": expansion_codes,
         "conditions": list(conditions),
     }
 

@@ -134,8 +134,48 @@ class TestPublicTrade(unittest.TestCase):
         item = payload["items"][0]
         self.assertEqual(item["item_id"], self.trade_item_id)
         self.assertEqual(item["trade_quantity"], 2)
+        self.assertEqual(item["rarity_code"], "(UR)")
+        self.assertEqual(item["rarity_display"], "UR")
+        self.assertEqual(item["rarity_name"], "Ultra Rare")
         self.assertNotIn("email", payload)
         self.assertNotIn("notes", item)
+
+    def test_public_trade_resolves_full_rarity_name_from_code_not_printing_label(self):
+        session = self.Session()
+        card = Card(id=83994646, name="4-Starred Ladybug of Doom")
+        session.add(card)
+        printing = Printing(
+            card_id=card.id,
+            set_code="DB1-EN198",
+            set_rarity_code="(C)",
+            set_rarity="C",
+        )
+        session.add(printing)
+        session.flush()
+        trade_item = CollectionItem(
+            user_id=self.owner.id,
+            set_code="DB1-EN198",
+            rarity_code="(C)",
+            card_name=card.name,
+            quantity=2,
+            trade_quantity=2,
+            condition="NearMint",
+            printing_id=printing.id,
+        )
+        session.add(trade_item)
+        session.commit()
+        session.close()
+
+        response = self.client.get("/api/public/trade/owner-trade-list")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], 2)
+        common_item = next(
+            item for item in payload["items"] if item["set_code"] == "DB1-EN198"
+        )
+        self.assertEqual(common_item["rarity_code"], "(C)")
+        self.assertEqual(common_item["rarity_display"], "C")
+        self.assertEqual(common_item["rarity_name"], "Common")
 
     def test_invalid_slug_returns_404(self):
         response = self.client.get("/api/public/trade/does-not-exist")
@@ -145,8 +185,88 @@ class TestPublicTrade(unittest.TestCase):
         response = self.client.get("/api/public/trade/owner-trade-list/filters")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["set_codes"], ["LOB-001"])
+        self.assertEqual(payload["set_codes"], ["LOB"])
         self.assertEqual(payload["conditions"], ["NearMint"])
+
+    def test_public_trade_filters_by_expansion_code(self):
+        session = self.Session()
+        card = Card(id=83994646, name="4-Starred Ladybug of Doom")
+        session.add(card)
+        session.add(
+            Printing(
+                card_id=card.id,
+                set_code="DB1-EN198",
+                set_rarity_code="(C)",
+                set_rarity="C",
+            )
+        )
+        session.flush()
+        session.add(
+            CollectionItem(
+                user_id=self.owner.id,
+                set_code="DB1-EN198",
+                expansion_code="DB1",
+                rarity_code="(C)",
+                card_name=card.name,
+                quantity=2,
+                trade_quantity=2,
+                condition="NearMint",
+            )
+        )
+        session.commit()
+        session.close()
+
+        filters = self.client.get("/api/public/trade/owner-trade-list/filters")
+        self.assertEqual(filters.status_code, 200)
+        self.assertEqual(sorted(filters.json()["set_codes"]), ["DB1", "LOB"])
+
+        response = self.client.get("/api/public/trade/owner-trade-list?set_code=DB1")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["items"][0]["set_code"], "DB1-EN198")
+
+        other = self.client.get("/api/public/trade/owner-trade-list?set_code=LOB")
+        self.assertEqual(other.status_code, 200)
+        self.assertEqual(other.json()["total"], 1)
+        self.assertEqual(other.json()["items"][0]["set_code"], "LOB-001")
+
+    def test_public_trade_filters_normalize_bad_expansion_code(self):
+        session = self.Session()
+        card = Card(id=34536976, name="A.I. Challenge You")
+        session.add(card)
+        session.add(
+            Printing(
+                card_id=card.id,
+                set_code="LIOV-EN076",
+                set_rarity_code="(C)",
+                set_rarity="C",
+            )
+        )
+        session.flush()
+        session.add(
+            CollectionItem(
+                user_id=self.owner.id,
+                set_code="LIOV-EN076",
+                expansion_code="LIOV-EN076",
+                rarity_code="(C)",
+                card_name=card.name,
+                quantity=4,
+                trade_quantity=4,
+                condition="NearMint",
+            )
+        )
+        session.commit()
+        session.close()
+
+        response = self.client.get("/api/public/trade/owner-trade-list/filters")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["set_codes"], ["LIOV", "LOB"])
+
+        filtered = self.client.get("/api/public/trade/owner-trade-list?set_code=LIOV")
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json()["total"], 1)
+        self.assertEqual(filtered.json()["items"][0]["set_code"], "LIOV-EN076")
 
     @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
     def test_order_request_happy_path(self, send_mock):

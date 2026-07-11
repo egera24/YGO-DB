@@ -17,6 +17,7 @@
     view: "list",
     sellerName: null,
     filtersLoaded: false,
+    setCodes: [],
     currency: "EUR",
     publicConfig: {
       turnstile_site_key: null,
@@ -150,6 +151,10 @@
 
   function getCurrencyCode() {
     return getSelectedCurrency();
+  }
+
+  function formatItemRarity(item) {
+    return item.rarity_name || item.rarity_display || item.rarity_code || "—";
   }
 
   function formatDisplayPrice(eurValue) {
@@ -309,7 +314,9 @@
     return {
       card_name: line.card_name || item.card_name || "Card",
       set_code: line.set_code ?? item.set_code ?? "",
+      rarity_code: line.rarity_code ?? item.rarity_code ?? "",
       rarity_display: line.rarity_display || item.rarity_display || item.rarity_code || "",
+      rarity_name: line.rarity_name || item.rarity_name || "",
       sell_price: line.sell_price ?? item.sell_price,
       image_url_small: line.image_url_small ?? item.image_url_small,
       trade_quantity: line.trade_quantity ?? item.trade_quantity ?? line.quantity ?? 1,
@@ -320,7 +327,9 @@
     return {
       card_name: item.card_name,
       set_code: item.set_code,
+      rarity_code: item.rarity_code,
       rarity_display: item.rarity_display || item.rarity_code || "",
+      rarity_name: item.rarity_name || "",
       sell_price: item.sell_price,
       image_url_small: item.image_url_small,
       trade_quantity: item.trade_quantity,
@@ -360,7 +369,7 @@
       <div class="trade-add-preview-thumb">${cardImgTag(item.image_url_small, item.card_name)}</div>
       <div class="trade-add-preview-info">
         <p class="trade-add-preview-name">${escapeHtml(item.card_name)}</p>
-        <p class="trade-add-preview-meta">${escapeHtml(item.set_code)} · ${escapeHtml(item.rarity_display || item.rarity_code || "")} · List ${formatDisplayPrice(item.sell_price)}</p>
+        <p class="trade-add-preview-meta">${escapeHtml(item.set_code)} · ${escapeHtml(formatItemRarity(item))} · List ${formatDisplayPrice(item.sell_price)}</p>
       </div>
     `;
 
@@ -472,7 +481,7 @@
               <div class="trade-cart-line-thumb">${cardImgTag(display.image_url_small, display.card_name)}</div>
               <div class="trade-cart-line-info">
                 <p class="trade-cart-line-title">${escapeHtml(display.card_name)}</p>
-                <p class="trade-cart-line-meta">${escapeHtml(display.set_code)} · ${escapeHtml(display.rarity_display)} · List ${formatDisplayPrice(display.sell_price)}</p>
+                <p class="trade-cart-line-meta">${escapeHtml(display.set_code)} · ${escapeHtml(formatItemRarity(display))} · List ${formatDisplayPrice(display.sell_price)}</p>
               </div>
             </div>
             <div class="trade-cart-line-fields">
@@ -559,7 +568,7 @@
           <td>${cardImgTag(item.image_url_small, item.card_name)}</td>
           <td>${escapeHtml(item.card_name)}</td>
           <td>${escapeHtml(item.set_code)}</td>
-          <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+          <td>${escapeHtml(formatItemRarity(item))}</td>
           <td>${escapeHtml(item.condition || "—")}</td>
           <td>${item.trade_quantity}</td>
           <td>${formatDisplayPrice(item.sell_price)}</td>
@@ -576,7 +585,7 @@
           <div class="card-tile-image-wrap">${cardImgTag(item.image_url_small, item.card_name)}</div>
           <div class="info">
             <div class="name" title="${escapeHtml(item.card_name)}">${escapeHtml(item.card_name)}</div>
-            <div>${escapeHtml(item.set_code)} · Qty ${item.trade_quantity}</div>
+            <div>${escapeHtml(item.set_code)} · ${escapeHtml(formatItemRarity(item))} · Qty ${item.trade_quantity}</div>
             <div>Price ${formatDisplayPrice(item.sell_price)}</div>
             <button type="button" class="secondary" data-add-cart="${item.item_id}">Add to cart</button>
           </div>
@@ -633,7 +642,7 @@
   function currentQueryParams() {
     return {
       q: $("#trade-q")?.value.trim() || undefined,
-      set_code: $("#trade-set-code")?.value || undefined,
+      set_code: $("#trade-set-code")?.value.trim() || undefined,
       sort: $("#trade-sort")?.value || "set_code",
       sort_dir: $("#trade-sort-dir")?.value || "asc",
       limit: state.limit,
@@ -652,18 +661,162 @@
     return qs ? `?${qs}` : "";
   }
 
+  let setCodeActiveIndex = -1;
+
+  function expansionCodeFromSetCode(setCode) {
+    const text = String(setCode ?? "").trim();
+    const idx = text.indexOf("-");
+    return idx > 0 ? text.slice(0, idx) : text;
+  }
+
+  function filterSetCodes(query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return state.setCodes.slice();
+    return state.setCodes.filter((code) => code.toLowerCase().includes(q));
+  }
+
+  function isSetCodeListOpen() {
+    const list = $("#trade-set-list");
+    return list && !list.hidden;
+  }
+
+  function closeSetCodeList() {
+    const list = $("#trade-set-list");
+    const input = $("#trade-set-code");
+    if (!list || list.hidden) return;
+    list.hidden = true;
+    setCodeActiveIndex = -1;
+    if (input) input.setAttribute("aria-expanded", "false");
+  }
+
+  function renderSetCodeList(query) {
+    const list = $("#trade-set-list");
+    const input = $("#trade-set-code");
+    if (!list) return;
+
+    const q = (query || "").trim();
+    const matches = filterSetCodes(q);
+    const parts = [];
+
+    if (!q) {
+      parts.push(
+        '<button type="button" class="trade-set-option" role="option" data-set-code="">All sets</button>'
+      );
+    }
+
+    matches.forEach((code) => {
+      parts.push(
+        `<button type="button" class="trade-set-option" role="option" data-set-code="${escapeHtml(code)}">${escapeHtml(code)}</button>`
+      );
+    });
+
+    if (!parts.length) {
+      parts.push('<p class="trade-set-empty">No matching sets</p>');
+    }
+
+    list.innerHTML = parts.join("");
+    list.hidden = false;
+    setCodeActiveIndex = -1;
+    if (input) input.setAttribute("aria-expanded", "true");
+  }
+
+  function openSetCodeList() {
+    const input = $("#trade-set-code");
+    renderSetCodeList(input?.value || "");
+  }
+
+  function selectSetCode(code) {
+    const input = $("#trade-set-code");
+    if (input) input.value = code;
+    closeSetCodeList();
+    input?.focus();
+  }
+
+  function highlightSetCodeOption(index) {
+    const list = $("#trade-set-list");
+    if (!list) return;
+    const options = list.querySelectorAll(".trade-set-option");
+    if (!options.length) return;
+    const next = Math.max(0, Math.min(options.length - 1, index));
+    setCodeActiveIndex = next;
+    options.forEach((el, i) => {
+      el.classList.toggle("is-active", i === next);
+      if (i === next) el.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  function bindSetCodeComboboxEvents() {
+    const input = $("#trade-set-code");
+    const list = $("#trade-set-list");
+    if (!input || !list) return;
+
+    input.addEventListener("focus", () => {
+      openSetCodeList();
+    });
+
+    input.addEventListener("click", () => {
+      if (!isSetCodeListOpen()) openSetCodeList();
+    });
+
+    input.addEventListener("input", () => {
+      renderSetCodeList(input.value);
+    });
+
+    input.addEventListener("keydown", (event) => {
+      const options = list.querySelectorAll(".trade-set-option");
+      if (event.key === "Escape") {
+        closeSetCodeList();
+        return;
+      }
+      if (!options.length) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (!isSetCodeListOpen()) {
+          openSetCodeList();
+          return;
+        }
+        highlightSetCodeOption(setCodeActiveIndex + 1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        highlightSetCodeOption(setCodeActiveIndex <= 0 ? 0 : setCodeActiveIndex - 1);
+        return;
+      }
+      if (event.key === "Enter" && isSetCodeListOpen() && setCodeActiveIndex >= 0) {
+        event.preventDefault();
+        const active = options[setCodeActiveIndex];
+        selectSetCode(active?.dataset.setCode ?? "");
+      }
+    });
+
+    list.addEventListener("mousedown", (event) => {
+      if (event.target.closest(".trade-set-option")) {
+        event.preventDefault();
+      }
+    });
+
+    list.addEventListener("click", (event) => {
+      const option = event.target.closest(".trade-set-option");
+      if (!option) return;
+      event.preventDefault();
+      selectSetCode(option.dataset.setCode ?? "");
+    });
+  }
+
   async function loadFilters() {
     if (!slug || state.filtersLoaded) return;
     const data = await api(`/api/public/trade/${encodeURIComponent(slug)}/filters`);
-    const select = $("#trade-set-code");
-    if (!select) return;
-    const current = select.value;
-    select.innerHTML =
-      '<option value="">All sets</option>' +
-      (data.set_codes || [])
-        .map((code) => `<option value="${escapeHtml(code)}">${escapeHtml(code)}</option>`)
-        .join("");
-    select.value = current;
+    const input = $("#trade-set-code");
+    const current = input?.value.trim() || "";
+    state.setCodes = [
+      ...new Set(
+        (data.set_codes || [])
+          .map((code) => expansionCodeFromSetCode(code))
+          .filter(Boolean)
+      ),
+    ].sort();
+    if (input) input.value = current;
     state.filtersLoaded = true;
   }
 
@@ -819,8 +972,11 @@
   }
 
   function bindEvents() {
+    bindSetCodeComboboxEvents();
+
     $("#trade-filter-form")?.addEventListener("submit", (event) => {
       event.preventDefault();
+      closeSetCodeList();
       state.offset = 0;
       loadItems().catch((err) => showLoadError(err.message));
     });
@@ -832,6 +988,10 @@
     });
 
     document.body.addEventListener("click", (event) => {
+      if (!event.target.closest("#trade-set-combobox") && isSetCodeListOpen()) {
+        closeSetCodeList();
+      }
+
       const infoBtn = event.target.closest(".trade-offer-info-btn");
       if (infoBtn) {
         event.preventDefault();
@@ -917,6 +1077,10 @@
 
     window.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
+      if (isSetCodeListOpen()) {
+        closeSetCodeList();
+        return;
+      }
       if (isOfferInfoPopoverOpen()) {
         closeOfferInfoPopover(true);
         return;

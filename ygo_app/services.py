@@ -14,6 +14,7 @@ from ygo_app.models import (
     Printing,
     PrintingMarketPrice,
     SearchPreset,
+    TcgSet,
     User,
     UserCardTag,
     UserFavorite,
@@ -2107,7 +2108,11 @@ def list_public_trade_items(
 
 def public_trade_filters(session: Session, *, user_id: int) -> dict:
     rows = session.execute(
-        select(CollectionItem.set_code, CollectionItem.expansion_code)
+        select(
+            CollectionItem.set_code,
+            CollectionItem.expansion_code,
+            CollectionItem.set_name,
+        )
         .where(
             CollectionItem.user_id == user_id,
             CollectionItem.trade_quantity > 0,
@@ -2115,12 +2120,31 @@ def public_trade_filters(session: Session, *, user_id: int) -> dict:
         .distinct()
     ).all()
 
-    expansion_codes = sorted(
-        {
-            code
-            for set_code, expansion_code in rows
-            if (code := _expansion_code_for_item(set_code, expansion_code))
-        }
+    expansion_names: dict[str, str | None] = {}
+    for set_code, expansion_code, set_name in rows:
+        code = _expansion_code_for_item(set_code, expansion_code)
+        if not code:
+            continue
+        if code not in expansion_names:
+            expansion_names[code] = (set_name or "").strip() or None
+        elif not expansion_names[code] and set_name:
+            expansion_names[code] = set_name.strip()
+
+    missing_names = [code for code, name in expansion_names.items() if not name]
+    if missing_names:
+        tcg_rows = session.execute(
+            select(TcgSet).where(TcgSet.abbr.in_(missing_names))
+        ).scalars().all()
+        for tcg_set in tcg_rows:
+            if tcg_set.abbr in expansion_names and not expansion_names[tcg_set.abbr]:
+                expansion_names[tcg_set.abbr] = tcg_set.name
+
+    sets = sorted(
+        [
+            {"expansion_code": code, "set_name": name}
+            for code, name in expansion_names.items()
+        ],
+        key=lambda row: (row["set_name"] or row["expansion_code"]).lower(),
     )
 
     conditions = session.execute(
@@ -2163,7 +2187,7 @@ def public_trade_filters(session: Session, *, user_id: int) -> dict:
     rarities.sort(key=lambda row: (row["rarity_name"] or row["rarity_code"]).lower())
 
     return {
-        "set_codes": expansion_codes,
+        "sets": sets,
         "conditions": list(conditions),
         "rarities": rarities,
     }

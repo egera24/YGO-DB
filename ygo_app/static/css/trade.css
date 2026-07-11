@@ -109,17 +109,17 @@
   background-repeat: no-repeat;
 }
 
-.trade-set-combobox {
+.trade-filter-combobox {
   position: relative;
   min-width: 6.5rem;
 }
 
-.trade-set-combobox #trade-set-code {
+.trade-filter-combobox input[type="text"] {
   width: 100%;
   min-width: 0;
 }
 
-.trade-set-list {
+.trade-filter-list {
   position: absolute;
   top: calc(100% + 0.25rem);
   left: 0;
@@ -135,11 +135,11 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
-.trade-set-list[hidden] {
+.trade-filter-list[hidden] {
   display: none;
 }
 
-.trade-set-option {
+.trade-filter-option {
   display: block;
   width: 100%;
   padding: 0.45rem 0.65rem;
@@ -151,13 +151,13 @@
   cursor: pointer;
 }
 
-.trade-set-option:hover,
-.trade-set-option.is-active {
+.trade-filter-option:hover,
+.trade-filter-option.is-active {
   background: rgba(255, 255, 255, 0.06);
   color: var(--accent);
 }
 
-.trade-set-empty {
+.trade-filter-empty {
   margin: 0;
   padding: 0.45rem 0.65rem;
   color: var(--muted);

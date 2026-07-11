@@ -17,7 +17,8 @@
     view: "list",
     sellerName: null,
     filtersLoaded: false,
-    setCodes: [],
+    sets: [],
+    rarities: [],
     currency: "EUR",
     publicConfig: {
       turnstile_site_key: null,
@@ -642,8 +643,8 @@
   function currentQueryParams() {
     return {
       q: $("#trade-q")?.value.trim() || undefined,
-      set_code: $("#trade-set-code")?.value.trim() || undefined,
-      rarity: $("#trade-rarity")?.value.trim() || undefined,
+      set_code: setCombobox.resolveValue() || undefined,
+      rarity: rarityCombobox.resolveValue() || undefined,
       sort: $("#trade-sort")?.value || "set_code",
       sort_dir: $("#trade-sort-dir")?.value || "asc",
       limit: state.limit,
@@ -662,7 +663,15 @@
     return qs ? `?${qs}` : "";
   }
 
-  let setCodeActiveIndex = -1;
+  function formatSetOptionLabel(set) {
+    const name = (set.set_name || "").trim();
+    const code = set.expansion_code;
+    return name ? `${name} (${code})` : code;
+  }
+
+  function formatRarityOptionLabel(rarity) {
+    return rarity.rarity_name || rarity.rarity_code || "—";
+  }
 
   function expansionCodeFromSetCode(setCode) {
     const text = String(setCode ?? "").trim();
@@ -670,171 +679,339 @@
     return idx > 0 ? text.slice(0, idx) : text;
   }
 
-  function filterSetCodes(query) {
-    const q = (query || "").trim().toLowerCase();
-    if (!q) return state.setCodes.slice();
-    return state.setCodes.filter((code) => code.toLowerCase().includes(q));
-  }
-
-  function isSetCodeListOpen() {
-    const list = $("#trade-set-list");
-    return list && !list.hidden;
-  }
-
-  function closeSetCodeList() {
-    const list = $("#trade-set-list");
-    const input = $("#trade-set-code");
-    if (!list || list.hidden) return;
-    list.hidden = true;
-    setCodeActiveIndex = -1;
-    if (input) input.setAttribute("aria-expanded", "false");
-  }
-
-  function renderSetCodeList(query) {
-    const list = $("#trade-set-list");
-    const input = $("#trade-set-code");
-    if (!list) return;
-
-    const q = (query || "").trim();
-    const matches = filterSetCodes(q);
-    const parts = [];
-
-    if (!q) {
-      parts.push(
-        '<button type="button" class="trade-set-option" role="option" data-set-code="">All sets</button>'
-      );
+  function normalizeFiltersSets(data) {
+    if (Array.isArray(data.sets) && data.sets.length) {
+      return data.sets.map((set) => ({
+        expansion_code: set.expansion_code,
+        set_name: set.set_name || null,
+      }));
     }
-
-    matches.forEach((code) => {
-      parts.push(
-        `<button type="button" class="trade-set-option" role="option" data-set-code="${escapeHtml(code)}">${escapeHtml(code)}</button>`
-      );
-    });
-
-    if (!parts.length) {
-      parts.push('<p class="trade-set-empty">No matching sets</p>');
+    if (Array.isArray(data.set_codes)) {
+      return data.set_codes.map((code) => ({
+        expansion_code: code,
+        set_name: null,
+      }));
     }
-
-    list.innerHTML = parts.join("");
-    list.hidden = false;
-    setCodeActiveIndex = -1;
-    if (input) input.setAttribute("aria-expanded", "true");
+    return [];
   }
 
-  function openSetCodeList() {
-    const input = $("#trade-set-code");
-    renderSetCodeList(input?.value || "");
-  }
-
-  function selectSetCode(code) {
-    const input = $("#trade-set-code");
-    if (input) input.value = code;
-    closeSetCodeList();
-    input?.focus();
-  }
-
-  function highlightSetCodeOption(index) {
-    const list = $("#trade-set-list");
-    if (!list) return;
-    const options = list.querySelectorAll(".trade-set-option");
-    if (!options.length) return;
-    const next = Math.max(0, Math.min(options.length - 1, index));
-    setCodeActiveIndex = next;
-    options.forEach((el, i) => {
-      el.classList.toggle("is-active", i === next);
-      if (i === next) el.scrollIntoView({ block: "nearest" });
-    });
-  }
-
-  function bindSetCodeComboboxEvents() {
-    const input = $("#trade-set-code");
-    const list = $("#trade-set-list");
-    if (!input || !list) return;
-
-    input.addEventListener("focus", () => {
-      openSetCodeList();
-    });
-
-    input.addEventListener("click", () => {
-      if (!isSetCodeListOpen()) openSetCodeList();
-    });
-
-    input.addEventListener("input", () => {
-      renderSetCodeList(input.value);
-    });
-
-    input.addEventListener("keydown", (event) => {
-      const options = list.querySelectorAll(".trade-set-option");
-      if (event.key === "Escape") {
-        closeSetCodeList();
-        return;
+  function enrichSetsFromItems() {
+    if (!state.items.length) return;
+    const byCode = new Map(state.sets.map((set) => [set.expansion_code, { ...set }]));
+    for (const item of state.items) {
+      const code = expansionCodeFromSetCode(item.set_code);
+      if (!code) continue;
+      const existing = byCode.get(code);
+      const setName = (item.set_name || "").trim() || null;
+      if (!existing) {
+        byCode.set(code, { expansion_code: code, set_name: setName });
+      } else if (!existing.set_name && setName) {
+        existing.set_name = setName;
       }
+    }
+    state.sets = [...byCode.values()].sort((a, b) =>
+      (a.set_name || a.expansion_code).localeCompare(b.set_name || b.expansion_code, undefined, {
+        sensitivity: "base",
+      })
+    );
+  }
+
+  function filterSetOptions(query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return state.sets.slice();
+    return state.sets.filter((set) => {
+      const label = formatSetOptionLabel(set).toLowerCase();
+      const code = set.expansion_code.toLowerCase();
+      const name = (set.set_name || "").toLowerCase();
+      return label.includes(q) || code.includes(q) || name.includes(q);
+    });
+  }
+
+  function filterRarityOptions(query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return state.rarities.slice();
+    return state.rarities.filter((row) => {
+      const label = formatRarityOptionLabel(row).toLowerCase();
+      const code = row.rarity_code.toLowerCase();
+      return label.includes(q) || code.includes(q);
+    });
+  }
+
+  function resolveSetFilterValue(text, storedValue) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return "";
+    const q = trimmed.toLowerCase();
+    if (storedValue) {
+      const stored = state.sets.find((set) => set.expansion_code === storedValue);
+      if (stored && formatSetOptionLabel(stored) === trimmed) {
+        return storedValue;
+      }
+    }
+    for (const set of state.sets) {
+      const label = formatSetOptionLabel(set);
+      const code = set.expansion_code;
+      const name = (set.set_name || "").trim();
+      if (
+        trimmed === label ||
+        q === code.toLowerCase() ||
+        (name && q === name.toLowerCase())
+      ) {
+        return code;
+      }
+    }
+    const partial = filterSetOptions(trimmed);
+    if (partial.length === 1) return partial[0].expansion_code;
+    return "";
+  }
+
+  function resolveRarityFilterValue(text, storedValue) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return "";
+    const q = trimmed.toLowerCase();
+    if (storedValue) {
+      const stored = state.rarities.find((row) => row.rarity_code === storedValue);
+      if (stored && formatRarityOptionLabel(stored) === trimmed) {
+        return storedValue;
+      }
+    }
+    for (const row of state.rarities) {
+      const label = formatRarityOptionLabel(row);
+      if (trimmed === label || q === row.rarity_code.toLowerCase()) {
+        return row.rarity_code;
+      }
+    }
+    const partial = filterRarityOptions(trimmed);
+    if (partial.length === 1) return partial[0].rarity_code;
+    return "";
+  }
+
+  function createFilterCombobox(config) {
+    let activeIndex = -1;
+
+    function inputEl() {
+      return $(config.inputSel);
+    }
+
+    function listEl() {
+      return $(config.listSel);
+    }
+
+    function isOpen() {
+      const list = listEl();
+      return list && !list.hidden;
+    }
+
+    function close() {
+      const list = listEl();
+      const input = inputEl();
+      if (!list || list.hidden) return;
+      list.hidden = true;
+      activeIndex = -1;
+      if (input) input.setAttribute("aria-expanded", "false");
+    }
+
+    function labelForValue(value) {
+      if (!value) return "";
+      const option = config.getOptions().find((row) => config.getValue(row) === value);
+      return option ? config.getLabel(option) : "";
+    }
+
+    function select(value) {
+      const input = inputEl();
+      if (!input) return;
+      if (!value) {
+        input.value = "";
+        input.dataset.filterValue = "";
+      } else {
+        input.dataset.filterValue = value;
+        input.value = labelForValue(value);
+      }
+      close();
+      input.focus();
+    }
+
+    function renderList(query) {
+      const list = listEl();
+      const input = inputEl();
+      if (!list) return;
+
+      const q = (query || "").trim();
+      const matches = config.filterOptions(q);
+      const parts = [];
+
+      if (!q) {
+        parts.push(
+          `<button type="button" class="trade-filter-option" role="option" data-filter-value="">${escapeHtml(config.allLabel)}</button>`
+        );
+      }
+
+      matches.forEach((option) => {
+        const value = config.getValue(option);
+        const label = config.getLabel(option);
+        parts.push(
+          `<button type="button" class="trade-filter-option" role="option" data-filter-value="${escapeHtml(value)}">${escapeHtml(label)}</button>`
+        );
+      });
+
+      if (!parts.length) {
+        parts.push(`<p class="trade-filter-empty">${escapeHtml(config.emptyMessage)}</p>`);
+      }
+
+      list.innerHTML = parts.join("");
+      list.hidden = false;
+      activeIndex = -1;
+      if (input) input.setAttribute("aria-expanded", "true");
+    }
+
+    function open() {
+      renderList(inputEl()?.value || "");
+    }
+
+    function highlightOption(index) {
+      const list = listEl();
+      if (!list) return;
+      const options = list.querySelectorAll(".trade-filter-option");
       if (!options.length) return;
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        if (!isSetCodeListOpen()) {
-          openSetCodeList();
+      const next = Math.max(0, Math.min(options.length - 1, index));
+      activeIndex = next;
+      options.forEach((el, i) => {
+        el.classList.toggle("is-active", i === next);
+        if (i === next) el.scrollIntoView({ block: "nearest" });
+      });
+    }
+
+    function resolveValue() {
+      const input = inputEl();
+      if (!input) return "";
+      const text = input.value.trim();
+      const stored = input.dataset.filterValue || "";
+      const resolved = config.resolveValue(text, stored);
+      if (resolved) {
+        input.dataset.filterValue = resolved;
+        input.value = labelForValue(resolved);
+      } else if (!text) {
+        input.dataset.filterValue = "";
+      }
+      return resolved;
+    }
+
+    function bindEvents() {
+      const input = inputEl();
+      const list = listEl();
+      if (!input || !list) return;
+
+      input.addEventListener("focus", () => {
+        open();
+      });
+
+      input.addEventListener("click", () => {
+        if (!isOpen()) open();
+      });
+
+      input.addEventListener("input", () => {
+        input.dataset.filterValue = "";
+        renderList(input.value);
+      });
+
+      input.addEventListener("keydown", (event) => {
+        const options = list.querySelectorAll(".trade-filter-option");
+        if (event.key === "Escape") {
+          close();
           return;
         }
-        highlightSetCodeOption(setCodeActiveIndex + 1);
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        highlightSetCodeOption(setCodeActiveIndex <= 0 ? 0 : setCodeActiveIndex - 1);
-        return;
-      }
-      if (event.key === "Enter" && isSetCodeListOpen() && setCodeActiveIndex >= 0) {
-        event.preventDefault();
-        const active = options[setCodeActiveIndex];
-        selectSetCode(active?.dataset.setCode ?? "");
-      }
-    });
+        if (!options.length) return;
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (!isOpen()) {
+            open();
+            return;
+          }
+          highlightOption(activeIndex + 1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          highlightOption(activeIndex <= 0 ? 0 : activeIndex - 1);
+          return;
+        }
+        if (event.key === "Enter" && isOpen() && activeIndex >= 0) {
+          event.preventDefault();
+          const active = options[activeIndex];
+          select(active?.dataset.filterValue ?? "");
+        }
+      });
 
-    list.addEventListener("mousedown", (event) => {
-      if (event.target.closest(".trade-set-option")) {
-        event.preventDefault();
-      }
-    });
+      list.addEventListener("mousedown", (event) => {
+        if (event.target.closest(".trade-filter-option")) {
+          event.preventDefault();
+        }
+      });
 
-    list.addEventListener("click", (event) => {
-      const option = event.target.closest(".trade-set-option");
-      if (!option) return;
-      event.preventDefault();
-      selectSetCode(option.dataset.setCode ?? "");
-    });
+      list.addEventListener("click", (event) => {
+        const option = event.target.closest(".trade-filter-option");
+        if (!option) return;
+        event.preventDefault();
+        select(option.dataset.filterValue ?? "");
+      });
+    }
+
+    return { bindEvents, close, open, isOpen, resolveValue, select };
   }
+
+  const setCombobox = createFilterCombobox({
+    inputSel: "#trade-set-code",
+    listSel: "#trade-set-list",
+    allLabel: "All sets",
+    emptyMessage: "No matching sets",
+    getOptions: () => state.sets,
+    getLabel: formatSetOptionLabel,
+    getValue: (set) => set.expansion_code,
+    filterOptions: filterSetOptions,
+    resolveValue: resolveSetFilterValue,
+  });
+
+  const rarityCombobox = createFilterCombobox({
+    inputSel: "#trade-rarity",
+    listSel: "#trade-rarity-list",
+    allLabel: "All rarities",
+    emptyMessage: "No matching rarities",
+    getOptions: () => state.rarities,
+    getLabel: formatRarityOptionLabel,
+    getValue: (row) => row.rarity_code,
+    filterOptions: filterRarityOptions,
+    resolveValue: resolveRarityFilterValue,
+  });
 
   async function loadFilters() {
     if (!slug || state.filtersLoaded) return;
     const data = await api(`/api/public/trade/${encodeURIComponent(slug)}/filters`);
-    const input = $("#trade-set-code");
-    const current = input?.value.trim() || "";
-    state.setCodes = [
-      ...new Set(
-        (data.set_codes || [])
-          .map((code) => expansionCodeFromSetCode(code))
-          .filter(Boolean)
-      ),
-    ].sort();
-    if (input) input.value = current;
 
-    const raritySelect = $("#trade-rarity");
-    const currentRarity = raritySelect?.value || "";
-    if (raritySelect) {
-      const options = ['<option value="">All rarities</option>'];
-      (data.rarities || []).forEach((row) => {
-        const label = row.rarity_name || row.rarity_code || "—";
-        options.push(
-          `<option value="${escapeHtml(row.rarity_code)}">${escapeHtml(label)}</option>`
-        );
-      });
-      raritySelect.innerHTML = options.join("");
-      const validValues = new Set(
-        (data.rarities || []).map((row) => row.rarity_code)
-      );
-      raritySelect.value =
-        currentRarity && validValues.has(currentRarity) ? currentRarity : "";
+    const setInput = $("#trade-set-code");
+    const currentSetValue = setInput?.dataset.filterValue || "";
+    state.sets = normalizeFiltersSets(data);
+
+    if (setInput) {
+      if (currentSetValue && state.sets.some((set) => set.expansion_code === currentSetValue)) {
+        setCombobox.select(currentSetValue);
+      } else {
+        setInput.value = setInput.value.trim();
+        setInput.dataset.filterValue = "";
+      }
+    }
+
+    const rarityInput = $("#trade-rarity");
+    const currentRarityValue = rarityInput?.dataset.filterValue || "";
+    state.rarities = data.rarities || [];
+    if (rarityInput) {
+      if (
+        currentRarityValue &&
+        state.rarities.some((row) => row.rarity_code === currentRarityValue)
+      ) {
+        rarityCombobox.select(currentRarityValue);
+      } else {
+        rarityInput.value = rarityInput.value.trim();
+        rarityInput.dataset.filterValue = "";
+      }
     }
 
     state.filtersLoaded = true;
@@ -854,6 +1031,8 @@
     state.limit = data.limit || state.limit;
     state.offset = data.offset || 0;
     state.sellerName = data.seller?.display_name || null;
+
+    enrichSetsFromItems();
 
     const title = $("#trade-title");
     const subtitle = $("#trade-subtitle");
@@ -992,11 +1171,13 @@
   }
 
   function bindEvents() {
-    bindSetCodeComboboxEvents();
+    setCombobox.bindEvents();
+    rarityCombobox.bindEvents();
 
     $("#trade-filter-form")?.addEventListener("submit", (event) => {
       event.preventDefault();
-      closeSetCodeList();
+      setCombobox.close();
+      rarityCombobox.close();
       state.offset = 0;
       loadItems().catch((err) => showLoadError(err.message));
     });
@@ -1008,8 +1189,11 @@
     });
 
     document.body.addEventListener("click", (event) => {
-      if (!event.target.closest("#trade-set-combobox") && isSetCodeListOpen()) {
-        closeSetCodeList();
+      if (!event.target.closest("#trade-set-combobox") && setCombobox.isOpen()) {
+        setCombobox.close();
+      }
+      if (!event.target.closest("#trade-rarity-combobox") && rarityCombobox.isOpen()) {
+        rarityCombobox.close();
       }
 
       const infoBtn = event.target.closest(".trade-offer-info-btn");
@@ -1097,8 +1281,12 @@
 
     window.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if (isSetCodeListOpen()) {
-        closeSetCodeList();
+      if (setCombobox.isOpen()) {
+        setCombobox.close();
+        return;
+      }
+      if (rarityCombobox.isOpen()) {
+        rarityCombobox.close();
         return;
       }
       if (isOfferInfoPopoverOpen()) {

@@ -185,7 +185,10 @@ class TestPublicTrade(unittest.TestCase):
         response = self.client.get("/api/public/trade/owner-trade-list/filters")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["set_codes"], ["LOB"])
+        self.assertEqual(
+            payload["sets"],
+            [{"expansion_code": "LOB", "set_name": None}],
+        )
         self.assertEqual(payload["conditions"], ["NearMint"])
         self.assertEqual(
             payload["rarities"],
@@ -222,7 +225,10 @@ class TestPublicTrade(unittest.TestCase):
 
         filters = self.client.get("/api/public/trade/owner-trade-list/filters")
         self.assertEqual(filters.status_code, 200)
-        self.assertEqual(sorted(filters.json()["set_codes"]), ["DB1", "LOB"])
+        self.assertEqual(
+            sorted(row["expansion_code"] for row in filters.json()["sets"]),
+            ["DB1", "LOB"],
+        )
 
         response = self.client.get("/api/public/trade/owner-trade-list?set_code=DB1")
         self.assertEqual(response.status_code, 200)
@@ -326,7 +332,10 @@ class TestPublicTrade(unittest.TestCase):
 
         response = self.client.get("/api/public/trade/owner-trade-list/filters")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["set_codes"], ["LIOV", "LOB"])
+        self.assertEqual(
+            sorted(row["expansion_code"] for row in response.json()["sets"]),
+            ["LIOV", "LOB"],
+        )
 
         filtered = self.client.get("/api/public/trade/owner-trade-list?set_code=LIOV")
         self.assertEqual(filtered.status_code, 200)

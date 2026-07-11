@@ -581,8 +581,13 @@ class PublicTradeRarityOptionOut(BaseModel):
     rarity_name: str | None = None
 
 
+class PublicTradeSetOptionOut(BaseModel):
+    expansion_code: str
+    set_name: str | None = None
+
+
 class PublicTradeFiltersOut(BaseModel):
-    set_codes: list[str] = Field(default_factory=list)
+    sets: list[PublicTradeSetOptionOut] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
     rarities: list[PublicTradeRarityOptionOut] = Field(default_factory=list)
 

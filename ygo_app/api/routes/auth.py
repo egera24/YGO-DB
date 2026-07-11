@@ -1,4 +1,7 @@
+import json
+import time
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -44,6 +47,31 @@ from ygo_app.verification import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+_DEBUG_LOG = Path(__file__).resolve().parent.parent.parent.parent / "debug-3b87b6.log"
+
+
+def _agent_log(location: str, message: str, data: dict, hypothesis_id: str, run_id: str = "pre-fix") -> None:
+    # #region agent log
+    try:
+        with _DEBUG_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "sessionId": "3b87b6",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
 
 REGISTER_IP_LIMIT = RateLimitSpec(max_count=5, window_seconds=3600)
 REGISTER_EMAIL_LIMIT = RateLimitSpec(max_count=3, window_seconds=3600)
@@ -303,13 +331,52 @@ def me(user: User = Depends(get_current_user)):
 
 @router.get("/oauth/{provider}/start")
 def oauth_start(provider: str, request: Request, db: Session = Depends(get_db)):
+    # #region agent log
+    _agent_log(
+        "auth.py:oauth_start",
+        "oauth_start_entry",
+        {"provider": provider},
+        "B",
+    )
+    # #endregion
     if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "OAuth provider not supported")
     client_ip = _client_ip(request)
-    enforce_rate_limit(db, f"oauth_start:ip:{client_ip}", OAUTH_START_IP_LIMIT)
-    db.commit()
-    state = create_oauth_state(provider)
-    return RedirectResponse(build_authorize_redirect(provider, state), status_code=status.HTTP_302_FOUND)
+    try:
+        enforce_rate_limit(db, f"oauth_start:ip:{client_ip}", OAUTH_START_IP_LIMIT)
+        # #region agent log
+        _agent_log("auth.py:oauth_start", "after_rate_limit", {"client_ip": client_ip}, "A")
+        # #endregion
+        db.commit()
+        # #region agent log
+        _agent_log("auth.py:oauth_start", "after_commit", {}, "D")
+        # #endregion
+        state = create_oauth_state(provider)
+        # #region agent log
+        _agent_log("auth.py:oauth_start", "after_state_token", {"state_len": len(state)}, "E")
+        # #endregion
+        redirect_url = build_authorize_redirect(provider, state)
+        # #region agent log
+        _agent_log(
+            "auth.py:oauth_start",
+            "redirect_ready",
+            {"redirect_host": redirect_url.split("/")[2] if "://" in redirect_url else "unknown"},
+            "B",
+        )
+        # #endregion
+        return RedirectResponse(redirect_url, status_code=status.HTTP_302_FOUND)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # #region agent log
+        _agent_log(
+            "auth.py:oauth_start",
+            "oauth_start_failed",
+            {"error_type": type(exc).__name__, "error": str(exc)[:500]},
+            "C",
+        )
+        # #endregion
+        raise
 
 
 @router.get("/oauth/{provider}/callback")

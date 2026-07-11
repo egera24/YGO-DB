@@ -427,6 +427,12 @@ def init_db():
     # SQLite local dev: create tables without Alembic. Postgres/cloud: migrations only.
     if is_sqlite():
         Base.metadata.create_all(bind=engine)
+        return
+    # Cloud Postgres (Render/Neon): run Alembic on startup so auth/rate-limit tables
+    # exist even when build-time migrate used a different DATABASE_URL or branch.
+    from ygo_app.db_migrate import ensure_db_at_head
+
+    ensure_db_at_head()
 
 
 def _card_fields_from_api(entry: dict) -> dict:

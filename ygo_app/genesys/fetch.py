@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections import deque
 
 from ygo_app.genesys.parse import parse_point_list_html
-from ygo_app.yugipedia.http_client import create_scraper, fetch_page
+from ygo_app.yugipedia.http_client import create_session, fetch_page
 
 START_URL = "https://yugipedia.com/wiki/September_22,_2025_Point_List"
 
 
 def fetch_wiki_html(url: str) -> str:
-    scraper = create_scraper()
-    html, error = fetch_page(scraper, url)
+    session = create_session()
+    html, error = fetch_page(session, url)
     if error or not html:
         raise RuntimeError(error or f"Failed to fetch {url}")
     return html

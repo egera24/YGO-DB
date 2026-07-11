@@ -20,9 +20,9 @@ services:
         sync: false
       - key: EMAIL_BACKEND
         value: brevo
+      # Optional OAuth — set OAUTH_REDIRECT_BASE_URL to this service's public URL
+      # (e.g. https://ygo-app-dev.onrender.com) plus provider client id/secret pairs.
     healthCheckPath: /api/health
-
-  # Production — deploys from main only; set DATABASE_URL to Neon *production* branch
   - type: web
     name: ygo-app
     runtime: python
@@ -41,4 +41,6 @@ services:
         sync: false
       - key: EMAIL_BACKEND
         value: brevo
+      # Optional OAuth — set OAUTH_REDIRECT_BASE_URL to this service's public URL
+      # (e.g. https://ygo-app.onrender.com) plus provider client id/secret pairs.
     healthCheckPath: /api/health

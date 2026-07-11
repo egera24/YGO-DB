@@ -23,10 +23,11 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255))
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    oauth_identities: Mapped[list["OAuthIdentity"]] = relationship(back_populates="user")
     collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="user")
     collection_folders: Mapped[list["CollectionFolder"]] = relationship(
         back_populates="user"
@@ -35,6 +36,22 @@ class User(Base):
     favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="user")
     card_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="user")
     search_presets: Mapped[list["SearchPreset"]] = relationship(back_populates="user")
+
+
+class OAuthIdentity(Base):
+    __tablename__ = "oauth_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_user_id", name="uq_oauth_provider_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(32))
+    provider_user_id: Mapped[str] = mapped_column(String(255))
+    provider_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="oauth_identities")
 
 
 class PendingRegistration(Base):

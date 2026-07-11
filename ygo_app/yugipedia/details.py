@@ -17,7 +17,7 @@ from ygo_app.yugipedia.constants import (
     PROGRESS_LOG_EVERY,
     REQUESTS_PER_SECOND,
 )
-from ygo_app.yugipedia.http_client import create_scraper, fetch_page
+from ygo_app.yugipedia.http_client import create_session, fetch_page
 from ygo_app.yugipedia.passcodes import limit_passcode_list
 from ygo_app.yugipedia.parsing import parse_card_page
 from ygo_app.yugipedia.paths import (
@@ -155,8 +155,8 @@ def audit_slice_completion(
     return len(missing)
 
 
-def _process_card(scraper, input_card: dict) -> dict:
-    html, error = fetch_page(scraper, input_card["url"])
+def _process_card(session, input_card: dict) -> dict:
+    html, error = fetch_page(session, input_card["url"])
     if html is None:
         return {"success": False, "input_card": input_card, "error": error}
     card_data, parse_error = parse_card_page(html, input_card)
@@ -212,7 +212,7 @@ def _handle_scrape_result(
 def _scrape_pending_bounded(
     pending: list[dict],
     *,
-    scrapers: list,
+    sessions: list,
     successful_cards: list[dict],
     rejected_cards: list[dict],
     output_path: Path,
@@ -249,8 +249,8 @@ def _scrape_pending_bounded(
             nonlocal work_index
             while work_index < total and len(in_flight) < MAX_WORKERS:
                 card = pending[work_index]
-                scraper = scrapers[work_index % len(scrapers)]
-                fut = executor.submit(_process_card, scraper, card)
+                session = sessions[work_index % len(sessions)]
+                fut = executor.submit(_process_card, session, card)
                 in_flight[fut] = card
                 work_index += 1
 
@@ -408,10 +408,10 @@ def scrape_card_details(
         monitor.start()
 
         try:
-            scrapers = [create_scraper() for _ in range(MAX_WORKERS)]
+            sessions = [create_session() for _ in range(MAX_WORKERS)]
             pool_items, failure_items = _scrape_pending_bounded(
                 pending,
-                scrapers=scrapers,
+                sessions=sessions,
                 successful_cards=successful_cards,
                 rejected_cards=rejected_cards,
                 output_path=output_path,
@@ -430,11 +430,11 @@ def scrape_card_details(
                     f"[BATCH_RETRY] round {round_num}/{failed_retry_rounds}: "
                     f"{len(retry_items)} cards (fresh HTTP sessions)"
                 )
-                scrapers = [create_scraper() for _ in range(MAX_WORKERS)]
+                sessions = [create_session() for _ in range(MAX_WORKERS)]
                 retry_cards = [card for card, _ in retry_items]
                 pool_items, failure_items = _scrape_pending_bounded(
                     retry_cards,
-                    scrapers=scrapers,
+                    sessions=sessions,
                     successful_cards=successful_cards,
                     rejected_cards=rejected_cards,
                     output_path=output_path,

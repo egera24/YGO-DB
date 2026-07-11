@@ -22,7 +22,7 @@ from ygo_app.yugipedia.errata import (
     filter_errata_by_language,
     parse_errata_html,
 )
-from ygo_app.yugipedia.http_client import create_scraper, fetch_page
+from ygo_app.yugipedia.http_client import create_session, fetch_page
 from ygo_app.yugipedia.paths import ALL_CARDS_PATH, SET_CHRONOLOGY_PATH, ensure_catalog_dir
 from ygo_app.yugipedia.related_links import (
     errata_url_for_card_name,
@@ -97,10 +97,10 @@ def _merge_card_updates(existing: list[dict], updates: dict[str, dict]) -> list[
     return merged
 
 
-def _fetch_supplement_html(scraper, url: str) -> tuple[str | None, str | None]:
+def _fetch_supplement_html(session, url: str) -> tuple[str | None, str | None]:
     """Fetch errata/tips page; short timeout, no retry loop for missing pages."""
     return fetch_page(
-        scraper,
+        session,
         url,
         retries=SUPPLEMENT_PROBE_RETRIES,
         timeout=SUPPLEMENT_PROBE_TIMEOUT,
@@ -108,7 +108,7 @@ def _fetch_supplement_html(scraper, url: str) -> tuple[str | None, str | None]:
 
 
 def _process_supplements(
-    scraper,
+    session,
     card: dict,
     *,
     set_release_lookup: dict[str, str],
@@ -124,7 +124,7 @@ def _process_supplements(
             update["errata"] = []
             update["has_errata"] = False
         else:
-            html, error = _fetch_supplement_html(scraper, errata_url)
+            html, error = _fetch_supplement_html(session, errata_url)
             if html and "card-errata" in html:
                 versions = filter_errata_by_language(
                     parse_errata_html(html, set_release_lookup=set_release_lookup)
@@ -153,7 +153,7 @@ def _process_supplements(
         if not tips_url:
             update["tips"] = []
         else:
-            html, error = _fetch_supplement_html(scraper, tips_url)
+            html, error = _fetch_supplement_html(session, tips_url)
             if html and 'id="mw-content-text"' in html:
                 tips = parse_tips_html(html)
                 update["tips"] = tips
@@ -215,7 +215,7 @@ def scrape_supplements(
     lock = threading.Lock()
     monitor = ScrapeProgressMonitor(total_pending=len(pending), output_path=cards_path)
     monitor.start()
-    scrapers = [create_scraper() for _ in range(MAX_WORKERS)]
+    sessions = [create_session() for _ in range(MAX_WORKERS)]
     completed = 0
 
     def handle_result(result: dict) -> bool:
@@ -244,10 +244,10 @@ def scrape_supplements(
             nonlocal work_index
             while work_index < total and len(in_flight) < MAX_WORKERS:
                 card = pending[work_index]
-                scraper = scrapers[work_index % len(scrapers)]
+                session = sessions[work_index % len(sessions)]
                 fut = executor.submit(
                     _process_supplements,
-                    scraper,
+                    session,
                     card,
                     set_release_lookup=set_release_lookup,
                     scrape_errata=scrape_errata,

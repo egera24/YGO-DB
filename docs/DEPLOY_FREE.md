@@ -139,6 +139,27 @@ Optional (bot protection on registration):
 | `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key |
 
+Optional (OAuth 2.0 social sign-in — Google, Discord, GitHub, Microsoft):
+
+| Key | Value |
+|-----|--------|
+| `OAUTH_REDIRECT_BASE_URL` | Public app URL, no trailing slash (e.g. `https://ygo-app.onrender.com`) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → OAuth client (Web) |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | [Discord Developer Portal](https://discord.com/developers/applications) → OAuth2 |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub → Settings → Developer settings → OAuth Apps |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | [Azure Portal](https://portal.azure.com/) → App registrations (Entra ID); `MICROSOFT_TENANT_ID=common` for consumer accounts |
+
+For each provider and environment, register these **redirect URIs** (replace host as needed):
+
+```
+https://ygo-app.onrender.com/api/auth/oauth/google/callback
+https://ygo-app.onrender.com/api/auth/oauth/discord/callback
+https://ygo-app.onrender.com/api/auth/oauth/github/callback
+https://ygo-app.onrender.com/api/auth/oauth/microsoft/callback
+```
+
+Use the same pattern for **ygo-app-dev** (`https://ygo-app-dev.onrender.com/...`) and local dev (`http://localhost:8000/...`). Only providers with both client id and secret show sign-in buttons in the portal.
+
 For **local development**, use `EMAIL_BACKEND=console` in `.env` — verification codes print in the terminal instead of sending email.
 
 ---
@@ -148,7 +169,7 @@ For **local development**, use `EMAIL_BACKEND=console` in `.env` — verificatio
 1. Open the Render URL (e.g. `https://ygo-app-xxxx.onrender.com`).
 2. First request after idle may take **~1 minute** (free tier spin-up).
 3. Status line should show thousands of **cards** (not “catalog empty”).
-4. **Register** — create an account; check email for the 6-digit verification code (or spam folder).
+4. **Register** — create an account; check email for the 6-digit verification code (or spam folder). Or use **Continue with Google / Discord / GitHub / Microsoft** when OAuth env vars are configured.
 5. **My Collection** → **Import CSV** to upload your DragonShield export (logged-in users only).
 
 ---

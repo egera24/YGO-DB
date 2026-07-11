@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -31,6 +31,8 @@ from ygo_app.schemas import (
     CollectionItemUpdate,
     CollectionListOut,
     CollectionStatsOut,
+    TradeSettingsOut,
+    TradeSettingsUpdateIn,
 )
 from ygo_app.services import (
     FolderConflictError,
@@ -39,10 +41,12 @@ from ygo_app.services import (
     collection_stats,
     create_collection_folder,
     delete_collection_folder,
+    get_trade_settings,
     list_collection,
     list_collection_folders,
     update_collection_folder,
     update_collection_item,
+    update_trade_settings,
 )
 
 router = APIRouter(prefix="/collection", tags=["collection"])
@@ -84,6 +88,50 @@ def get_collection_stats(
     user: User = Depends(get_current_user),
 ):
     return collection_stats(db, user_id=user.id)
+
+
+def _trade_settings_out(settings: dict) -> TradeSettingsOut:
+    slug = settings["slug"]
+    return TradeSettingsOut(
+        slug=slug,
+        display_name=settings.get("display_name"),
+        trade_url=f"/trade/{slug}",
+    )
+
+
+@router.get("/trade-settings", response_model=TradeSettingsOut)
+def read_trade_settings(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        settings = get_trade_settings(db, user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    return _trade_settings_out(settings)
+
+
+@router.patch("/trade-settings", response_model=TradeSettingsOut)
+def patch_trade_settings(
+    body: TradeSettingsUpdateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if body.slug is None and body.display_name is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
+    try:
+        settings = update_trade_settings(
+            db,
+            user.id,
+            slug=body.slug,
+            display_name=body.display_name,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "already taken" in message.lower() or "reserved" in message.lower():
+            raise HTTPException(status.HTTP_409_CONFLICT, message) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, message) from exc
+    return _trade_settings_out(settings)
 
 
 @router.get("/folders", response_model=list[CollectionFolderOut])

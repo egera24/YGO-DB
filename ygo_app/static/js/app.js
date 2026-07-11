@@ -45,6 +45,7 @@ const state = {
   banlistsByFormat: {},
   genesysPointLists: [],
   zoneTooltips: {},
+  tradeSettings: null,
 };
 
 let searchRequestSeq = 0;
@@ -889,6 +890,8 @@ function updateAuthUI() {
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
   $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
   $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#copy-trade-link-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#trade-settings-btn")?.classList.toggle("hidden", !loggedIn);
   $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
   if (loggedIn) {
@@ -6967,6 +6970,29 @@ function wireEvents() {
     }
   });
 
+  $("#copy-trade-link-btn")?.addEventListener("click", () => {
+    copyTradeLink();
+  });
+
+  $("#trade-settings-btn")?.addEventListener("click", async () => {
+    if (!state.token) {
+      alert("Log in first.");
+      return;
+    }
+    await loadTradeSettings();
+    openTradeSettingsModal();
+  });
+  $("#trade-settings-close")?.addEventListener("click", closeTradeSettingsModal);
+  $("#trade-settings-cancel")?.addEventListener("click", closeTradeSettingsModal);
+  $("#trade-settings-save")?.addEventListener("click", saveTradeSettings);
+  $("#trade-settings-slug")?.addEventListener("input", () => {
+    const url = $("#trade-settings-url");
+    const slug = $("#trade-settings-slug")?.value.trim();
+    if (url && slug) {
+      url.textContent = `Public link: ${window.location.origin}/trade/${slug}`;
+    }
+  });
+
   $("#export-collection-cancel")?.addEventListener("click", closeExportCollectionModal);
   $("#export-collection-close")?.addEventListener("click", closeExportCollectionModal);
   $("#export-collection-modal")?.addEventListener("click", (e) => {
@@ -7730,6 +7756,102 @@ function closeFormatsInfoModal() {
   formatsInfoTrigger = null;
 }
 
+let tradeSettingsTrigger = null;
+
+function tradePageUrl(settings) {
+  if (!settings?.trade_url) return "";
+  if (settings.trade_url.startsWith("http")) return settings.trade_url;
+  return `${window.location.origin}${settings.trade_url}`;
+}
+
+function renderTradeSettingsModal() {
+  const settings = state.tradeSettings;
+  if (!settings) return;
+  const displayName = $("#trade-settings-display-name");
+  const slug = $("#trade-settings-slug");
+  const url = $("#trade-settings-url");
+  if (displayName) displayName.value = settings.display_name || "";
+  if (slug) slug.value = settings.slug || "";
+  if (url) url.textContent = `Public link: ${tradePageUrl(settings)}`;
+}
+
+async function loadTradeSettings() {
+  if (!state.token) return;
+  try {
+    state.tradeSettings = await api("/collection/trade-settings");
+  } catch {
+    state.tradeSettings = null;
+  }
+}
+
+function openTradeSettingsModal() {
+  const modal = $("#trade-settings-modal");
+  const trigger = $("#trade-settings-btn");
+  if (!modal) return;
+  tradeSettingsTrigger = trigger;
+  renderTradeSettingsModal();
+  $("#trade-settings-error")?.classList.add("hidden");
+  modal.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  syncModalOpenClass();
+  $("#trade-settings-display-name")?.focus();
+}
+
+function closeTradeSettingsModal() {
+  const modal = $("#trade-settings-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  $("#trade-settings-btn")?.setAttribute("aria-expanded", "false");
+  (tradeSettingsTrigger ?? $("#trade-settings-btn"))?.focus();
+  tradeSettingsTrigger = null;
+}
+
+async function saveTradeSettings() {
+  const errorEl = $("#trade-settings-error");
+  errorEl?.classList.add("hidden");
+  const displayName = $("#trade-settings-display-name")?.value.trim() || null;
+  const slug = $("#trade-settings-slug")?.value.trim();
+  if (!slug) {
+    errorEl.textContent = "Slug is required.";
+    errorEl?.classList.remove("hidden");
+    return;
+  }
+  try {
+    state.tradeSettings = await api("/collection/trade-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        display_name: displayName,
+      }),
+    });
+    renderTradeSettingsModal();
+    closeTradeSettingsModal();
+    showToast("Trade settings saved.");
+  } catch (err) {
+    errorEl.textContent = err.message || "Could not save trade settings.";
+    errorEl?.classList.remove("hidden");
+  }
+}
+
+async function copyTradeLink() {
+  if (!state.tradeSettings) {
+    await loadTradeSettings();
+  }
+  const url = tradePageUrl(state.tradeSettings);
+  if (!url) {
+    showToast("Trade link is not available yet.", { variant: "error" });
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast("Trade link copied.");
+  } catch {
+    showToast("Could not copy link.", { variant: "error" });
+  }
+}
+
 async function init() {
   wireEvents();
   await loadAuthConfig();
@@ -7752,6 +7874,7 @@ async function init() {
     if (state.token && state.user) {
       setAuthenticatedShell(true);
       updateAuthUI();
+      await loadTradeSettings();
       await bootstrapAuthenticatedApp();
     } else {
       setAuthenticatedShell(false);

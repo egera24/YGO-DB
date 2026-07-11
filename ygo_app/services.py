@@ -32,6 +32,7 @@ from ygo_app.collection_identity import (
 from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.search_sort import (
     apply_collection_sort_joins,
+    apply_sort_direction,
     build_card_search_order_by,
     build_collection_order_by,
 )
@@ -44,6 +45,7 @@ from ygo_app.search_query import (
 )
 from ygo_app.utils import normalize_rarity_code, rarity_display
 from ygo_app.rarity_registry import rarity_match_variants, resolve_rarity
+from ygo_app.trade_share import assign_unique_trade_slug, ensure_user_trade_slug
 
 
 class SearchPresetConflictError(Exception):
@@ -1918,3 +1920,222 @@ def remove_user_tag(session: Session, user_id: int, card_id: int, tag: str) -> N
     if row:
         session.delete(row)
         session.commit()
+
+
+PUBLIC_TRADE_SORT_FIELDS = frozenset(
+    {"set_code", "card_name", "trade_quantity", "sell_price", "condition"}
+)
+
+
+def _build_public_trade_order_by(sort: str, sort_dir: str) -> list:
+    field = sort if sort in PUBLIC_TRADE_SORT_FIELDS else "set_code"
+    direction = sort_dir if sort_dir in ("asc", "desc") else "asc"
+    tie = apply_sort_direction(CollectionItem.id, direction)
+    columns = {
+        "set_code": CollectionItem.set_code,
+        "card_name": CollectionItem.card_name,
+        "trade_quantity": CollectionItem.trade_quantity,
+        "sell_price": CollectionItem.sell_price,
+        "condition": CollectionItem.condition,
+    }
+    order_col = columns.get(field, CollectionItem.set_code)
+    return [apply_sort_direction(order_col, direction, nulls=True), tie]
+
+
+def get_user_by_trade_slug(session: Session, slug: str) -> User | None:
+    return session.execute(
+        select(User).where(User.trade_share_slug == slug)
+    ).scalar_one_or_none()
+
+
+def get_trade_settings(session: Session, user_id: int) -> dict:
+    user = session.get(User, user_id)
+    if user is None:
+        raise ValueError("User not found")
+    if not user.trade_share_slug:
+        ensure_user_trade_slug(session, user)
+        session.commit()
+        session.refresh(user)
+    return {
+        "slug": user.trade_share_slug,
+        "display_name": user.trade_display_name,
+    }
+
+
+def update_trade_settings(
+    session: Session,
+    user_id: int,
+    *,
+    slug: str | None = None,
+    display_name: str | None = None,
+) -> dict:
+    user = session.get(User, user_id)
+    if user is None:
+        raise ValueError("User not found")
+    ensure_user_trade_slug(session, user)
+    if slug is not None:
+        assign_unique_trade_slug(session, user, slug)
+    if display_name is not None:
+        user.trade_display_name = display_name.strip() or None
+    session.commit()
+    session.refresh(user)
+    return {
+        "slug": user.trade_share_slug,
+        "display_name": user.trade_display_name,
+    }
+
+
+def _public_trade_item_row(item: CollectionItem, *, set_code_fallback: dict | None = None) -> dict:
+    row = _collection_item_row(item, set_code_fallback=set_code_fallback)
+    return {
+        "item_id": row["id"],
+        "card_name": row.get("card_name"),
+        "set_code": row["set_code"],
+        "set_name": row.get("set_name"),
+        "rarity_code": row["rarity_code"],
+        "rarity_display": row.get("rarity_display"),
+        "condition": row.get("condition"),
+        "trade_quantity": row["trade_quantity"],
+        "sell_price": row.get("sell_price"),
+        "image_url_small": row.get("image_url_small"),
+    }
+
+
+def list_public_trade_items(
+    session: Session,
+    *,
+    user_id: int,
+    q: str | None = None,
+    set_code: str | None = None,
+    sort: str = "set_code",
+    sort_dir: str = "asc",
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    stmt = select(CollectionItem).where(
+        CollectionItem.user_id == user_id,
+        CollectionItem.trade_quantity > 0,
+    )
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                CollectionItem.card_name.ilike(like),
+                CollectionItem.set_code.ilike(like),
+                CollectionItem.set_name.ilike(like),
+            )
+        )
+    if set_code:
+        stmt = stmt.where(CollectionItem.set_code.ilike(f"%{set_code.strip()}%"))
+
+    total = session.execute(
+        select(func.count()).select_from(stmt.subquery())
+    ).scalar() or 0
+
+    dialect = session.get_bind().dialect.name
+    if sort in {"passcode", "release_date", "folder_name"}:
+        sort = "set_code"
+    stmt = apply_collection_sort_joins(stmt, sort, dialect=dialect)
+    order_by = _build_public_trade_order_by(sort, sort_dir)
+
+    items = (
+        session.execute(
+            stmt.options(
+                joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+            )
+            .order_by(*order_by)
+            .offset(offset)
+            .limit(limit)
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+
+    missing_codes = {
+        item.set_code for item in items if _card_for_collection_item(item) is None
+    }
+    fallback_map = _cards_by_set_codes(session, missing_codes)
+
+    results = [
+        _public_trade_item_row(item, set_code_fallback=fallback_map) for item in items
+    ]
+    return results, int(total)
+
+
+def public_trade_filters(session: Session, *, user_id: int) -> dict:
+    set_codes = session.execute(
+        select(CollectionItem.set_code)
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.trade_quantity > 0,
+        )
+        .distinct()
+        .order_by(CollectionItem.set_code)
+    ).scalars().all()
+
+    conditions = session.execute(
+        select(CollectionItem.condition)
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.trade_quantity > 0,
+            CollectionItem.condition.isnot(None),
+            CollectionItem.condition != "",
+        )
+        .distinct()
+        .order_by(CollectionItem.condition)
+    ).scalars().all()
+
+    return {
+        "set_codes": list(set_codes),
+        "conditions": list(conditions),
+    }
+
+
+def validate_and_build_trade_order(
+    session: Session,
+    owner_id: int,
+    lines: list[dict],
+) -> list[dict]:
+    if not lines:
+        raise ValueError("Order must include at least one line")
+
+    item_ids = [line["item_id"] for line in lines]
+    items = session.execute(
+        select(CollectionItem)
+        .options(joinedload(CollectionItem.linked_printing))
+        .where(
+            CollectionItem.user_id == owner_id,
+            CollectionItem.id.in_(item_ids),
+            CollectionItem.trade_quantity > 0,
+        )
+    ).unique().scalars().all()
+    by_id = {item.id: item for item in items}
+
+    built: list[dict] = []
+    for line in lines:
+        item_id = line["item_id"]
+        item = by_id.get(item_id)
+        if item is None:
+            raise ValueError(f"Invalid item in order: {item_id}")
+        qty = line["quantity"]
+        if qty > item.trade_quantity:
+            raise ValueError(
+                f"Requested quantity exceeds trade quantity for item {item_id}"
+            )
+        built.append(
+            {
+                "item_id": item_id,
+                "quantity": qty,
+                "comment": line.get("comment"),
+                "offer_price": line.get("offer_price"),
+                "card_name": item.card_name,
+                "set_code": item.set_code,
+                "set_name": item.set_name,
+                "rarity_code": item.rarity_code,
+                "rarity_display": rarity_display(item.rarity_code),
+                "condition": normalize_collection_condition(item.condition),
+                "list_price": item.sell_price,
+            }
+        )
+    return built

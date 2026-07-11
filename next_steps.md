@@ -244,10 +244,10 @@ Rows with the same card number and rarity but **different** `Printing` (edition)
 
 ### 11.1 Data model & owner settings
 
-- [ ] Alembic migration: add `trade_share_slug` (unique, indexed) to `users` ([`models.py`](ygo_app/models.py)).
-- [ ] Auto-generate slug on registration (unguessable token); allow edit in collection UI with uniqueness check.
-- [ ] Optional: `trade_display_name` for public page title (no email exposed).
-- [ ] Owner UI: **Copy trade link** in collection toolbar; slug editor (`PATCH /api/collection/trade-settings` or similar).
+- [x] Alembic migration: add `trade_share_slug` (unique, indexed) to `users` ([`models.py`](ygo_app/models.py)).
+- [x] Auto-generate slug on registration (unguessable token); allow edit in collection UI with uniqueness check.
+- [x] Optional: `trade_display_name` for public page title (no email exposed).
+- [x] Owner UI: **Copy trade link** in collection toolbar; slug editor (`PATCH /api/collection/trade-settings` or similar).
 
 ### 11.2 Public routes (no JWT)
 
@@ -266,14 +266,14 @@ Register router in [`main.py`](ygo_app/api/main.py). Invalid slug → 404.
 
 New files: `trade.html`, `trade.js`, `trade.css` under [`ygo_app/static/`](ygo_app/static/).
 
-- [ ] Toolbar: search, set-code filter, sort (mirror collection sort options where applicable).
-- [ ] View toggle: **List** (table) / **Tiles** (reuse `.card-grid` + `.card-tile`).
-- [ ] Card display: image, name, sell price, total trade qty, condition.
-- [ ] Cart drawer: line qty (max = trade qty), per-line comment, optional offer price (discount).
-- [ ] Contact fields (all optional): name, email, phone, delivery address.
-- [ ] Info banner: visitor chooses which contact fields to share.
-- [ ] GDPR consent checkbox (required) + link to privacy policy.
-- [ ] Cart state in `sessionStorage`; clear on successful submit.
+- [x] Toolbar: search, set-code filter, sort (mirror collection sort options where applicable).
+- [x] View toggle: **List** (table) / **Tiles** (reuse `.card-grid` + `.card-tile`).
+- [x] Card display: image, name, sell price, total trade qty, condition.
+- [x] Cart drawer: line qty (max = trade qty), per-line comment, optional offer price (discount).
+- [x] Contact fields (all optional): name, email, phone, delivery address.
+- [x] Info banner: visitor chooses which contact fields to share.
+- [x] GDPR consent checkbox (required) + link to privacy policy.
+- [x] Cart state in `sessionStorage`; clear on successful submit.
 
 ### 11.4 Order email (Brevo)
 
@@ -287,11 +287,11 @@ Reuse existing `BREVO_API_KEY` / `EMAIL_FROM` from [`config.py`](ygo_app/config.
 
 ### 11.5 Security
 
-- [ ] Rate-limit `order-request` per IP (e.g. 5/hour) — [`rate_limit.py`](ygo_app/rate_limit.py).
-- [ ] Cloudflare Turnstile on submit (reuse verify logic from auth).
-- [ ] Server validates each `item_id` belongs to slug owner; `requested_qty <= trade_quantity`.
-- [ ] Strip HTML from comments/contact; max field lengths; no PII in server logs.
-- [ ] No server-side storage of buyer PII (email-only delivery reduces GDPR scope).
+- [x] Rate-limit `order-request` per IP (e.g. 5/hour) — [`rate_limit.py`](ygo_app/rate_limit.py).
+- [x] Cloudflare Turnstile on submit (reuse verify logic from auth).
+- [x] Server validates each `item_id` belongs to slug owner; `requested_qty <= trade_quantity`.
+- [x] Strip HTML from comments/contact; max field lengths; no PII in server logs.
+- [x] No server-side storage of buyer PII (email-only delivery reduces GDPR scope).
 
 **Verify:** Copy link → open in incognito → filter/sort/tile view → add to cart → submit → owner receives Brevo email with correct lines and offer prices.
 
@@ -301,7 +301,7 @@ Reuse existing `BREVO_API_KEY` / `EMAIL_FROM` from [`config.py`](ygo_app/config.
 
 **Goal:** Basic compliance artifacts on both the authenticated app and the public trade page.
 
-**Current state:** No privacy policy, imprint, footer links, or account deletion API.
+**Current state:** Placeholder privacy/imprint pages exist at `/legal/privacy` and `/legal/imprint` (with `{{PLACEHOLDER}}` tokens). Main app footer and account deletion API still pending.
 
 ### 12.1 Static legal pages
 

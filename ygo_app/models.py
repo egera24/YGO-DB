@@ -26,6 +26,8 @@ class User(Base):
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    trade_share_slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    trade_display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     oauth_identities: Mapped[list["OAuthIdentity"]] = relationship(back_populates="user")
     collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="user")

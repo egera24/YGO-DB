@@ -1,6 +1,7 @@
 from datetime import datetime, date
+import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from ygo_app.collection_identity import (
     COLLECTION_CONDITIONS,
@@ -518,3 +519,107 @@ class SearchPresetUpdate(BaseModel):
         if self.name is None and self.params is None:
             raise ValueError("At least one of name or params is required")
         return self
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = _HTML_TAG_RE.sub("", value).strip()
+    return cleaned or None
+
+
+class TradeSettingsOut(BaseModel):
+    slug: str
+    display_name: str | None = None
+    trade_url: str
+
+
+class TradeSettingsUpdateIn(BaseModel):
+    slug: str | None = Field(default=None, max_length=64)
+    display_name: str | None = Field(default=None, max_length=128)
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        return name or None
+
+
+class PublicTradeSellerOut(BaseModel):
+    display_name: str | None = None
+
+
+class PublicTradeItemOut(BaseModel):
+    item_id: int
+    card_name: str | None
+    set_code: str
+    set_name: str | None
+    rarity_code: str
+    rarity_display: str | None = None
+    condition: str | None
+    trade_quantity: int
+    sell_price: float | None = None
+    image_url_small: str | None = None
+
+
+class PublicTradeListOut(BaseModel):
+    seller: PublicTradeSellerOut
+    items: list[PublicTradeItemOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class PublicTradeFiltersOut(BaseModel):
+    set_codes: list[str] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+
+
+class TradeOrderLineIn(BaseModel):
+    item_id: int
+    quantity: int = Field(ge=1)
+    comment: str | None = Field(default=None, max_length=500)
+    offer_price: float | None = Field(default=None, ge=0)
+
+    @field_validator("comment")
+    @classmethod
+    def sanitize_comment(cls, value: str | None) -> str | None:
+        return _strip_html(value)
+
+
+class TradeOrderRequestIn(BaseModel):
+    lines: list[TradeOrderLineIn] = Field(min_length=1)
+    name: str | None = Field(default=None, max_length=128)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=64)
+    address: str | None = Field(default=None, max_length=500)
+    gdpr_consent: bool
+    turnstile_token: str | None = None
+
+    @field_validator("name", "phone", "address")
+    @classmethod
+    def sanitize_text(cls, value: str | None) -> str | None:
+        return _strip_html(value)
+
+    @model_validator(mode="after")
+    def require_consent(self):
+        if not self.gdpr_consent:
+            raise ValueError("GDPR consent is required")
+        return self
+
+
+class TradeOrderRequestOut(BaseModel):
+    message: str
+
+
+class PublicConfigOut(BaseModel):
+    turnstile_site_key: str | None = None
+    base_currency: str = "EUR"
+    eur_huf_rate: float
+    eur_huf_rate_source: str
+    eur_huf_rate_as_of: str | None = None

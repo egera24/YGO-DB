@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=100" />
+  <link rel="stylesheet" href="/static/css/style.css?v=101" />
 </head>
 <body>
   <header class="app-header">
@@ -407,6 +407,8 @@
             <button type="submit">Apply</button>
             <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
             <button type="button" id="export-collection-btn" class="secondary hidden">Export</button>
+            <button type="button" id="copy-trade-link-btn" class="secondary hidden">Copy trade link</button>
+            <button type="button" id="trade-settings-btn" class="secondary hidden">Trade settings</button>
           </form>
           <p id="collection-stats-line" class="stats-bar"></p>
           <div class="collection-table-wrap">
@@ -609,6 +611,35 @@
         <h2 id="card-tips-title">Tips</h2>
       </header>
       <div id="card-tips-body" class="supplement-body"></div>
+    </article>
+  </div>
+
+  <div id="trade-settings-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="trade-settings-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="trade-settings-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="trade-settings-title">Trade list settings</h2>
+        <p class="muted">Your public trade page lists cards with trade quantity greater than zero.</p>
+      </header>
+      <label class="collection-edit-field" for="trade-settings-display-name">
+        <span>Display name (public)</span>
+        <input type="text" id="trade-settings-display-name" maxlength="128" autocomplete="off" placeholder="Optional public title" />
+      </label>
+      <label class="collection-edit-field" for="trade-settings-slug">
+        <span>Share link slug</span>
+        <input type="text" id="trade-settings-slug" maxlength="64" autocomplete="off" spellcheck="false" />
+      </label>
+      <p id="trade-settings-url" class="muted"></p>
+      <p id="trade-settings-error" class="auth-error hidden" role="alert"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="trade-settings-cancel" class="secondary">Cancel</button>
+        <button type="button" id="trade-settings-save">Save</button>
+      </div>
     </article>
   </div>
 
@@ -927,6 +958,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=160" type="module"></script>
+  <script src="/static/js/app.js?v=161" type="module"></script>
 </body>
 </html>

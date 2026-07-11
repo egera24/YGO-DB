@@ -27,6 +27,7 @@ from ygo_app.config import (
     SECRET_KEY,
 )
 from ygo_app.models import OAuthIdentity, User
+from ygo_app.trade_share import ensure_user_trade_slug
 from ygo_app.verification import get_pending_by_email, normalize_email
 
 ALGORITHM = "HS256"
@@ -358,6 +359,7 @@ def resolve_oauth_user(db: Session, provider: str, profile: dict[str, Any]) -> U
         )
         db.add(user)
         db.flush()
+        ensure_user_trade_slug(db, user)
 
     if user.email_verified_at is None and email_verified:
         user.email_verified_at = now

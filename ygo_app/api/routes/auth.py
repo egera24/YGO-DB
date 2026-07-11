@@ -31,6 +31,8 @@ from ygo_app.oauth import (
     verify_oauth_exchange_token,
     verify_oauth_state,
 )
+from ygo_app.request_client import client_ip
+from ygo_app.trade_share import ensure_user_trade_slug
 from ygo_app.rate_limit import RateLimitSpec, enforce_rate_limit
 from ygo_app.turnstile import turnstile_required, verify_turnstile_token
 from ygo_app.verification import (
@@ -115,12 +117,7 @@ class OAuthCompleteIn(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    return client_ip(request)
 
 
 def _queue_verification_email(background_tasks: BackgroundTasks, email: str, code: str) -> None:
@@ -232,6 +229,8 @@ def verify_email(body: VerifyEmailIn, request: Request, db: Session = Depends(ge
         email_verified_at=now,
     )
     db.add(user)
+    db.flush()
+    ensure_user_trade_slug(db, user)
     db.delete(pending)
     db.commit()
     db.refresh(user)

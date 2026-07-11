@@ -116,6 +116,15 @@ app.include_router(formats.router, prefix="/api")
 app.include_router(search_presets.router, prefix="/api")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(
+        STATIC_DIR / "img" / "favicon-32.png",
+        media_type="image/png",
+        headers=_CACHE_HEADERS or None,
+    )
+
+
 @app.get("/")
 def index():
     index_file = STATIC_DIR / "index.html"

@@ -2,6 +2,13 @@ from datetime import datetime, date
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ygo_app.collection_identity import (
+    COLLECTION_CONDITIONS,
+    COLLECTION_EDITIONS,
+    normalize_collection_condition,
+    normalize_collection_edition,
+)
+
 
 class PrintingOut(BaseModel):
     id: int
@@ -13,6 +20,7 @@ class PrintingOut(BaseModel):
     owned_quantity: int = 0
     trade_quantity: int = 0
     collection_item_id: int | None = None
+    collection_variant_count: int = 0
     low_price: float | None = None
     avg_price: float | None = None
     trend_price: float | None = None
@@ -248,18 +256,18 @@ class CollectionItemCreate(BaseModel):
     sell_price: float | None = None
     notes: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variant_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "condition" in data:
+            data["condition"] = normalize_collection_condition(data.get("condition"))
+        if "printing" in data:
+            data["printing"] = normalize_collection_edition(data.get("printing"))
+        return data
 
-COLLECTION_CONDITIONS = (
-    "Mint",
-    "NearMint",
-    "Excellent",
-    "Good",
-    "LightPlayed",
-    "Played",
-    "Poor",
-)
 
-COLLECTION_EDITIONS = ("Unlimited", "1st Edition", "Limited Edition")
 COLLECTION_LANGUAGES = (
     "English",
     "French",
@@ -280,6 +288,17 @@ class CollectionItemUpdate(BaseModel):
     folder_allocations: list[FolderAllocation] | None = None
     sell_price: float | None = None
     notes: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variant_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "condition" in data:
+            data["condition"] = normalize_collection_condition(data.get("condition"))
+        if "printing" in data:
+            data["printing"] = normalize_collection_edition(data.get("printing"))
+        return data
 
     @field_validator("condition")
     @classmethod

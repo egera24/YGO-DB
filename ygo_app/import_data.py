@@ -18,6 +18,13 @@ from sqlalchemy.orm import Session, joinedload
 from tqdm import tqdm
 
 from ygo_app.catalog import fetch_card_entries, load_card_entries
+from ygo_app.collection_identity import (
+    CollectionItemKey,
+    collection_item_key,
+    collection_item_key_from_row,
+    normalize_collection_condition,
+    normalize_collection_edition,
+)
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CardErrataVersion, CollectionItem, Printing, TcgSet
@@ -934,7 +941,7 @@ def import_collection_csv(
 
     # Per-user caches populated before the row loop to avoid per-row round-trips
     # (critical on remote Postgres where each query is a network hop).
-    existing_by_key: dict[tuple[str, str], CollectionItem] = {}
+    existing_by_key: dict[CollectionItemKey, CollectionItem] = {}
     printing_by_key: dict[tuple[str, str], int] = {}
     catalog_set_codes: set[str] = set()
     substring_parents_by_code: dict[str, list[str]] = {}
@@ -942,7 +949,7 @@ def import_collection_csv(
 
     # New items created during this import (pending ORM, mutated in memory for
     # CSV-internal dedup; inserted in one batched flush at the end).
-    new_by_key: dict[tuple[str, str], CollectionItem] = {}
+    new_by_key: dict[CollectionItemKey, CollectionItem] = {}
     # Bulk-write accumulators for merges into pre-existing DB rows, applied once
     # after the loop so remote Postgres sees batched statements, not per-row I/O.
     alloc_index: dict[tuple[int, int | None], CollectionItemFolder] = {}
@@ -1005,9 +1012,9 @@ def import_collection_csv(
         item.quantity += quantity
         item.trade_quantity += int(row.get("Trade Quantity") or 0)
         if condition := _nonempty(row.get("Condition")):
-            item.condition = condition
+            item.condition = normalize_collection_condition(condition)
         if edition := _nonempty(row.get("Printing")):
-            item.edition = edition
+            item.edition = normalize_collection_edition(edition)
         if language := _nonempty(row.get("Language")):
             item.language = language
         if price_bought := _float_or_none(row.get("Price Bought")):
@@ -1031,9 +1038,9 @@ def import_collection_csv(
         state["quantity"] += quantity
         state["trade_quantity"] += int(row.get("Trade Quantity") or 0)
         if condition := _nonempty(row.get("Condition")):
-            state["condition"] = condition
+            state["condition"] = normalize_collection_condition(condition)
         if edition := _nonempty(row.get("Printing")):
-            state["edition"] = edition
+            state["edition"] = normalize_collection_edition(edition)
         if language := _nonempty(row.get("Language")):
             state["language"] = language
         if price_bought := _float_or_none(row.get("Price Bought")):
@@ -1090,7 +1097,12 @@ def import_collection_csv(
         quantity = int(row.get("Quantity") or 1)
         folder_raw = (row.get("Folder Name") or "").strip()
         folder = _folder_for(folder_raw) if folder_raw else None
-        key = (stored_set_code, rarity_code)
+        key = collection_item_key(
+            stored_set_code,
+            rarity_code,
+            edition=row.get("Printing"),
+            condition=row.get("Condition"),
+        )
 
         if not replace:
             existing = existing_by_key.get(key)
@@ -1114,8 +1126,8 @@ def import_collection_csv(
             set_name=row.get("Set Name"),
             quantity=quantity,
             trade_quantity=int(row.get("Trade Quantity") or 0),
-            condition=row.get("Condition"),
-            edition=row.get("Printing") or "Unlimited",
+            condition=normalize_collection_condition(row.get("Condition")),
+            edition=normalize_collection_edition(row.get("Printing")),
             language=row.get("Language"),
             price_bought=_float_or_none(row.get("Price Bought")),
             date_bought=row.get("Date Bought"),
@@ -1284,7 +1296,7 @@ def import_collection_csv(
                 .scalars()
                 .all()
             ):
-                existing_by_key.setdefault((item.set_code, item.rarity_code), item)
+                existing_by_key.setdefault(collection_item_key_from_row(item), item)
                 for alloc in item.folder_allocations:
                     alloc_index[(item.id, alloc.folder_id)] = alloc
         if progress_callback is not None and total > 0:

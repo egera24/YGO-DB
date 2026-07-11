@@ -186,7 +186,7 @@ python -m unittest tests.test_yugipedia_errata tests.test_yugipedia_tips tests.t
 
 **Current state:** `import_collection_csv(..., replace=True)` in [`import_data.py`](ygo_app/import_data.py) supports `replace=False`, but the UI always calls `?replace=true` with a replace-only confirm ([`app.js`](ygo_app/static/js/app.js) ~5059).
 
-**Append merge rule (decided):** When a CSV row matches an existing item (`user_id` + `set_code` + `rarity_code`):
+**Append merge rule (decided):** When a CSV row matches an existing item (`user_id` + `set_code` + `rarity_code` + `edition` + `condition`):
 
 | Field | Behavior |
 |-------|----------|
@@ -196,7 +196,7 @@ python -m unittest tests.test_yugipedia_errata tests.test_yugipedia_tips tests.t
 | `sell_price` | Do not overwrite from CSV (import already leaves it `None`) |
 | Folder | Merge folder allocation qty if same folder name; else create allocation |
 
-> **Design gap:** Edition is not part of the match key — reprints (e.g. 1st Edition then Unlimited of the same card number) merge into one row and the stored edition is overwritten. See [`design_gaps_or_known_issues.md`](design_gaps_or_known_issues.md) §1.
+Rows with the same card number and rarity but **different** `Printing` (edition) or `Condition` are **separate** collection lines and are not merged.
 
 **Steps:**
 

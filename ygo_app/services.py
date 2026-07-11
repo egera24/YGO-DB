@@ -24,6 +24,11 @@ from ygo_app.card_filters import (
     parse_multi_param,
     types_overlap_filter,
 )
+from ygo_app.collection_identity import (
+    find_collection_item_by_identity,
+    normalize_collection_condition,
+    normalize_collection_edition,
+)
 from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.search_sort import (
     apply_collection_sort_joins,
@@ -821,7 +826,8 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
 
     owned_map: dict[tuple[str, str], int] = {}
     trade_map: dict[tuple[str, str], int] = {}
-    collection_item_id_map: dict[tuple[str, str], int] = {}
+    collection_item_id_map: dict[tuple[str, str], int | None] = {}
+    collection_variant_count_map: dict[tuple[str, str], int] = {}
     if user_id is not None:
         rows = session.execute(
             select(
@@ -829,6 +835,7 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
                 CollectionItem.rarity_code,
                 func.sum(CollectionItem.quantity),
                 func.sum(CollectionItem.trade_quantity),
+                func.count(CollectionItem.id),
                 func.min(CollectionItem.id),
             )
             .join(
@@ -839,16 +846,22 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
             .where(Printing.card_id == card_id, CollectionItem.user_id == user_id)
             .group_by(CollectionItem.set_code, CollectionItem.rarity_code)
         ).all()
-        for set_code, rarity_code, qty, trade_qty, item_id in rows:
-            owned_map[(set_code, rarity_code)] = int(qty or 0)
-            trade_map[(set_code, rarity_code)] = int(trade_qty or 0)
-            collection_item_id_map[(set_code, rarity_code)] = int(item_id)
+        for set_code, rarity_code, qty, trade_qty, variant_count, item_id in rows:
+            key = (set_code, rarity_code)
+            owned_map[key] = int(qty or 0)
+            trade_map[key] = int(trade_qty or 0)
+            variant_count_int = int(variant_count or 0)
+            collection_variant_count_map[key] = variant_count_int
+            collection_item_id_map[key] = (
+                int(item_id) if variant_count_int == 1 else None
+            )
 
     for printing in card.printings:
         key = (printing.set_code, printing.set_rarity_code)
         printing.owned_quantity = owned_map.get(key, 0)
         printing.trade_quantity = trade_map.get(key, 0)
         printing.collection_item_id = collection_item_id_map.get(key)
+        printing.collection_variant_count = collection_variant_count_map.get(key, 0)
 
     from ygo_app.cardmarket.market_prices import attach_market_prices_to_printings
 
@@ -1190,7 +1203,9 @@ def _collection_item_row(
     linked = item.linked_printing
     rarity_name = linked.set_rarity if linked is not None else None
     row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
-    row["printing"] = row.pop("edition", None)
+    row["condition"] = normalize_collection_condition(row.get("condition"))
+    row["edition"] = normalize_collection_edition(row.get("edition"))
+    row["printing"] = row["edition"]
     if market_row is not None:
         row["low_price"] = market_row.low_price
         row["avg_price"] = market_row.avg_price
@@ -1659,9 +1674,31 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
     rarity_code, rarity_raw = resolve_collection_rarity(data["rarity"])
     quantity = data.get("quantity", 1)
     set_code = data["set_code"].strip()
+    edition = normalize_collection_edition(data.get("printing"))
+    condition = normalize_collection_condition(data.get("condition"))
+    trade_quantity = data.get("trade_quantity", 0)
     sell_price = (
         float(data["sell_price"]) if data.get("sell_price") is not None else None
     )
+
+    existing = find_collection_item_by_identity(
+        session,
+        user_id=user_id,
+        set_code=set_code,
+        rarity_code=rarity_code,
+        edition=edition,
+        condition=condition,
+    )
+    if existing is not None:
+        existing.quantity += quantity
+        existing.trade_quantity += trade_quantity
+        if sell_price is not None:
+            existing.sell_price = sell_price
+        _reconcile_allocations_after_quantity_change(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+
     item = CollectionItem(
         user_id=user_id,
         set_code=set_code,
@@ -1670,9 +1707,9 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         expansion_code=data.get("expansion_code"),
         set_name=data.get("set_name"),
         quantity=quantity,
-        trade_quantity=data.get("trade_quantity", 0),
-        condition=data.get("condition"),
-        edition=data.get("printing"),
+        trade_quantity=trade_quantity,
+        condition=condition,
+        edition=edition,
         language=data.get("language"),
         price_bought=data.get("price_bought"),
         date_bought=data.get("date_bought"),
@@ -1749,16 +1786,15 @@ def _reassign_collection_item_printing(
         raise ValueError(
             f"No catalog printing found for {set_code} ({label})"
         )
-    duplicate = session.execute(
-        select(CollectionItem.id)
-        .where(
-            CollectionItem.user_id == user_id,
-            CollectionItem.set_code == set_code,
-            CollectionItem.rarity_code == rarity_code,
-            CollectionItem.id != item.id,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
+    duplicate = find_collection_item_by_identity(
+        session,
+        user_id=user_id,
+        set_code=set_code,
+        rarity_code=rarity_code,
+        edition=item.edition,
+        condition=item.condition,
+        exclude_item_id=item.id,
+    )
     if duplicate is not None:
         raise ValueError(
             f"You already have a collection row for {set_code} "
@@ -1803,8 +1839,27 @@ def update_collection_item(
                 rarity_code=rarity_code,
             )
     old_quantity = item.quantity
+    if "edition" in data:
+        data["edition"] = normalize_collection_edition(data["edition"])
+    if "condition" in data:
+        data["condition"] = normalize_collection_condition(data["condition"])
     for field, value in data.items():
         setattr(item, field, value)
+    if any(field in data for field in ("edition", "condition")):
+        duplicate = find_collection_item_by_identity(
+            session,
+            user_id=user_id,
+            set_code=item.set_code,
+            rarity_code=item.rarity_code,
+            edition=item.edition,
+            condition=item.condition,
+            exclude_item_id=item.id,
+        )
+        if duplicate is not None:
+            raise ValueError(
+                f"You already have a collection row for {item.set_code} "
+                f"({rarity_display(item.rarity_code)}) with this edition and condition."
+            )
     if "quantity" in data and folder_allocations is None:
         if item.quantity != old_quantity:
             _reconcile_allocations_after_quantity_change(item)

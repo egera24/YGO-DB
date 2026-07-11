@@ -15,6 +15,10 @@ from ygo_app.cardmarket.market_prices import (
     market_prices_tuple,
     resolve_sell_price,
 )
+from ygo_app.collection_identity import (
+    normalize_collection_condition,
+    normalize_collection_edition,
+)
 from ygo_app.models import (
     CollectionFolder,
     CollectionItem,
@@ -110,8 +114,8 @@ def _item_base_row(
         "set_name": set_name,
         "set_code": item.set_code,
         "rarity_code": item.rarity_code,
-        "condition": item.condition,
-        "edition": item.edition or "Unlimited",
+        "condition": normalize_collection_condition(item.condition),
+        "edition": normalize_collection_edition(item.edition),
         "language": item.language,
         "price_bought": item.price_bought,
         "date_bought": item.date_bought,

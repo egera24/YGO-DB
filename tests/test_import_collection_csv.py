@@ -632,7 +632,13 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertEqual(items[0].quantity, 2)
 
     def test_append_merges_quantity(self):
-        self._seed_collection_item(quantity=2, trade_quantity=1, sell_price=5.0)
+        self._seed_collection_item(
+            quantity=2,
+            trade_quantity=1,
+            sell_price=5.0,
+            condition="LP",
+            edition="1st Edition",
+        )
         csv_path = Path(self._tmp.name).with_suffix(".append-merge.csv")
         self._write_csv(
             csv_path,
@@ -676,7 +682,7 @@ class TestImportCollectionCsv(unittest.TestCase):
         session.close()
         self.assertEqual(item.quantity, 5)
         self.assertEqual(item.trade_quantity, 3)
-        self.assertEqual(item.condition, "LP")
+        self.assertEqual(item.condition, "LightPlayed")
         self.assertEqual(item.edition, "1st Edition")
         self.assertEqual(item.language, "German")
         self.assertAlmostEqual(item.price_bought, 2.5)
@@ -687,7 +693,7 @@ class TestImportCollectionCsv(unittest.TestCase):
     def test_append_preserves_fields_when_csv_cells_empty(self):
         self._seed_collection_item(
             quantity=2,
-            condition="NM",
+            condition=None,
             edition="Unlimited",
             language="English",
             price_bought=1.0,
@@ -735,7 +741,7 @@ class TestImportCollectionCsv(unittest.TestCase):
         ).scalar_one()
         session.close()
         self.assertEqual(item.quantity, 3)
-        self.assertEqual(item.condition, "NM")
+        self.assertIsNone(item.condition)
         self.assertEqual(item.edition, "Unlimited")
         self.assertEqual(item.language, "English")
         self.assertAlmostEqual(item.price_bought, 1.0)
@@ -765,6 +771,8 @@ class TestImportCollectionCsv(unittest.TestCase):
             quantity=2,
             folder_name="Binder A",
             folder_qty=2,
+            condition=None,
+            edition="Unlimited",
         )
         csv_path = Path(self._tmp.name).with_suffix(".append-folder.csv")
         fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity", "Folder Name"]
@@ -815,6 +823,140 @@ class TestImportCollectionCsv(unittest.TestCase):
         binder_b = next(folder for folder in folders if folder.name == "Binder B")
         self.assertEqual(by_folder[binder_a.id], 5)
         self.assertEqual(by_folder[binder_b.id], 1)
+
+    def test_import_splits_different_editions(self):
+        csv_path = Path(self._tmp.name).with_suffix(".split-edition.csv")
+        fieldnames = [
+            "Card Number",
+            "Rarity",
+            "Quantity",
+            "Condition",
+            "Printing",
+        ]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Quantity": "1",
+                    "Condition": "NearMint",
+                    "Printing": "1st Edition",
+                }
+            )
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Quantity": "1",
+                    "Condition": "NearMint",
+                    "Printing": "Unlimited",
+                }
+            )
+
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 2)
+        self.assertEqual(result.merged, 0)
+
+        session = self.Session()
+        items = session.execute(
+            select(CollectionItem)
+            .where(CollectionItem.user_id == self.user_id)
+            .order_by(CollectionItem.edition)
+        ).scalars().all()
+        session.close()
+        self.assertEqual(len(items), 2)
+        editions = {item.edition for item in items}
+        self.assertEqual(editions, {"1st Edition", "Unlimited"})
+
+    def test_import_splits_different_conditions(self):
+        csv_path = Path(self._tmp.name).with_suffix(".split-condition.csv")
+        fieldnames = [
+            "Card Number",
+            "Rarity",
+            "Quantity",
+            "Condition",
+            "Printing",
+        ]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Quantity": "1",
+                    "Condition": "NearMint",
+                    "Printing": "Unlimited",
+                }
+            )
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Quantity": "1",
+                    "Condition": "LightPlayed",
+                    "Printing": "Unlimited",
+                }
+            )
+
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 2)
+        self.assertEqual(result.merged, 0)
+
+        session = self.Session()
+        items = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalars().all()
+        session.close()
+        self.assertEqual(len(items), 2)
+        conditions = {item.condition for item in items}
+        self.assertEqual(conditions, {"NearMint", "LightPlayed"})
+
+    def test_import_merges_same_edition_and_condition(self):
+        csv_path = Path(self._tmp.name).with_suffix(".merge-variant.csv")
+        fieldnames = [
+            "Card Number",
+            "Rarity",
+            "Quantity",
+            "Condition",
+            "Printing",
+        ]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Quantity": "2",
+                    "Condition": "NearMint",
+                    "Printing": "1st Edition",
+                }
+            )
+            writer.writerow(
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Quantity": "3",
+                    "Condition": "NearMint",
+                    "Printing": "1st Edition",
+                }
+            )
+
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1)
+        self.assertEqual(result.merged, 1)
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.quantity, 5)
+        self.assertEqual(item.condition, "NearMint")
+        self.assertEqual(item.edition, "1st Edition")
 
 
 if __name__ == "__main__":

@@ -69,6 +69,66 @@ const COLLECTION_CONDITIONS = [
   { value: "Poor", label: "Poor (PO)", tone: "poor" },
 ];
 const COLLECTION_EDITIONS = ["Unlimited", "1st Edition", "Limited Edition"];
+
+const CONDITION_ALIAS_MAP = {
+  mint: "Mint",
+  mt: "Mint",
+  nearmint: "NearMint",
+  "near mint": "NearMint",
+  "near-mint": "NearMint",
+  nm: "NearMint",
+  excellent: "Excellent",
+  ex: "Excellent",
+  good: "Good",
+  gd: "Good",
+  lightplayed: "LightPlayed",
+  "light played": "LightPlayed",
+  "light-played": "LightPlayed",
+  lp: "LightPlayed",
+  played: "Played",
+  pl: "Played",
+  poor: "Poor",
+  po: "Poor",
+};
+
+const EDITION_ALIAS_MAP = {
+  unlimited: "Unlimited",
+  ue: "Unlimited",
+  "1st edition": "1st Edition",
+  "1st ed": "1st Edition",
+  "1st ed.": "1st Edition",
+  "first edition": "1st Edition",
+  "first ed": "1st Edition",
+  "first ed.": "1st Edition",
+  "1st": "1st Edition",
+  "1stedition": "1st Edition",
+  "limited edition": "Limited Edition",
+  "limited ed": "Limited Edition",
+  "limited ed.": "Limited Edition",
+  limited: "Limited Edition",
+  le: "Limited Edition",
+};
+
+function aliasKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeConditionValue(value) {
+  if (value == null || value === "") return null;
+  const stripped = String(value).trim();
+  if (!stripped) return null;
+  if (COLLECTION_CONDITIONS.some((c) => c.value === stripped)) return stripped;
+  return CONDITION_ALIAS_MAP[aliasKey(stripped)] || stripped;
+}
+
+function normalizeEditionValue(value) {
+  if (value == null || value === "") return "Unlimited";
+  const stripped = String(value).trim();
+  if (!stripped) return "Unlimited";
+  if (COLLECTION_EDITIONS.includes(stripped)) return stripped;
+  return EDITION_ALIAS_MAP[aliasKey(stripped)] || stripped;
+}
+
 const COLLECTION_LANGUAGES = [
   "English",
   "French",
@@ -344,14 +404,16 @@ async function applyRouteFromHash({ initial = false } = {}) {
 
 function conditionLabel(value) {
   if (!value) return "—";
-  const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
-  return match ? match.label : value;
+  const canonical = normalizeConditionValue(value);
+  const match = COLLECTION_CONDITIONS.find((c) => c.value === canonical);
+  return match ? match.label : canonical;
 }
 
 function conditionBadgeHtml(value) {
   if (!value) return "—";
-  const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
-  const label = match ? match.label : value;
+  const canonical = normalizeConditionValue(value);
+  const match = COLLECTION_CONDITIONS.find((c) => c.value === canonical);
+  const label = match ? match.label : canonical;
   const tone = match ? match.tone : "unknown";
   return `<span class="condition-badge condition-badge--${tone}">${escapeHtml(label)}</span>`;
 }
@@ -3984,8 +4046,12 @@ function formatMarketPrices(p, { showUnavailable = true } = {}) {
 function formatPrintingOwnershipBadges(p) {
   const parts = [];
   if (p.owned_quantity > 0) {
+    const variantHint =
+      p.collection_variant_count > 1
+        ? ` · ${p.collection_variant_count} entries`
+        : "";
     parts.push(
-      `<span class="badge badge-owned printing-owned-qty" aria-label="Owned: ${p.owned_quantity}">×${p.owned_quantity}</span>`
+      `<span class="badge badge-owned printing-owned-qty" aria-label="Owned: ${p.owned_quantity}${variantHint}">×${p.owned_quantity}${variantHint ? `<span class="printing-variant-hint">${escapeHtml(variantHint)}</span>` : ""}</span>`
     );
   }
   if (p.trade_quantity > 0) {
@@ -4144,10 +4210,15 @@ function renderModalPrintingsList(printings, selectedKey) {
       const key = collectionPrintingKey(p);
       const selected = selectedKey === key ? " printing-row--selected" : "";
       const owned = p.owned_quantity > 0;
+      const hasVariants = owned && (p.collection_variant_count || 0) > 1;
       const canEdit = owned && p.collection_item_id;
       const rowAction = canEdit
         ? "Edit collection entry"
-        : "Select for add to collection";
+        : hasVariants
+          ? "View entries in My Collection"
+          : owned
+            ? "Select for add to collection"
+            : "Select for add to collection";
       const priceCell = hasAnyPrices
         ? `<span class="printing-col printing-col-prices muted">${
             formatMarketPrices(p, { showUnavailable: false }) || "—"
@@ -4156,9 +4227,11 @@ function renderModalPrintingsList(printings, selectedKey) {
       return `
       <div class="printing-row printing-row--selectable printing-row--grid${selected}${
         owned ? " owned" : ""
-      }${canEdit ? " printing-row--editable" : ""}"
+      }${canEdit || hasVariants ? " printing-row--editable" : ""}"
         data-printing-key="${escapeHtml(key)}"
         data-collection-item-id="${p.collection_item_id ?? ""}"
+        data-set-code="${escapeHtml(p.set_code)}"
+        data-collection-variant-count="${p.collection_variant_count ?? 0}"
         role="button" tabindex="0"
         title="${escapeHtml(rowAction)}"
         aria-label="${escapeHtml(`${p.set_code} ${p.set_rarity || ""}. ${rowAction}`)}">
@@ -4297,6 +4370,7 @@ function renderCollectionTableSkeletonRow() {
       </td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton collection-skel-cell"></div></td>
       <td><div class="skeleton collection-skel-cell"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
@@ -4310,7 +4384,7 @@ function renderCollectionTableLoadingSkeleton() {
   const rows = Array.from({ length: COLLECTION_TABLE_SKELETON_ROWS }, () =>
     renderCollectionTableSkeletonRow()
   ).join("");
-  return `<tr class="collection-skel-sr-only"><td colspan="10"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
+  return `<tr class="collection-skel-sr-only"><td colspan="11"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
 }
 
 function showCollectionTableLoading() {
@@ -5064,13 +5138,29 @@ function selectModalPrintingRow(key) {
   renderModalCard(state.currentCard);
 }
 
+async function openCollectionForPrinting(setCode) {
+  const setCodeInput = $("#collection-set-code");
+  if (setCodeInput) setCodeInput.value = setCode;
+  state.collectionPage = 0;
+  closeCardModalOverlay();
+  await switchView("collection");
+  await loadCollectionPage(0);
+}
+
 async function activateModalPrintingRow(row) {
   const key = row?.dataset.printingKey;
   if (!key) return;
   const itemId = Number(row.dataset.collectionItemId);
+  const variantCount = Number(row.dataset.collectionVariantCount || 0);
+  const setCode = row.dataset.setCode || "";
   const printing = (state.currentCard?.printings || []).find(
     (p) => collectionPrintingKey(p) === key
   );
+  if (printing?.owned_quantity > 0 && variantCount > 1 && !itemId) {
+    await openCollectionForPrinting(setCode);
+    showToast("Multiple editions/conditions — pick the row to edit in My Collection.");
+    return;
+  }
   if (printing?.owned_quantity > 0 && itemId) {
     try {
       const item = await api(`/collection/${itemId}`);
@@ -5114,6 +5204,16 @@ function populateCollectionEditRarity(printings, setCode, item) {
   if (setCode === item.set_code) raritySel.value = item.rarity_code;
 }
 
+function editionLabel(value) {
+  if (!value) return "Unlimited";
+  return normalizeEditionValue(value);
+}
+
+function editionBadgeHtml(value) {
+  const label = editionLabel(value);
+  return `<span class="edition-badge">${escapeHtml(label)}</span>`;
+}
+
 async function openCollectionEditModal(item, itemId) {
   const dlg = $("#collection-edit-modal");
   if (!dlg) return;
@@ -5138,6 +5238,21 @@ async function openCollectionEditModal(item, itemId) {
     ),
   ].join("");
   condSel.value = currentCondition;
+
+  const editionSel = $("#collection-edit-edition");
+  const currentEdition = item.printing || item.edition || "Unlimited";
+  const isKnownEdition = COLLECTION_EDITIONS.includes(currentEdition);
+  editionSel.innerHTML = [
+    ...(currentEdition && !isKnownEdition
+      ? [
+          `<option value="${escapeHtml(currentEdition)}">${escapeHtml(currentEdition)}</option>`,
+        ]
+      : []),
+    ...COLLECTION_EDITIONS.map(
+      (e) => `<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`
+    ),
+  ].join("");
+  editionSel.value = currentEdition;
 
   $("#collection-edit-quantity").value = String(item.quantity);
   $("#collection-edit-trade-quantity").value = String(item.trade_quantity ?? 0);
@@ -5217,10 +5332,17 @@ async function saveCollectionEdit() {
     }
   }
 
-  const condVal = $("#collection-edit-condition").value;
+  const condVal = normalizeConditionValue($("#collection-edit-condition").value);
+  const currentCondition = normalizeConditionValue(item.condition || "");
   const condCanonical = COLLECTION_CONDITIONS.some((c) => c.value === condVal);
-  if (condVal !== (item.condition || "") && condCanonical) {
+  if (condVal !== currentCondition && condCanonical) {
     body.condition = condVal;
+  }
+
+  const editionVal = normalizeEditionValue($("#collection-edit-edition")?.value);
+  const currentEdition = normalizeEditionValue(item.printing || item.edition || "Unlimited");
+  if (editionVal && editionVal !== currentEdition) {
+    body.printing = editionVal;
   }
 
   if (qty !== item.quantity) {
@@ -5302,6 +5424,7 @@ function renderCollectionTable(items) {
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
       <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+      <td>${editionBadgeHtml(item.printing || item.edition)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
@@ -5421,7 +5544,7 @@ async function loadCollectionPage(pageIndex) {
     if (seq !== collectionRequestSeq) return;
     setCollectionBusy(false);
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -5449,7 +5572,7 @@ async function loadCollectionView({ background = false } = {}) {
       setCollectionBusy(false);
       const tbody = $("#collection-tbody");
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
       }
     });
     return;
@@ -5461,7 +5584,7 @@ async function loadCollectionView({ background = false } = {}) {
     setCollectionBusy(false);
     const tbody = $("#collection-tbody");
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }

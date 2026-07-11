@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=99" />
+  <link rel="stylesheet" href="/static/css/style.css?v=100" />
 </head>
 <body>
   <header class="app-header">
@@ -417,6 +417,7 @@
                   <th scope="col">Card</th>
                   <th scope="col">Set</th>
                   <th scope="col">Rarity</th>
+                  <th scope="col">Edition</th>
                   <th scope="col">Quantity</th>
                   <th scope="col">Trade Qty</th>
                   <th scope="col">Sell Price</th>
@@ -865,6 +866,14 @@
           <span>Condition</span>
           <select id="collection-edit-condition"></select>
         </label>
+        <label class="collection-edit-field" for="collection-edit-edition">
+          <span>Edition</span>
+          <select id="collection-edit-edition">
+            <option value="Unlimited">Unlimited</option>
+            <option value="1st Edition">1st Edition</option>
+            <option value="Limited Edition">Limited Edition</option>
+          </select>
+        </label>
         <p id="collection-edit-note" class="muted collection-edit-note hidden"></p>
       </div>
       <div class="collection-edit-actions">
@@ -918,6 +927,6 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=158" type="module"></script>
+  <script src="/static/js/app.js?v=160" type="module"></script>
 </body>
 </html>

@@ -60,6 +60,7 @@ def get_public_trade_list(
     slug: str,
     q: str | None = None,
     set_code: str | None = None,
+    rarity: str | None = None,
     sort: str = Query(
         "set_code",
         pattern="^(set_code|card_name|trade_quantity|sell_price|condition)$",
@@ -75,6 +76,7 @@ def get_public_trade_list(
         user_id=owner.id,
         q=q,
         set_code=set_code,
+        rarity=rarity,
         sort=sort,
         sort_dir=sort_dir,
         limit=limit,

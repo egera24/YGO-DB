@@ -643,6 +643,7 @@
     return {
       q: $("#trade-q")?.value.trim() || undefined,
       set_code: $("#trade-set-code")?.value.trim() || undefined,
+      rarity: $("#trade-rarity")?.value.trim() || undefined,
       sort: $("#trade-sort")?.value || "set_code",
       sort_dir: $("#trade-sort-dir")?.value || "asc",
       limit: state.limit,
@@ -817,6 +818,25 @@
       ),
     ].sort();
     if (input) input.value = current;
+
+    const raritySelect = $("#trade-rarity");
+    const currentRarity = raritySelect?.value || "";
+    if (raritySelect) {
+      const options = ['<option value="">All rarities</option>'];
+      (data.rarities || []).forEach((row) => {
+        const label = row.rarity_name || row.rarity_code || "—";
+        options.push(
+          `<option value="${escapeHtml(row.rarity_code)}">${escapeHtml(label)}</option>`
+        );
+      });
+      raritySelect.innerHTML = options.join("");
+      const validValues = new Set(
+        (data.rarities || []).map((row) => row.rarity_code)
+      );
+      raritySelect.value =
+        currentRarity && validValues.has(currentRarity) ? currentRarity : "";
+    }
+
     state.filtersLoaded = true;
   }
 

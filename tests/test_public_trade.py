@@ -187,6 +187,10 @@ class TestPublicTrade(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["set_codes"], ["LOB"])
         self.assertEqual(payload["conditions"], ["NearMint"])
+        self.assertEqual(
+            payload["rarities"],
+            [{"rarity_code": "(UR)", "rarity_name": "Ultra Rare"}],
+        )
 
     def test_public_trade_filters_by_expansion_code(self):
         session = self.Session()
@@ -230,6 +234,67 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(other.status_code, 200)
         self.assertEqual(other.json()["total"], 1)
         self.assertEqual(other.json()["items"][0]["set_code"], "LOB-001")
+
+    def test_public_trade_filters_by_rarity(self):
+        session = self.Session()
+        card = Card(id=83994646, name="4-Starred Ladybug of Doom")
+        session.add(card)
+        session.add(
+            Printing(
+                card_id=card.id,
+                set_code="DB1-EN198",
+                set_rarity_code="(C)",
+                set_rarity="C",
+            )
+        )
+        session.flush()
+        session.add(
+            CollectionItem(
+                user_id=self.owner.id,
+                set_code="DB1-EN198",
+                expansion_code="DB1",
+                rarity_code="(C)",
+                card_name=card.name,
+                quantity=2,
+                trade_quantity=2,
+                condition="NearMint",
+            )
+        )
+        session.commit()
+        session.close()
+
+        filters = self.client.get("/api/public/trade/owner-trade-list/filters")
+        self.assertEqual(filters.status_code, 200)
+        self.assertEqual(
+            sorted(filters.json()["rarities"], key=lambda row: row["rarity_name"]),
+            [
+                {"rarity_code": "(C)", "rarity_name": "Common"},
+                {"rarity_code": "(UR)", "rarity_name": "Ultra Rare"},
+            ],
+        )
+
+        ultra = self.client.get("/api/public/trade/owner-trade-list?rarity=(UR)")
+        self.assertEqual(ultra.status_code, 200)
+        self.assertEqual(ultra.json()["total"], 1)
+        self.assertEqual(ultra.json()["items"][0]["set_code"], "LOB-001")
+
+        common = self.client.get("/api/public/trade/owner-trade-list?rarity=(C)")
+        self.assertEqual(common.status_code, 200)
+        self.assertEqual(common.json()["total"], 1)
+        self.assertEqual(common.json()["items"][0]["set_code"], "DB1-EN198")
+
+        combined = self.client.get(
+            "/api/public/trade/owner-trade-list?set_code=DB1&rarity=(C)"
+        )
+        self.assertEqual(combined.status_code, 200)
+        self.assertEqual(combined.json()["total"], 1)
+        self.assertEqual(combined.json()["items"][0]["set_code"], "DB1-EN198")
+
+        no_match = self.client.get(
+            "/api/public/trade/owner-trade-list?set_code=LOB&rarity=(C)"
+        )
+        self.assertEqual(no_match.status_code, 200)
+        self.assertEqual(no_match.json()["total"], 0)
 
     def test_public_trade_filters_normalize_bad_expansion_code(self):
         session = self.Session()

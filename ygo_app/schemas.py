@@ -576,9 +576,15 @@ class PublicTradeListOut(BaseModel):
     offset: int
 
 
+class PublicTradeRarityOptionOut(BaseModel):
+    rarity_code: str
+    rarity_name: str | None = None
+
+
 class PublicTradeFiltersOut(BaseModel):
     set_codes: list[str] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
+    rarities: list[PublicTradeRarityOptionOut] = Field(default_factory=list)
 
 
 class TradeOrderLineIn(BaseModel):

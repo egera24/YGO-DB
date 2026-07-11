@@ -1955,6 +1955,16 @@ def _apply_public_trade_expansion_filter(stmt, expansion: str):
     )
 
 
+def _apply_public_trade_rarity_filter(stmt, rarity: str):
+    rarity = rarity.strip()
+    if not rarity:
+        return stmt
+    variants = rarity_match_variants(rarity)
+    if not variants:
+        return stmt
+    return stmt.where(CollectionItem.rarity_code.in_(variants))
+
+
 def _build_public_trade_order_by(sort: str, sort_dir: str) -> list:
     field = sort if sort in PUBLIC_TRADE_SORT_FIELDS else "set_code"
     direction = sort_dir if sort_dir in ("asc", "desc") else "asc"
@@ -2036,6 +2046,7 @@ def list_public_trade_items(
     user_id: int,
     q: str | None = None,
     set_code: str | None = None,
+    rarity: str | None = None,
     sort: str = "set_code",
     sort_dir: str = "asc",
     limit: int = 100,
@@ -2056,6 +2067,8 @@ def list_public_trade_items(
         )
     if set_code:
         stmt = _apply_public_trade_expansion_filter(stmt, set_code)
+    if rarity:
+        stmt = _apply_public_trade_rarity_filter(stmt, rarity)
 
     total = session.execute(
         select(func.count()).select_from(stmt.subquery())
@@ -2122,9 +2135,37 @@ def public_trade_filters(session: Session, *, user_id: int) -> dict:
         .order_by(CollectionItem.condition)
     ).scalars().all()
 
+    rarity_codes = session.execute(
+        select(CollectionItem.rarity_code)
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.trade_quantity > 0,
+            CollectionItem.rarity_code.isnot(None),
+            CollectionItem.rarity_code != "",
+        )
+        .distinct()
+    ).scalars().all()
+
+    seen_rarities: set[str] = set()
+    rarities: list[dict] = []
+    for code in rarity_codes:
+        resolved = resolve_rarity(code)
+        key = resolved.name if resolved else code
+        if key in seen_rarities:
+            continue
+        seen_rarities.add(key)
+        rarities.append(
+            {
+                "rarity_code": code,
+                "rarity_name": resolved.name if resolved else None,
+            }
+        )
+    rarities.sort(key=lambda row: (row["rarity_name"] or row["rarity_code"]).lower())
+
     return {
         "set_codes": expansion_codes,
         "conditions": list(conditions),
+        "rarities": rarities,
     }
 
 

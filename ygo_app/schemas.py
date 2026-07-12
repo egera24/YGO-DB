@@ -635,3 +635,124 @@ class PublicConfigOut(BaseModel):
     eur_huf_rate: float
     eur_huf_rate_source: str
     eur_huf_rate_as_of: str | None = None
+
+
+class BulkGridBaselineOut(BaseModel):
+    quantity: int = 0
+    trade_quantity: int = 0
+    folder_name: str | None = None
+    collection_item_id: int | None = None
+
+
+class BulkGridRowOut(BaseModel):
+    row_id: str
+    printing_id: int
+    collection_item_id: int | None = None
+    allocation_id: int | None = None
+    folder_id: int | None = None
+    folder_name: str | None = None
+    quantity: int = 0
+    trade_quantity: int = 0
+    total_quantity: int = 0
+    card_name: str | None = None
+    expansion_code: str | None = None
+    set_name: str | None = None
+    set_code: str
+    rarity_name: str | None = None
+    rarity_code: str
+    rarity_sort_order: int = 9999
+    condition: str
+    edition: str
+    language: str
+    price_bought: float | None = None
+    date_bought: str | None = None
+    owned: bool = False
+    baseline: BulkGridBaselineOut
+
+
+class BulkGridListOut(BaseModel):
+    rows: list[BulkGridRowOut]
+    total: int
+    set_code: str
+
+
+class BulkGridMetaOut(BaseModel):
+    folders: list[CollectionFolderOut]
+    conditions: list[str]
+    editions: list[str]
+    languages: list[str]
+
+
+class BulkGridBaselineIn(BaseModel):
+    quantity: int = 0
+    trade_quantity: int = 0
+    folder_name: str | None = None
+    collection_item_id: int | None = None
+
+
+class BulkGridChange(BaseModel):
+    row_id: str
+    printing_id: int
+    collection_item_id: int | None = None
+    allocation_id: int | None = None
+    set_code: str
+    rarity_code: str
+    folder_name: str | None = None
+    quantity: int = Field(default=0, ge=0)
+    trade_quantity: int = Field(default=0, ge=0)
+    condition: str = "NearMint"
+    edition: str = "1st Edition"
+    language: str = "English"
+    price_bought: float | None = None
+    date_bought: str | None = None
+    baseline: BulkGridBaselineIn
+    is_client_duplicate: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variant_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "condition" in data:
+            data["condition"] = normalize_collection_condition(data.get("condition"))
+        if "edition" in data:
+            data["edition"] = normalize_collection_edition(data.get("edition"))
+        return data
+
+    @field_validator("condition")
+    @classmethod
+    def _validate_condition(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_CONDITIONS:
+            allowed = ", ".join(COLLECTION_CONDITIONS)
+            raise ValueError(f"Condition must be one of: {allowed}")
+        return value
+
+    @field_validator("edition")
+    @classmethod
+    def _validate_edition(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_EDITIONS:
+            allowed = ", ".join(COLLECTION_EDITIONS)
+            raise ValueError(f"Edition must be one of: {allowed}")
+        return value
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_LANGUAGES:
+            allowed = ", ".join(COLLECTION_LANGUAGES)
+            raise ValueError(f"Language must be one of: {allowed}")
+        return value
+
+
+class BulkGridSaveIn(BaseModel):
+    set_code: str
+    changes: list[BulkGridChange] = Field(default_factory=list, max_length=500)
+
+
+class BulkGridSaveResult(BaseModel):
+    printings_updated: int = 0
+    quantities_added: int = 0
+    trade_quantities_added: int = 0
+    items_created: int = 0
+    items_updated: int = 0
+    items_deleted: int = 0

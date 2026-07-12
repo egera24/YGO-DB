@@ -22,6 +22,10 @@ from ygo_app.import_data import CollectionImportResult, import_collection_csv
 from ygo_app.import_progress import build_progress_event
 from ygo_app.models import CollectionItem, CollectionItemFolder, Printing, User
 from ygo_app.schemas import (
+    BulkGridListOut,
+    BulkGridMetaOut,
+    BulkGridSaveIn,
+    BulkGridSaveResult,
     CollectionFolderCreate,
     CollectionFolderDeleteResult,
     CollectionFolderOut,
@@ -38,12 +42,15 @@ from ygo_app.services import (
     FolderConflictError,
     _collection_item_row,
     add_collection_item,
+    bulk_collection_grid_meta,
     collection_stats,
     create_collection_folder,
     delete_collection_folder,
     get_trade_settings,
+    list_bulk_collection_grid,
     list_collection,
     list_collection_folders,
+    save_bulk_collection_grid,
     update_collection_folder,
     update_collection_item,
     update_trade_settings,
@@ -275,6 +282,70 @@ def export_csv(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/bulk-grid/meta", response_model=BulkGridMetaOut)
+def get_bulk_grid_meta(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    payload = bulk_collection_grid_meta(db, user_id=user.id)
+    return BulkGridMetaOut(
+        folders=[CollectionFolderOut(**row) for row in payload["folders"]],
+        conditions=payload["conditions"],
+        editions=payload["editions"],
+        languages=payload["languages"],
+    )
+
+
+@router.get("/bulk-grid", response_model=BulkGridListOut)
+def get_bulk_grid(
+    set_code: str = Query(..., min_length=1),
+    q: str | None = None,
+    sort: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    sort_specs: list[dict] | None = None
+    if sort:
+        try:
+            parsed = json.loads(sort)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Invalid sort JSON"
+            ) from exc
+        if not isinstance(parsed, list):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sort must be a JSON array")
+        sort_specs = parsed
+    try:
+        rows, total, abbr = list_bulk_collection_grid(
+            db,
+            user_id=user.id,
+            set_code=set_code,
+            q=q,
+            sort=sort_specs,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return BulkGridListOut(rows=rows, total=total, set_code=abbr)
+
+
+@router.post("/bulk-grid/save", response_model=BulkGridSaveResult)
+def post_bulk_grid_save(
+    body: BulkGridSaveIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        result = save_bulk_collection_grid(
+            db,
+            user_id=user.id,
+            set_code=body.set_code,
+            changes=[change.model_dump() for change in body.changes],
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return BulkGridSaveResult(**result)
 
 
 @router.post("", response_model=CollectionItemOut)

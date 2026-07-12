@@ -1,3 +1,9 @@
+import {
+  closeBulkCollectionModal,
+  initBulkCollection,
+  refreshBulkCollectionAuthVisibility,
+} from "./bulk-collection.js";
+
 const API = "/api";
 
 const IMG_PLACEHOLDER =
@@ -889,6 +895,7 @@ function updateAuthUI() {
   const loggedIn = Boolean(state.token && state.user);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
   $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
+  refreshBulkCollectionAuthVisibility(loggedIn);
   $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
   $("#copy-trade-link-btn")?.classList.toggle("hidden", !loggedIn);
   $("#trade-settings-btn")?.classList.toggle("hidden", !loggedIn);
@@ -2989,7 +2996,8 @@ function syncModalOpenClass() {
     isModalVisible("#search-preset-save-modal") ||
     isModalVisible("#search-preset-name-modal") ||
     isModalVisible("#collection-add-modal") ||
-    isModalVisible("#collection-edit-modal")
+    isModalVisible("#collection-edit-modal") ||
+    isModalVisible("#bulk-collection-modal")
   ) {
     document.body.classList.add("modal-open");
   } else {
@@ -6766,6 +6774,19 @@ async function selectDeck(deckId) {
 }
 
 function wireEvents() {
+  initBulkCollection({
+    $,
+    API,
+    showToast,
+    isLoggedIn: () => Boolean(state.token && state.user),
+    authHeaders: () => (state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+    onSaved: () => {
+      state.collectionViewCache = null;
+      refreshCollectionIfActive();
+      loadCollectionStats();
+    },
+  });
+
   setupSearchResultsDelegation();
   setupSearchFilterChipDelegation();
   setupCollectionTableDelegation();
@@ -7172,6 +7193,7 @@ function wireEvents() {
     }
     else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
+    else if (isModalVisible("#bulk-collection-modal")) closeBulkCollectionModal();
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();

@@ -18,9 +18,13 @@ from ygo_app.cardmarket.archive_compression import (
 from ygo_app.cardmarket.paths import (
     CARDMARKET_PRICES_PATH,
     LEGACY_R2_CARDMARKET_PRICES_KEY,
-    PRICES_ARCHIVE_PREFIX,
     R2_CARDMARKET_ARCHIVE_PREFIX,
+    catalog_archive_key,
+    legacy_prices_archive_key,
+    pipeline_report_key,
     prices_archive_key,
+    run_log_key,
+    run_ts_from_prices_archive_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,23 +78,41 @@ def _list_prices_archive_keys(s3, bucket: str) -> list[str]:
     keys: list[str] = []
     continuation: str | None = None
     while True:
-        kwargs: dict = {"Bucket": bucket, "Prefix": PRICES_ARCHIVE_PREFIX}
+        kwargs: dict = {"Bucket": bucket, "Prefix": f"{R2_CARDMARKET_ARCHIVE_PREFIX}/"}
         if continuation:
             kwargs["ContinuationToken"] = continuation
         response = s3.list_objects_v2(**kwargs)
         for item in response.get("Contents") or []:
             key = item.get("Key")
-            if key and key.endswith(".zip"):
+            if key and run_ts_from_prices_archive_key(key):
                 keys.append(key)
         if not response.get("IsTruncated"):
             break
         continuation = response.get("NextContinuationToken")
-    return sorted(keys)
+    return sorted(keys, key=lambda key: run_ts_from_prices_archive_key(key) or "")
+
+
+def _object_exists(s3, bucket: str, key: str) -> bool:
+    from botocore.exceptions import ClientError
+
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return False
+        raise
 
 
 def _resolve_prices_archive_key(s3, bucket: str, run_ts: str | None) -> str | None:
     if run_ts:
-        return prices_archive_key(run_ts)
+        new_key = prices_archive_key(run_ts)
+        if _object_exists(s3, bucket, new_key):
+            return new_key
+        legacy_key = legacy_prices_archive_key(run_ts)
+        if _object_exists(s3, bucket, legacy_key):
+            return legacy_key
+        return None
     keys = _list_prices_archive_keys(s3, bucket)
     return keys[-1] if keys else None
 
@@ -139,7 +161,7 @@ def download_latest_prices_archive(
 
     logger.warning(
         "No prices archive found under %s — falling back to legacy key %s",
-        PRICES_ARCHIVE_PREFIX,
+        R2_CARDMARKET_ARCHIVE_PREFIX,
         LEGACY_R2_CARDMARKET_PRICES_KEY,
     )
     s3.download_file(bucket, LEGACY_R2_CARDMARKET_PRICES_KEY, str(dest_path))
@@ -169,7 +191,7 @@ def upload_catalog_archive(
         ],
     )
 
-    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/catalog_archive_{ts}.zip"
+    object_key = catalog_archive_key(ts)
     s3 = build_s3_client()
     bucket = _cardmarket_bucket()
     s3.upload_file(
@@ -188,7 +210,7 @@ def upload_run_log(
 ) -> str:
     if not log_path.is_file():
         raise FileNotFoundError(f"Job log not found: {log_path}")
-    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/sync_price_log_{run_ts}.log.br"
+    object_key = run_log_key(run_ts)
     compressed = brotli_compress_file(log_path)
     s3 = build_s3_client()
     bucket = _cardmarket_bucket()
@@ -208,7 +230,7 @@ def upload_pipeline_report(
 ) -> str:
     if not report_path.is_file():
         raise FileNotFoundError(f"Pipeline report not found: {report_path}")
-    object_key = f"{R2_CARDMARKET_ARCHIVE_PREFIX}/sync_price_report_{run_ts}.json.br"
+    object_key = pipeline_report_key(run_ts)
     compressed = brotli_compress_file(report_path)
     s3 = build_s3_client()
     bucket = _cardmarket_bucket()

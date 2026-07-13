@@ -5,9 +5,9 @@ Official Cardmarket product catalog and price guide JSON files replace the legac
 ## Flow
 
 1. **Download** — `downloads.s3.cardmarket.com` Yu-Gi-Oh JSON (game id `3`)
-2. **Archive** — LZMA zip raw files + manifest → R2 bucket `ygo-cardmarket`, key `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip`
-3. **Run log** — Brotli-compressed job log → R2 key `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log.br` (same UTC suffix as zip)
-4. **Pipeline report** — Brotli-compressed rejections + import gate → R2 key `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json.br`
+2. **Archive** — LZMA zip raw files + manifest → R2 bucket `ygo-cardmarket`, key `archives/{YYYY}/{MM}/{DD}/{HHMM}/catalog_archive.zip`
+3. **Run log** — Brotli-compressed job log → R2 key `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_log.log.br` (same UTC run folder as zip)
+4. **Pipeline report** — Brotli-compressed rejections + import gate → R2 key `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_report.json.br`
 5. **Map expansions** — `tcg_sets.name` contained in `products_nonsingles` product names → `idExpansion`
 6. **Match printings** — singles by expansion + card name; rarity guessed from price order vs `rarity_price_ranks`
 7. **Import gate** — validate export for duplicate keys and missing required fields before DB write
@@ -38,21 +38,23 @@ python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_p
 
 ## R2 artifacts
 
-Bucket: `ygo-cardmarket` (`S3_CARDMARKET_BUCKET`).
+Bucket: `ygo-cardmarket` (`S3_CARDMARKET_BUCKET`). Each sync run uses folder `archives/{YYYY}/{MM}/{DD}/{HHMM}/` (UTC from `YYYYMMDD_HHMM`).
 
 | Key | Content |
 |-----|---------|
-| `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw catalog JSON + manifest (ZIP_LZMA) |
-| `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log.br` | Job log for triage (Brotli) |
-| `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json.br` | Rejections and import gate (Brotli) |
-| `archives/cardmarket_prices_{YYYYMMDD}_{HHMM}.zip` | Matched export (`cardmarket_prices.json` inside, ZIP_LZMA) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/catalog_archive.zip` | Raw catalog JSON + manifest (ZIP_LZMA) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_log.log.br` | Job log for triage (Brotli) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_report.json.br` | Rejections and import gate (Brotli) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/cardmarket_prices.zip` | Matched export (`cardmarket_prices.json` inside, ZIP_LZMA) |
+
+Legacy flat keys (`archives/cardmarket_prices_{YYYYMMDD}_{HHMM}.zip`, etc.) are still readable until removed from R2.
 
 ## GitHub Actions
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
 | [`sync-cardmarket-catalog.yml`](../.github/workflows/sync-cardmarket-catalog.yml) | Weekly Sun 04:00 UTC | Full pipeline |
-| [`import-cardmarket-prices.yml`](../.github/workflows/import-cardmarket-prices.yml) | Manual | Re-import latest `archives/cardmarket_prices_{ts}.zip` from R2 |
+| [`import-cardmarket-prices.yml`](../.github/workflows/import-cardmarket-prices.yml) | Manual | Re-import latest `archives/.../cardmarket_prices.zip` from R2 |
 
 Scheduled runs target **production** Neon. Use `workflow_dispatch` with `environment=dev` for testing.
 
@@ -108,7 +110,7 @@ Export JSON is still uploaded to R2 when the gate fails so you can inspect bad r
 
 | Issue | Action |
 |-------|--------|
-| Expansion mapping rejections | Check `sync_price_log_{YYYYMMDD}_{HHMM}.log.br` and `sync_price_report_{YYYYMMDD}_{HHMM}.json.br` in R2; adjust `tcg_sets.name` or aliases |
+| Expansion mapping rejections | Check `sync_price_log.log.br` and `sync_price_report.json.br` in the run folder under `archives/{YYYY}/{MM}/{DD}/{HHMM}/`; adjust `tcg_sets.name` or aliases |
 | Printing count mismatch | Yugipedia printings ≠ CM singles for a card — verify catalog freshness |
 | Ambiguous price order | Two CM variants with identical sort keys — manual review in report |
 | Import gate duplicate keys | Bug in export builder — inspect `cardmarket_prices.json` |

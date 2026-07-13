@@ -968,6 +968,7 @@ def import_collection_csv(
     # (critical on remote Postgres where each query is a network hop).
     existing_by_key: dict[CollectionItemKey, CollectionItem] = {}
     printing_by_key: dict[tuple[str, str], int] = {}
+    printing_card_names: dict[int, str] = {}
     catalog_set_codes: set[str] = set()
     substring_parents_by_code: dict[str, list[str]] = {}
     folder_cache: dict[str, "object"] = {}
@@ -991,7 +992,20 @@ def import_collection_csv(
         "price_bought",
         "date_bought",
         "notes",
+        "card_name",
     )
+
+    def _catalog_card_name(
+        printing_id: int | None,
+        *,
+        item: CollectionItem | None = None,
+    ) -> str | None:
+        pid = printing_id if printing_id is not None else (
+            item.printing_id if item is not None else None
+        )
+        if pid is None:
+            return None
+        return printing_card_names.get(pid)
 
     def _item_state(item: CollectionItem) -> dict:
         state = item_update_final.get(item.id)
@@ -1033,6 +1047,7 @@ def import_collection_csv(
         *,
         quantity: int,
         folder,
+        printing_id: int | None,
     ) -> None:
         item.quantity += quantity
         item.trade_quantity += int(row.get("Trade Quantity") or 0)
@@ -1048,6 +1063,8 @@ def import_collection_csv(
             item.date_bought = date_bought
         if notes := _nonempty(row.get("Notes")):
             item.notes = notes
+        if catalog_name := _catalog_card_name(printing_id, item=item):
+            item.card_name = catalog_name
         folder_raw = (row.get("Folder Name") or "").strip()
         if folder_raw:
             _merge_folder_allocation(item, folder=folder, quantity=quantity)
@@ -1058,6 +1075,7 @@ def import_collection_csv(
         *,
         quantity: int,
         folder,
+        printing_id: int | None,
     ) -> None:
         state = _item_state(item)
         state["quantity"] += quantity
@@ -1074,6 +1092,8 @@ def import_collection_csv(
             state["date_bought"] = date_bought
         if notes := _nonempty(row.get("Notes")):
             state["notes"] = notes
+        if catalog_name := _catalog_card_name(printing_id, item=item):
+            state["card_name"] = catalog_name
         folder_raw = (row.get("Folder Name") or "").strip()
         if not folder_raw:
             return
@@ -1132,21 +1152,28 @@ def import_collection_csv(
         if not replace:
             existing = existing_by_key.get(key)
             if existing is not None:
-                _merge_existing_bulk(existing, row, quantity=quantity, folder=folder)
+                _merge_existing_bulk(
+                    existing, row, quantity=quantity, folder=folder, printing_id=printing_id
+                )
                 merged += 1
                 return
 
         pending = new_by_key.get(key)
         if pending is not None:
-            _merge_existing_item(pending, row, quantity=quantity, folder=folder)
+            _merge_existing_item(
+                pending, row, quantity=quantity, folder=folder, printing_id=printing_id
+            )
             merged += 1
             return
 
+        card_name = (
+            printing_card_names.get(printing_id) if printing_id is not None else None
+        )
         item = CollectionItem(
             user_id=user_id,
             set_code=stored_set_code,
             rarity_code=rarity_code,
-            card_name=row.get("Card Name"),
+            card_name=card_name,
             expansion_code=row.get("Set Code"),
             set_name=row.get("Set Name"),
             quantity=quantity,
@@ -1304,6 +1331,14 @@ def import_collection_csv(
                 total=parent_chunk_total,
                 message="Loading alternate-art catalog matches…",
             )
+
+        for chunk in _chunked(sorted(set(printing_by_key.values())), 1000):
+            for pid, name in session.execute(
+                select(Printing.id, Card.name)
+                .join(Card, Printing.card_id == Card.id)
+                .where(Printing.id.in_(chunk))
+            ).all():
+                printing_card_names[int(pid)] = name
 
         # Preload the user's existing collection (with folder allocations) so
         # append merges happen in memory instead of one query per row.

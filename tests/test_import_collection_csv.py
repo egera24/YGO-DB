@@ -47,7 +47,11 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.Session = sessionmaker(bind=self.engine)
 
         session = self.Session()
-        user = User(email="csv@test.example", hashed_password="x")
+        user = User(
+            email="csv@test.example",
+            hashed_password="x",
+            trade_share_slug="csv-test-trade",
+        )
         session.add(user)
         session.flush()
         self.user_id = user.id
@@ -110,6 +114,7 @@ class TestImportCollectionCsv(unittest.TestCase):
         sell_price: float | None = 5.0,
         folder_name: str | None = None,
         folder_qty: int | None = None,
+        card_name: str = "Blue-Eyes White Dragon",
     ) -> CollectionItem:
         session = self.Session()
         printing = session.execute(
@@ -130,7 +135,7 @@ class TestImportCollectionCsv(unittest.TestCase):
             user_id=self.user_id,
             set_code=set_code,
             rarity_code=rarity_code,
-            card_name="Blue-Eyes White Dragon",
+            card_name=card_name,
             quantity=quantity,
             trade_quantity=trade_quantity,
             condition=condition,
@@ -332,7 +337,57 @@ class TestImportCollectionCsv(unittest.TestCase):
         )
         session.close()
         self.assertEqual(item.quantity, 2)
+        self.assertEqual(item.card_name, "Blue-Eyes White Dragon")
         self.assertEqual(folder.name, "BOX1")
+
+    def test_ignores_csv_card_name_when_catalog_match_exists(self):
+        csv_path = Path(self._tmp.name).with_suffix(".wrong-name.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "Wrong Name",
+                    "Quantity": "1",
+                }
+            ],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(result.rejected, [])
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.card_name, "Blue-Eyes White Dragon")
+
+    def test_append_merge_refreshes_card_name_from_catalog(self):
+        self._seed_collection_item(card_name="Wrong Name", condition=None)
+        csv_path = Path(self._tmp.name).with_suffix(".append-name.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "Still Wrong",
+                    "Quantity": "1",
+                }
+            ],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=False)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(result.merged, 1)
+
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        session.close()
+        self.assertEqual(item.card_name, "Blue-Eyes White Dragon")
 
     def test_rejects_wrong_rarity_for_set_code(self):
         csv_path = Path(self._tmp.name).with_suffix(".rarity.csv")

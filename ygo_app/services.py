@@ -1236,8 +1236,10 @@ def _collection_item_row(
         folder_id = int(folder_filter)
         alloc = next((f for f in folders if f["folder_id"] == folder_id), None)
         display_quantity = alloc["quantity"] if alloc else 0
+    display_card_name = item.card_name or (card.name if card else None)
     return {
         **row,
+        "card_name": display_card_name,
         "quantity": display_quantity,
         "card_id": card.id if card else None,
         "image_url_small": card.image_url_small if card else None,

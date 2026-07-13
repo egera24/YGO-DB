@@ -43,6 +43,31 @@ from ygo_app.rarity_registry import (
 IMPORT_ERROR_COLUMN = "Import Error"
 
 
+def _prepare_collection_csv_lines(lines: list[str]) -> tuple[str, list[str]]:
+    """Return (delimiter, body_lines) for DragonShield / app collection CSV."""
+    delimiter = ","
+    body = list(lines)
+    if not body:
+        return delimiter, body
+    first = body[0].strip()
+    if first in ('"sep=,"', "sep=,"):
+        return ",", body[1:]
+    if first in ('"sep=;"', "sep=;"):
+        return ";", body[1:]
+    header = body[0]
+    if header.count(";") > header.count(","):
+        delimiter = ";"
+    return delimiter, body
+
+
+def _normalize_collection_row(row: dict) -> dict:
+    """Accept DragonShield column aliases (e.g. Folder → Folder Name)."""
+    out = dict(row)
+    if not (out.get("Folder Name") or "").strip() and (out.get("Folder") or "").strip():
+        out["Folder Name"] = out.get("Folder")
+    return out
+
+
 def _legacy_passcode_id(card_id: int | None) -> int | None:
     """Pre-migration rows used cards.id as the Konami passcode."""
     # Konami passcodes are 7–8 digits; surrogate autoincrement ids are 100M+.
@@ -1178,13 +1203,12 @@ def import_collection_csv(
 
         _report("parsing", message="Reading CSV…")
         with path.open("r", encoding="utf-8-sig", newline="") as f:
-            lines = f.readlines()
-        if lines and lines[0].strip() == '"sep=,"':
-            lines = lines[1:]
+            raw_lines = f.readlines()
+        delimiter, lines = _prepare_collection_csv_lines(raw_lines)
 
-        reader = csv.DictReader(lines)
+        reader = csv.DictReader(lines, delimiter=delimiter)
         output_fieldnames = list(reader.fieldnames or []) + [IMPORT_ERROR_COLUMN]
-        rows = list(reader)
+        rows = [_normalize_collection_row(row) for row in reader]
         total = len(rows)
         _report(
             "parsing",

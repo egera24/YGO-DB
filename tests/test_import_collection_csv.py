@@ -301,6 +301,39 @@ class TestImportCollectionCsv(unittest.TestCase):
             result.rejected[0][IMPORT_ERROR_COLUMN],
         )
 
+    def test_imports_semicolon_delimited_dragonshield_csv(self):
+        csv_path = Path(self._tmp.name).with_suffix(".semi.csv")
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            f.write(
+                "Folder;Quantity;Trade Quantity;Total Quantity;"
+                "Card Number;Rarity;Condition;Printing;Language\n"
+            )
+            f.write(
+                "BOX1;2;0;2;LOB-001;Ultra Rare;Near Mint;"
+                "Limited Edition;English\n"
+            )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 1, result.rejected)
+        self.assertEqual(len(result.rejected), 0)
+
+        session = self.Session()
+        item = (
+            session.query(CollectionItem)
+            .filter(
+                CollectionItem.user_id == self.user_id,
+                CollectionItem.set_code == "LOB-001",
+            )
+            .one()
+        )
+        folder = (
+            session.query(CollectionFolder)
+            .filter(CollectionFolder.user_id == self.user_id)
+            .one()
+        )
+        session.close()
+        self.assertEqual(item.quantity, 2)
+        self.assertEqual(folder.name, "BOX1")
+
     def test_rejects_wrong_rarity_for_set_code(self):
         csv_path = Path(self._tmp.name).with_suffix(".rarity.csv")
         self._write_csv(

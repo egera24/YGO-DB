@@ -86,13 +86,14 @@ For each `tcg_sets` row with `region = 'TCG'`:
 
 Per Yugipedia set, group `printings` by card. Match Cardmarket singles (`idCategory = 5`) by any mapped `idExpansion` + normalized card name.
 
+- **TCG branding stars** — strip `☆` and `★` from card names before punctuation normalization (Yugipedia `Live☆Twin` / `Evil★Twin` vs Cardmarket `LiveTwin` / `EvilTwin`)
 - **Regional variants** — Yugipedia printings that share the same card, rarity, and collector number but differ only by regional prefix (e.g. `LOD-078` and `LOD-EN078`) are collapsed to one **representative** slot before counting. The representative prefers the `-EN` form. After price pairing, the matched Cardmarket product's prices are **broadcast** to every variant in that slot. Cardmarket does not distinguish these regional codes; one CM single covers all.
 - **Print-design variants** — Cardmarket may list multiple `idProduct` rows for the same card name when alternate physical designs exist (e.g. 25LP **Emblazoned** vs normal). The website shows these as V.1–V.4, but the S3 JSON has only the plain card `name`. Before counting, rows are split into consecutive `idProduct` runs separated by a major gap; when structure is unambiguous, one batch is kept:
   - One run matches the Yugipedia representative count → use that run (e.g. RA05 7-block).
   - Two equal-sized runs (e.g. 25LP normal vs emblazoned pairs) → keep the run with lower total `avg` price (normal printing; emblazoned is not a separate Yugipedia slot).
   - Prefix pair + main block (e.g. RA05 9→7) → drop the small prefix, keep the main block.
   - Unrecognized structure → no collapse; existing `count_mismatch` rejection applies.
-- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with price data. Multi-design resolution is handled by print-variant collapse above.
+- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with price data. Multi-design resolution is handled by print-variant collapse above. When CM count still exceeds Yugipedia after variant collapse, rows with any null among `low` / `avg` / `trend` are dropped if that brings counts into alignment.
 - Count of CM products must equal count of **representative slots** (after regional collapse) for that card in the set
 - Sort CM by `trend`, then `avg`, then `idProduct` ascending
 - Sort representative slots by `rarity_price_ranks.sort_order`

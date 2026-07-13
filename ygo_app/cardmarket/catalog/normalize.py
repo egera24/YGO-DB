@@ -17,6 +17,8 @@ NON_TCG_NONSINGLE_MARKERS = (
 
 _SHORT_REGIONAL_CODE = re.compile(r"\([A-Za-z]{1,4}\)")
 
+_TCG_BRANDING_STARS = ("\u2606", "\u2605")  # ☆ ★
+
 
 def normalize_expansion_name(name: str) -> str:
     text = unicodedata.normalize("NFKC", (name or "").replace("&amp;", "&").strip().lower())
@@ -26,6 +28,8 @@ def normalize_expansion_name(name: str) -> str:
 
 def normalize_card_name(name: str) -> str:
     text = unicodedata.normalize("NFKC", (name or "").strip().lower())
+    for ch in _TCG_BRANDING_STARS:
+        text = text.replace(ch, "")
     text = text.replace("&amp;", "&")
     text = re.sub(r"[^\w\s\-']", " ", text)
     return re.sub(r"\s+", " ", text).strip()

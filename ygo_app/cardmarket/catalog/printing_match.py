@@ -105,6 +105,28 @@ def _dedupe_cm_duplicate_listings(
     return result
 
 
+def _has_complete_core_price(price: dict) -> bool:
+    return all(price.get(key) is not None for key in ("low", "avg", "trend"))
+
+
+def _prune_incomplete_cm_when_overcount(
+    cm_matches: list[dict],
+    price_index: dict[int, dict],
+    target_count: int,
+) -> list[dict]:
+    if len(cm_matches) <= target_count:
+        return cm_matches
+
+    complete = [
+        row
+        for row in cm_matches
+        if _has_complete_core_price(price_index.get(int(row["idProduct"]), {}))
+    ]
+    if len(complete) >= target_count:
+        return complete
+    return cm_matches
+
+
 def _cm_id_gaps(cm_matches: list[dict]) -> list[int]:
     ids = sorted(int(row["idProduct"]) for row in cm_matches)
     return [ids[index + 1] - ids[index] for index in range(len(ids) - 1)]
@@ -221,6 +243,11 @@ def match_printings_to_catalog(
                 cm_matches,
                 target_count=len(representatives),
                 price_index=price_index,
+            )
+            cm_matches = _prune_incomplete_cm_when_overcount(
+                cm_matches,
+                price_index,
+                target_count=len(representatives),
             )
 
             cm_priced = []

@@ -145,6 +145,135 @@ class TestCardmarketCatalogPrintingMatch(unittest.TestCase):
         self.assertEqual(rejections[0]["reason"], "count_mismatch")
         self.assertEqual(rejections[0]["card_name"], "Bad Card")
 
+    def test_ys11_grenosaurus_prunes_incomplete_duplicate_listing(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        engine = _sqlite_engine(tmp.name)
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        session.add(RarityPriceRank(sort_order=1, name="Common", rarity_code="C"))
+        session.add(Card(id=1, name="Grenosaurus"))
+        session.add(
+            Printing(
+                card_id=1,
+                set_code="YS11-EN038",
+                set_rarity="Common",
+                set_rarity_code="C",
+            )
+        )
+        session.commit()
+
+        singles = [
+            {
+                "idProduct": 248156,
+                "name": "Grenosaurus",
+                "idCategory": 5,
+                "idExpansion": 1282,
+                "idMetacard": 203573,
+            },
+            {
+                "idProduct": 327224,
+                "name": "Grenosaurus",
+                "idCategory": 5,
+                "idExpansion": 1282,
+                "idMetacard": 203573,
+            },
+        ]
+        prices = [
+            {"idProduct": 248156, "trend": 0.12, "avg": 0.21, "low": 0.02},
+            {"idProduct": 327224, "trend": 5.0, "avg": 5.0, "low": None},
+        ]
+        mappings = {
+            "YS11": ExpansionMapping(
+                abbr="YS11",
+                set_name="Starter Deck: Dawn of the Xyz",
+                expansion_ids=(1282,),
+                matched_product_names=["Starter Deck: Dawn of the Xyz"],
+            )
+        }
+
+        export_rows, stats, rejections = match_printings_to_catalog(
+            session,
+            singles=singles,
+            price_rows=prices,
+            expansion_mappings=mappings,
+        )
+        session.close()
+        engine.dispose()
+
+        self.assertEqual(rejections, [])
+        self.assertEqual(len(export_rows), 1)
+        self.assertEqual(export_rows[0]["set_code"], "YS11-EN038")
+        self.assertEqual(export_rows[0]["cardmarket_product_id"], 248156)
+        self.assertEqual(export_rows[0]["low_price"], 0.02)
+        self.assertEqual(stats["matched"], 1)
+
+    def test_rejects_overcount_when_all_cm_prices_complete(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        engine = _sqlite_engine(tmp.name)
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        session.add(RarityPriceRank(sort_order=1, name="Common", rarity_code="C"))
+        session.add(Card(id=1, name="Overcount Card"))
+        session.add(
+            Printing(
+                card_id=1,
+                set_code="TST-EN001",
+                set_rarity="Common",
+                set_rarity_code="C",
+            )
+        )
+        session.commit()
+
+        singles = [
+            {
+                "idProduct": 101,
+                "name": "Overcount Card",
+                "idCategory": 5,
+                "idExpansion": 9001,
+                "idMetacard": 5001,
+            },
+            {
+                "idProduct": 102,
+                "name": "Overcount Card",
+                "idCategory": 5,
+                "idExpansion": 9001,
+                "idMetacard": 5001,
+            },
+        ]
+        prices = [
+            {"idProduct": 101, "trend": 1.0, "avg": 1.0, "low": 0.5},
+            {"idProduct": 102, "trend": 2.0, "avg": 2.0, "low": 1.0},
+        ]
+        mappings = {
+            "TST": ExpansionMapping(
+                abbr="TST",
+                set_name="Test Set",
+                expansion_ids=(9001,),
+                matched_product_names=["Test Set Booster"],
+            )
+        }
+
+        export_rows, stats, rejections = match_printings_to_catalog(
+            session,
+            singles=singles,
+            price_rows=prices,
+            expansion_mappings=mappings,
+        )
+        session.close()
+        engine.dispose()
+
+        self.assertEqual(export_rows, [])
+        self.assertEqual(stats["rejected_cards"], 1)
+        self.assertEqual(len(rejections), 1)
+        self.assertEqual(rejections[0]["reason"], "count_mismatch")
+        self.assertEqual(rejections[0]["card_name"], "Overcount Card")
+
 
 if __name__ == "__main__":
     unittest.main()

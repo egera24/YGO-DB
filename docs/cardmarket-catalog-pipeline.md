@@ -87,7 +87,12 @@ For each `tcg_sets` row with `region = 'TCG'`:
 Per Yugipedia set, group `printings` by card. Match Cardmarket singles (`idCategory = 5`) by any mapped `idExpansion` + normalized card name.
 
 - **Regional variants** — Yugipedia printings that share the same card, rarity, and collector number but differ only by regional prefix (e.g. `LOD-078` and `LOD-EN078`) are collapsed to one **representative** slot before counting. The representative prefers the `-EN` form. After price pairing, the matched Cardmarket product's prices are **broadcast** to every variant in that slot. Cardmarket does not distinguish these regional codes; one CM single covers all.
-- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with fuller price data (keeps multi-rarity products that each have `avg`).
+- **Print-design variants** — Cardmarket may list multiple `idProduct` rows for the same card name when alternate physical designs exist (e.g. 25LP **Emblazoned** vs normal). The website shows these as V.1–V.4, but the S3 JSON has only the plain card `name`. Before counting, rows are split into consecutive `idProduct` runs separated by a major gap; when structure is unambiguous, one batch is kept:
+  - One run matches the Yugipedia representative count → use that run (e.g. RA05 7-block).
+  - Two equal-sized runs (e.g. 25LP normal vs emblazoned pairs) → keep the run with lower total `avg` price (normal printing; emblazoned is not a separate Yugipedia slot).
+  - Prefix pair + main block (e.g. RA05 9→7) → drop the small prefix, keep the main block.
+  - Unrecognized structure → no collapse; existing `count_mismatch` rejection applies.
+- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with price data. Multi-design resolution is handled by print-variant collapse above.
 - Count of CM products must equal count of **representative slots** (after regional collapse) for that card in the set
 - Sort CM by `trend`, then `avg`, then `idProduct` ascending
 - Sort representative slots by `rarity_price_ranks.sort_order`
@@ -111,7 +116,7 @@ Export JSON is still uploaded to R2 when the gate fails so you can inspect bad r
 | Issue | Action |
 |-------|--------|
 | Expansion mapping rejections | Check `sync_price_log.log.br` and `sync_price_report.json.br` in the run folder under `archives/{YYYY}/{MM}/{DD}/{HHMM}/`; adjust `tcg_sets.name` or aliases |
-| Printing count mismatch | Yugipedia printings ≠ CM singles for a card — verify catalog freshness |
+| Printing count mismatch | Yugipedia printings ≠ CM singles for a card after variant collapse — verify catalog freshness or inspect `extra.cm_id_products` / `extra.id_gaps` in the report |
 | Ambiguous price order | Two CM variants with identical sort keys — manual review in report |
 | Import gate duplicate keys | Bug in export builder — inspect `cardmarket_prices.json` |
 | Download failure | S3 URL may have changed; update `DEFAULT_URLS` or HTML discovery fixtures |

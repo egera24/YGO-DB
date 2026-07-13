@@ -15,6 +15,7 @@ from ygo_app.cardmarket.catalog.rarity_guess import (
     YugipediaPrintingRef,
     assign_rarities_by_price,
 )
+from ygo_app.cardmarket.catalog.print_variants import collapse_cm_print_variants
 from ygo_app.cardmarket.catalog.regional_variants import group_regional_variant_refs
 from ygo_app.cardmarket.export_schema import row_from_db
 from ygo_app.models import Card, Printing, RarityPriceRank
@@ -66,7 +67,7 @@ def _dedupe_cm_duplicate_listings(
     cm_matches: list[dict],
     price_index: dict[int, dict],
 ) -> list[dict]:
-    """Drop sparse re-listings that share a Cardmarket idMetacard with a fuller price row."""
+    """Drop sparse re-listings without avg that share an idMetacard with a priced row."""
     by_metacard: dict[int, list[dict]] = defaultdict(list)
     no_metacard: list[dict] = []
 
@@ -102,6 +103,11 @@ def _dedupe_cm_duplicate_listings(
         result.append(best)
 
     return result
+
+
+def _cm_id_gaps(cm_matches: list[dict]) -> list[int]:
+    ids = sorted(int(row["idProduct"]) for row in cm_matches)
+    return [ids[index + 1] - ids[index] for index in range(len(ids) - 1)]
 
 
 def _dedupe_cm_matches_by_expansion_preference(
@@ -205,6 +211,18 @@ def match_printings_to_catalog(
                 for printing in card_printings
             ]
 
+            regional_groups = group_regional_variant_refs(yg_refs)
+            representatives = [rep for rep, _ in regional_groups]
+            variants_by_rep = {
+                (rep.set_code, rep.rarity_code): variants for rep, variants in regional_groups
+            }
+
+            cm_matches = collapse_cm_print_variants(
+                cm_matches,
+                target_count=len(representatives),
+                price_index=price_index,
+            )
+
             cm_priced = []
             for row in cm_matches:
                 pid = int(row["idProduct"])
@@ -220,12 +238,6 @@ def match_printings_to_catalog(
                         low=price.get("low"),
                     )
                 )
-
-            regional_groups = group_regional_variant_refs(yg_refs)
-            representatives = [rep for rep, _ in regional_groups]
-            variants_by_rep = {
-                (rep.set_code, rep.rarity_code): variants for rep, variants in regional_groups
-            }
 
             try:
                 pairs = assign_rarities_by_price(
@@ -244,6 +256,12 @@ def match_printings_to_catalog(
                         "card_name": exc.card_name or card.name,
                         "yugipedia_count": exc.yugipedia_count,
                         "cardmarket_count": exc.cardmarket_count,
+                        "extra": {
+                            "cm_id_products": sorted(
+                                int(row["idProduct"]) for row in cm_matches
+                            ),
+                            "id_gaps": _cm_id_gaps(cm_matches),
+                        },
                     }
                 )
                 continue

@@ -5,11 +5,11 @@ let table = null;
 let meta = null;
 let loadedSetCode = "";
 let dirtyRowIds = new Set();
-let selectedRowIds = new Set();
-let highlightedColumnFields = new Set();
+let rangeAnchorCell = null;
 let loadRequestSeq = 0;
 let fillHandleEl = null;
 let fillDrag = null;
+let pendingTypeahead = null;
 
 const EDITABLE_FIELDS = new Set([
   "folder_name",
@@ -20,6 +20,29 @@ const EDITABLE_FIELDS = new Set([
   "language",
   "price_bought",
   "date_bought",
+]);
+
+const FILLABLE_FIELDS = EDITABLE_FIELDS;
+
+const CLEARABLE_FIELDS = new Set([
+  "folder_name",
+  "quantity",
+  "trade_quantity",
+  "price_bought",
+  "date_bought",
+]);
+
+const HEADER_FILTER_FIELDS = new Set([
+  "folder_name",
+  "quantity",
+  "trade_quantity",
+  "card_name",
+  "condition",
+  "edition",
+  "language",
+  "price_bought",
+  "date_bought",
+  "owned",
 ]);
 
 const COLUMN_DEFS = [
@@ -134,45 +157,33 @@ function syncTradeQuantity(sourceRow) {
   });
 }
 
-function onCellEdited(cell) {
-  const field = cell.getField();
-  const row = cell.getRow().getData();
-  if (field === "quantity" || field === "trade_quantity") {
-    row[field] = Math.max(0, Number(row[field]) || 0);
-  }
-  if (field === "price_bought") {
-    const raw = row.price_bought;
-    row.price_bought = raw === "" || raw == null ? null : Number(raw);
+function applyFieldValue(row, field, value) {
+  if (field === "folder_name" || field === "date_bought") {
+    row[field] = value ?? "";
+  } else if (field === "price_bought") {
+    row.price_bought = value == null || value === "" ? null : Number(value);
+  } else if (field === "quantity" || field === "trade_quantity") {
+    row[field] = Math.max(0, Number(value) || 0);
+  } else {
+    row[field] = value;
   }
   recomputeRow(row);
   if (field === "trade_quantity") syncTradeQuantity(row);
+}
+
+function onCellEdited(cell) {
+  const field = cell.getField();
+  const row = cell.getRow().getData();
+  applyFieldValue(row, field, row[field]);
   markRowDirty(row);
   cell.getRow().update(row);
 }
 
-function buildEditor(type, values) {
-  if (type === "select") {
-    return (cell, onRendered, success, cancel) => {
-      const select = document.createElement("select");
-      values.forEach((value) => {
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = value === "NearMint" ? "Near Mint" : value;
-        select.appendChild(opt);
-      });
-      select.value = cell.getValue() || values[0];
-      select.style.width = "100%";
-      select.style.boxSizing = "border-box";
-      onRendered(() => select.focus());
-      select.addEventListener("change", () => success(select.value));
-      select.addEventListener("blur", () => success(select.value));
-      select.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") cancel();
-        if (e.key === "Enter") success(select.value);
-      });
-      return select;
-    };
-  }
+function listEditorValues(values, labelFor = (value) => value) {
+  return values.map((value) => ({ label: labelFor(value), value }));
+}
+
+function buildEditor(type) {
   if (type === "number") {
     return "number";
   }
@@ -195,7 +206,7 @@ function tabulatorColumns() {
       hozAlign: col.hozAlign || "left",
       headerSort: true,
       headerSortTristate: true,
-      headerFilter: col.editable || col.field === "owned" ? "input" : false,
+      headerFilter: HEADER_FILTER_FIELDS.has(col.field) ? "input" : false,
       visible: true,
     };
 
@@ -205,17 +216,30 @@ function tabulatorColumns() {
       };
     }
 
+    if (col.field === "total_quantity") {
+      def.editor = false;
+      def.cssClass = "bulk-cell-computed";
+      return def;
+    }
+
     if (!col.editable) {
       def.editor = false;
       return def;
     }
 
     if (col.field === "condition") {
-      def.editor = buildEditor("select", conditions);
+      def.editor = "list";
+      def.editorParams = {
+        values: listEditorValues(conditions, (value) =>
+          value === "NearMint" ? "Near Mint" : value
+        ),
+      };
     } else if (col.field === "edition") {
-      def.editor = buildEditor("select", editions);
+      def.editor = "list";
+      def.editorParams = { values: listEditorValues(editions) };
     } else if (col.field === "language") {
-      def.editor = buildEditor("select", languages);
+      def.editor = "list";
+      def.editorParams = { values: listEditorValues(languages) };
     } else if (col.field === "quantity" || col.field === "trade_quantity") {
       def.editor = buildEditor("number");
       def.mutatorEdit = (value) => Math.max(0, Number(value) || 0);
@@ -239,6 +263,8 @@ function destroyTable() {
     table.destroy();
     table = null;
   }
+  rangeAnchorCell = null;
+  pendingTypeahead = null;
   removeFillHandle();
 }
 
@@ -263,32 +289,111 @@ function renderColumnMenu() {
   });
 }
 
-function toggleColumnHighlight(field) {
+function getSingleSelectedRow() {
+  if (!table) return null;
+  const ranges = table.getRanges?.() || [];
+  if (ranges.length !== 1) return null;
+  const rows = ranges[0].getRows();
+  if (rows.length !== 1) return null;
+  return rows[0];
+}
+
+function getSingleSelectedRowData() {
+  return getSingleSelectedRow()?.getData() ?? null;
+}
+
+function clearFieldValue(row, field) {
+  if (field === "folder_name" || field === "date_bought") {
+    applyFieldValue(row, field, "");
+  } else if (field === "price_bought") {
+    applyFieldValue(row, field, null);
+  } else {
+    applyFieldValue(row, field, 0);
+  }
+}
+
+function clearSelectedValues() {
   if (!table) return;
-  if (highlightedColumnFields.has(field)) highlightedColumnFields.delete(field);
-  else highlightedColumnFields.add(field);
-  table.getRows().forEach((row) => {
-    row.getCells().forEach((cell) => {
-      cell.getElement().classList.toggle(
-        "bulk-col-highlight",
-        highlightedColumnFields.has(cell.getField())
-      );
-    });
+  const range = table.getRanges?.()?.[0];
+  if (!range) return;
+
+  const rows = range.getRows();
+  const cols = range.getColumns();
+
+  for (const tabRow of rows) {
+    const data = tabRow.getData();
+    let rowChanged = false;
+    for (const col of cols) {
+      const field = col.getField();
+      if (!field || !CLEARABLE_FIELDS.has(field)) continue;
+      clearFieldValue(data, field);
+      rowChanged = true;
+    }
+    if (!rowChanged) continue;
+    tabRow.update(data);
+    markRowDirty(data);
+  }
+}
+
+function getFocusedEditableCell() {
+  const range = table?.getRanges?.()?.[0];
+  if (!range) return null;
+  const rows = range.getRows();
+  const cols = range.getColumns();
+  if (rows.length !== 1 || cols.length !== 1) return null;
+  const field = cols[0].getField();
+  if (!field || field === "_rownum" || !EDITABLE_FIELDS.has(field)) return null;
+  return rows[0].getCell(field);
+}
+
+function injectPendingTypeahead(cell) {
+  if (!pendingTypeahead) return;
+  const key = pendingTypeahead;
+  pendingTypeahead = null;
+  requestAnimationFrame(() => {
+    const el = cell.getElement()?.querySelector("input, textarea");
+    if (!el) return;
+    el.value = key;
+    el.focus();
+    el.select?.();
   });
 }
 
-function updateRowSelectionUi() {
+function onBulkGridKeydown(e) {
+  const dlg = $("#bulk-collection-modal");
+  if (!dlg || dlg.hidden) return;
   if (!table) return;
-  table.getRows().forEach((row) => {
-    row.getElement().classList.toggle("bulk-row-selected", selectedRowIds.has(row.getData().row_id));
-  });
+  if (e.target.closest(".tabulator-editing")) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  if (e.key === "Delete" || e.key === "Backspace") {
+    e.preventDefault();
+    clearSelectedValues();
+    return;
+  }
+
+  if (e.key.length !== 1) return;
+
+  const cell = getFocusedEditableCell();
+  if (!cell) return;
+  const field = cell.getField();
+  if (field === "condition" || field === "edition" || field === "language") return;
+
+  e.preventDefault();
+  pendingTypeahead = e.key;
+  cell.edit();
+}
+
+function updateDuplicateRowUi() {
+  const btn = $("#bulk-collection-duplicate-row");
+  if (!btn || !table) return;
+  btn.disabled = !getSingleSelectedRowData();
 }
 
 function duplicateSelectedRow() {
-  if (!table || selectedRowIds.size !== 1) return;
-  const sourceId = [...selectedRowIds][0];
-  const source = table.getData().find((row) => row.row_id === sourceId);
-  if (!source) return;
+  const sourceRow = getSingleSelectedRow();
+  const source = sourceRow?.getData();
+  if (!table || !sourceRow || !source) return;
   const copy = cloneRow(source);
   copy.row_id = `dup-${crypto.randomUUID()}`;
   copy.collection_item_id = source.collection_item_id;
@@ -306,10 +411,16 @@ function duplicateSelectedRow() {
   };
   recomputeRow(copy);
   copy._snapshot = snapshotRow(copy);
-  table.addRow(copy, false).then((row) => {
-    selectedRowIds.clear();
-    selectedRowIds.add(copy.row_id);
-    updateRowSelectionUi();
+  sourceRow.addRow(copy, true).then((row) => {
+    table.getRanges().forEach((range) => range.remove());
+    const anchorCell =
+      row?.getCells?.().find((cell) => cell.getField() === "folder_name") || row?.getCells?.()[0];
+    if (anchorCell) {
+      table.addRange(anchorCell, anchorCell);
+      rangeAnchorCell = anchorCell;
+    }
+    updateDuplicateRowUi();
+    repositionFillHandle();
     row?.scrollTo?.();
   });
 }
@@ -338,6 +449,11 @@ function prepareRows(rows) {
   });
 }
 
+function onRangeChanged() {
+  repositionFillHandle();
+  updateDuplicateRowUi();
+}
+
 function buildTable(rows) {
   destroyTable();
   const gridEl = $("#bulk-collection-grid");
@@ -345,8 +461,6 @@ function buildTable(rows) {
 
   ensureFolderDatalist();
   dirtyRowIds.clear();
-  selectedRowIds.clear();
-  highlightedColumnFields.clear();
   updateDirtyUi();
 
   const preparedRows = prepareRows(rows);
@@ -356,7 +470,30 @@ function buildTable(rows) {
     index: "row_id",
     layout: "fitDataStretch",
     height: "100%",
-    selectableRows: false,
+    popupContainer: "#bulk-collection-card",
+    clipboard: "copy",
+    clipboardCopyRowRange: "range",
+    clipboardCopyStyled: false,
+    clipboardCopyConfig: {
+      rowHeaders: false,
+      columnHeaders: false,
+      formatCells: false,
+    },
+    selectableRange: 1,
+    selectableRangeColumns: true,
+    selectableRangeRows: true,
+    selectableRangeClearCells: false,
+    editTriggerEvent: "dblclick",
+    rowHeader: {
+      resizable: false,
+      frozen: true,
+      width: 44,
+      hozAlign: "center",
+      formatter: "rownum",
+      field: "_rownum",
+      headerSort: false,
+      editor: false,
+    },
     columnDefaults: {
       headerSortClickElement: "icon",
     },
@@ -368,28 +505,32 @@ function buildTable(rows) {
     cellEdited: onCellEdited,
   });
 
-  table.on("headerClick", (e, column) => {
-    if (e.shiftKey) toggleColumnHighlight(column.getField());
+  table.on("cellEditing", (cell) => {
+    injectPendingTypeahead(cell);
   });
 
-  table.on("rowClick", (e, row) => {
-    const id = row.getData().row_id;
-    if (e.ctrlKey || e.metaKey) {
-      if (selectedRowIds.has(id)) selectedRowIds.delete(id);
-      else selectedRowIds.add(id);
-    } else {
-      selectedRowIds.clear();
-      selectedRowIds.add(id);
+  table.on("cellClick", (e, cell) => {
+    if (cell.getField() === "_rownum") return;
+    if (e.shiftKey && rangeAnchorCell) {
+      table.getRanges().forEach((range) => range.remove());
+      table.addRange(rangeAnchorCell, cell);
+    } else if (!e.shiftKey) {
+      rangeAnchorCell = cell;
     }
-    updateRowSelectionUi();
-    setupFillHandle(row);
+    onRangeChanged();
+    const field = cell.getField();
+    if (!e.shiftKey && (field === "quantity" || field === "trade_quantity")) {
+      cell.edit();
+    }
   });
+
+  table.on("rangeAdded", onRangeChanged);
+  table.on("rangeRemoved", onRangeChanged);
 
   table.on("tableBuilt", () => {
     renderColumnMenu();
     $("#bulk-collection-columns-btn")?.removeAttribute("disabled");
-    $("#bulk-collection-duplicate-row")?.removeAttribute("disabled");
-    $("#bulk-collection-q")?.removeAttribute("disabled");
+    updateDuplicateRowUi();
   });
 
   table.on("columnVisibilityChanged", renderColumnMenu);
@@ -401,33 +542,29 @@ function removeFillHandle() {
   fillDrag = null;
 }
 
-function setupFillHandle(row) {
-  removeFillHandle();
-  if (!row) return;
-  const cell = row.getCells().find((c) => EDITABLE_FIELDS.has(c.getField()) && c.getColumn().getDefinition().editor);
-  if (!cell) return;
-  const cellEl = cell.getElement();
-  const gridEl = $("#bulk-collection-grid");
-  if (!cellEl || !gridEl) return;
+function getFillHandleCell(range) {
+  const rows = range.getRows();
+  const cols = range.getColumns();
+  if (!rows.length || !cols.length) return null;
+  const bottomRow = rows[rows.length - 1];
+  for (let i = cols.length - 1; i >= 0; i--) {
+    const col = cols[i];
+    const field = col.getField();
+    if (!field || field === "_rownum") continue;
+    if (FILLABLE_FIELDS.has(field) && col.getDefinition().editor) {
+      return bottomRow.getCell(field);
+    }
+  }
+  return null;
+}
 
-  fillHandleEl = document.createElement("div");
-  fillHandleEl.className = "bulk-collection-fill-handle";
-  fillHandleEl.setAttribute("aria-hidden", "true");
-  gridEl.appendChild(fillHandleEl);
-
-  const reposition = () => {
-    const gridRect = gridEl.getBoundingClientRect();
-    const rect = cellEl.getBoundingClientRect();
-    fillHandleEl.style.left = `${rect.right - gridRect.left - 5}px`;
-    fillHandleEl.style.top = `${rect.bottom - gridRect.top - 5}px`;
-  };
-  reposition();
-
+function attachFillHandleDrag(cell) {
+  if (!fillHandleEl) return;
   fillHandleEl.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
     const field = cell.getField();
-    const startRow = row;
+    const startRow = cell.getRow();
     const value = startRow.getData()[field];
     fillDrag = { field, startRow, value };
 
@@ -445,13 +582,8 @@ function setupFillHandle(row) {
         const pos = r.getPosition();
         if (pos < from || pos > to) return;
         const data = r.getData();
-        if (!EDITABLE_FIELDS.has(field)) return;
-        data[field] = fillDrag.value;
-        if (field === "quantity" || field === "trade_quantity") {
-          data[field] = Math.max(0, Number(data[field]) || 0);
-        }
-        recomputeRow(data);
-        if (field === "trade_quantity") syncTradeQuantity(data);
+        if (!FILLABLE_FIELDS.has(field)) return;
+        applyFieldValue(data, field, fillDrag.value);
         r.update(data);
         markRowDirty(data);
       });
@@ -466,6 +598,32 @@ function setupFillHandle(row) {
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   });
+}
+
+function repositionFillHandle() {
+  removeFillHandle();
+  if (!table) return;
+  const ranges = table.getRanges?.() || [];
+  if (!ranges.length) return;
+
+  const cell = getFillHandleCell(ranges[0]);
+  if (!cell) return;
+
+  const cellEl = cell.getElement();
+  const gridEl = $("#bulk-collection-grid");
+  if (!cellEl || !gridEl) return;
+
+  fillHandleEl = document.createElement("div");
+  fillHandleEl.className = "bulk-collection-fill-handle";
+  fillHandleEl.setAttribute("aria-hidden", "true");
+  gridEl.appendChild(fillHandleEl);
+
+  const gridRect = gridEl.getBoundingClientRect();
+  const rect = cellEl.getBoundingClientRect();
+  fillHandleEl.style.left = `${rect.right - gridRect.left - 5}px`;
+  fillHandleEl.style.top = `${rect.bottom - gridRect.top - 5}px`;
+
+  attachFillHandleDrag(cell);
 }
 
 async function loadMeta() {
@@ -506,7 +664,7 @@ async function loadGrid(setCode) {
     loadedSetCode = payload.set_code;
     const subtitle = $("#bulk-collection-subtitle");
     if (subtitle) {
-      subtitle.textContent = `${payload.total} printing rows loaded for ${payload.set_code}.`;
+      subtitle.textContent = `${payload.total} printing rows loaded for ${payload.set_code}. Type to edit · Click quantity to edit · Double-click list cells · Shift+click to extend · Delete to clear · Ctrl+C to copy.`;
     }
     buildTable(payload.rows);
     gridEl?.classList.remove("hidden");
@@ -571,12 +729,6 @@ async function saveGrid() {
       return;
     }
     if (qty <= 0 && trade <= 0) continue;
-    if (qty <= 0 && trade > 0) {
-      deps.showToast?.(`Quantity is required when setting trade qty for ${change.set_code}.`, {
-        variant: "error",
-      });
-      return;
-    }
   }
 
   const saveBtn = $("#bulk-collection-save");
@@ -636,8 +788,6 @@ export function closeBulkCollectionModal(force = false) {
   loadedSetCode = "";
   dirtyRowIds.clear();
   $("#bulk-collection-columns-menu")?.classList.add("hidden");
-  const qInput = $("#bulk-collection-q");
-  if (qInput) qInput.value = "";
 }
 
 export function initBulkCollection(options) {
@@ -672,21 +822,6 @@ export function initBulkCollection(options) {
 
   $("#bulk-collection-duplicate-row")?.addEventListener("click", duplicateSelectedRow);
 
-  $("#bulk-collection-q")?.addEventListener("input", (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    if (!table) return;
-    if (!q) {
-      table.clearFilter(true);
-      return;
-    }
-    table.setFilter((row) => {
-      return COLUMN_DEFS.some((col) => {
-        const val = row[col.field];
-        return val != null && String(val).toLowerCase().includes(q);
-      });
-    });
-  });
-
   const columnsBtn = $("#bulk-collection-columns-btn");
   const columnsMenu = $("#bulk-collection-columns-menu");
   columnsBtn?.addEventListener("click", () => {
@@ -704,10 +839,13 @@ export function initBulkCollection(options) {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
     const dlg = $("#bulk-collection-modal");
     if (dlg?.hidden) return;
-    closeBulkCollectionModal();
+    if (e.key === "Escape") {
+      closeBulkCollectionModal();
+      return;
+    }
+    onBulkGridKeydown(e);
   });
 }
 

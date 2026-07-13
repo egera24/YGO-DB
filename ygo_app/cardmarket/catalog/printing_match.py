@@ -113,32 +113,6 @@ def _lookup_cm_matches(
     return fallback, bool(fallback)
 
 
-def _dbg(message: str, *, data: dict, hypothesis_id: str, run_id: str = "pre-fix") -> None:
-    # #region agent log
-    try:
-        import json, time
-
-        with open("debug-e9ce75.log", "a", encoding="utf-8") as fp:
-            fp.write(
-                json.dumps(
-                    {
-                        "sessionId": "e9ce75",
-                        "runId": run_id,
-                        "hypothesisId": hypothesis_id,
-                        "location": "ygo_app/cardmarket/catalog/printing_match.py:match_printings_to_catalog",
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
-
-
 def _build_price_index(price_rows: list[dict]) -> dict[int, dict]:
     return {int(row["idProduct"]): row for row in price_rows if row.get("idProduct") is not None}
 
@@ -310,24 +284,6 @@ def match_printings_to_catalog(
         for row in cm_rows:
             cm_by_card_name[normalize_card_name(str(row.get("name") or ""))].append(row)
 
-        if abbr == "SGX3":
-            unlocking_keys = [
-                key for key in cm_by_card_name if "unlocking the power" in key
-            ]
-            _dbg(
-                "Built CM singles index for SGX3",
-                hypothesis_id="H2",
-                data={
-                    "abbr": abbr,
-                    "expansion_ids": list(mapping.expansion_ids),
-                    "cm_rows": len(cm_rows),
-                    "unlocking_keys": unlocking_keys,
-                    "unlocking_row_count": sum(
-                        len(cm_by_card_name[k]) for k in unlocking_keys
-                    ),
-                },
-            )
-
         printings = session.scalars(
             select(Printing)
             .options(joinedload(Printing.card))
@@ -344,40 +300,11 @@ def match_printings_to_catalog(
             stats["cards_processed"] += 1
             card: Card = card_printings[0].card
             needle = normalize_card_name(card.name)
-            cm_matches, used_fallback = _lookup_cm_matches(
+            cm_matches, _ = _lookup_cm_matches(
                 cm_by_card_name,
                 needle=needle,
                 cm_rows=cm_rows,
             )
-
-            if abbr == "SGX3" and "unlocking the power" in needle:
-                candidates = [
-                    key
-                    for key in cm_by_card_name.keys()
-                    if "unlocking the power" in key
-                ]
-                raw_unlocking = [
-                    {
-                        "idProduct": row.get("idProduct"),
-                        "name": row.get("name"),
-                        "normalized": normalize_card_name(str(row.get("name") or "")),
-                    }
-                    for row in cm_rows
-                    if "unlocking the power" in str(row.get("name") or "").lower()
-                ]
-                _dbg(
-                    "SGX3: lookup CM matches for Unlocking the Power",
-                    hypothesis_id="H1",
-                    data={
-                        "abbr": abbr,
-                        "card_name": card.name,
-                        "normalized_needle": needle,
-                        "cm_match_count": len(cm_matches),
-                        "used_fallback": used_fallback,
-                        "cm_candidate_keys": candidates,
-                        "raw_unlocking_rows": raw_unlocking,
-                    },
-                )
             cm_matches = _dedupe_cm_matches_by_expansion_preference(
                 cm_matches,
                 expansion_match_counts=mapping.expansion_match_counts,
@@ -416,19 +343,6 @@ def match_printings_to_catalog(
                 price_index,
                 target_count=len(representatives),
             )
-
-            if abbr == "SGX3" and "unlocking the power" in needle:
-                _dbg(
-                    "SGX3: post-dedupe CM matches for Unlocking the Power",
-                    hypothesis_id="H4",
-                    data={
-                        "abbr": abbr,
-                        "card_name": card.name,
-                        "cm_match_count": len(cm_matches),
-                        "cm_ids": [int(row["idProduct"]) for row in cm_matches],
-                        "yugipedia_count": len(representatives),
-                    },
-                )
 
             cm_priced = []
             for row in cm_matches:

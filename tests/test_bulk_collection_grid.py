@@ -330,6 +330,48 @@ class TestBulkCollectionGrid(unittest.TestCase):
         self.assertEqual(result["items_created"], 0)
         self.assertEqual(len(before), len(after))
 
+    def test_save_trade_only_without_quantity(self):
+        session = self.Session()
+        printing_id = session.execute(
+            select(Printing.id).where(Printing.set_code == "RA03-EN016")
+        ).scalar_one()
+        result = save_bulk_collection_grid(
+            session,
+            user_id=self.owner_id,
+            set_code="RA03",
+            changes=[
+                {
+                    "row_id": "p-trade-only",
+                    "printing_id": printing_id,
+                    "set_code": "RA03-EN016",
+                    "rarity_code": "(UR)",
+                    "folder_name": None,
+                    "quantity": 0,
+                    "trade_quantity": 2,
+                    "condition": "NearMint",
+                    "edition": "1st Edition",
+                    "language": "English",
+                    "baseline": {
+                        "quantity": 0,
+                        "trade_quantity": 0,
+                        "folder_name": None,
+                        "collection_item_id": None,
+                    },
+                }
+            ],
+        )
+        item = session.execute(
+            select(CollectionItem).where(
+                CollectionItem.user_id == self.owner_id,
+                CollectionItem.set_code == "RA03-EN016",
+            )
+        ).scalar_one()
+        session.close()
+        self.assertEqual(result["items_created"], 1)
+        self.assertEqual(result["trade_quantities_added"], 2)
+        self.assertEqual(item.quantity, 0)
+        self.assertEqual(item.trade_quantity, 2)
+
     def test_api_save_rejects_foreign_item_id(self):
         session = self.Session()
         printing_id = session.execute(

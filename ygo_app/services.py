@@ -2642,12 +2642,6 @@ def save_bulk_collection_grid(
                 trade_quantities_added += max(0, -baseline_trade)
             continue
 
-        if total_qty == 0 and trade_q > 0:
-            raise ValueError(
-                f"Quantity is required when saving trade copies for "
-                f"{set_code_key} ({rarity_display(rarity_code)})"
-            )
-
         metadata = group_changes[0]
         for row in group_changes:
             item_id = row.get("collection_item_id")
@@ -2698,12 +2692,16 @@ def save_bulk_collection_grid(
             )
             session.add(item)
             session.flush()
-            set_item_folder_allocations(
-                session,
-                user_id=user_id,
-                item=item,
-                allocations=folder_allocations,
-            )
+            if total_qty > 0:
+                set_item_folder_allocations(
+                    session,
+                    user_id=user_id,
+                    item=item,
+                    allocations=folder_allocations,
+                )
+            else:
+                item.folder_allocations.clear()
+                session.flush()
             items_created += 1
             quantities_added += max(0, total_qty - baseline_qty)
             trade_quantities_added += max(0, trade_q - baseline_trade)
@@ -2721,12 +2719,16 @@ def save_bulk_collection_grid(
                 existing.printing_id = printing.id
             if card_name and not existing.card_name:
                 existing.card_name = card_name
-            set_item_folder_allocations(
-                session,
-                user_id=user_id,
-                item=existing,
-                allocations=folder_allocations,
-            )
+            if total_qty > 0:
+                set_item_folder_allocations(
+                    session,
+                    user_id=user_id,
+                    item=existing,
+                    allocations=folder_allocations,
+                )
+            else:
+                existing.folder_allocations.clear()
+                session.flush()
             items_updated += 1
             qty_delta = total_qty - old_qty
             trade_delta = trade_q - old_trade

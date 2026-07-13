@@ -11,6 +11,8 @@ from sqlalchemy.orm import sessionmaker
 from ygo_app.cardmarket.catalog.expansion_map import ExpansionMapping
 from ygo_app.cardmarket.catalog.printing_match import (
     _dedupe_cm_matches_by_expansion_preference,
+    _fallback_parenthetical_suffix_keys,
+    _parenthetical_suffix_key_matches,
     match_printings_to_catalog,
 )
 from ygo_app.models import Base, Card, Printing, RarityPriceRank
@@ -29,6 +31,98 @@ def _sqlite_engine(path: str):
 
 
 class TestCardmarketCatalogPrintingMatch(unittest.TestCase):
+    def test_parenthetical_suffix_key_matches_skill_suffix(self):
+        self.assertTrue(
+            _parenthetical_suffix_key_matches("catch of the day (skill)", "catch of the day")
+        )
+
+    def test_parenthetical_suffix_key_rejects_prefix_mismatch(self):
+        self.assertFalse(
+            _parenthetical_suffix_key_matches(
+                "super catch of the day (skill)",
+                "catch of the day",
+            )
+        )
+
+    def test_parenthetical_suffix_key_rejects_unparenthesized_word(self):
+        self.assertFalse(
+            _parenthetical_suffix_key_matches("catch of the day skill", "catch of the day")
+        )
+
+    def test_fallback_parenthetical_suffix_keys_matches_raw_skill_name(self):
+        cm_rows = [
+            {
+                "idProduct": 732282,
+                "name": "Catch of the Day (Skill)",
+                "idCategory": 5,
+                "idExpansion": 5397,
+            }
+        ]
+        cm_by_card_name = {"catch of the day skill": cm_rows}
+        matches = _fallback_parenthetical_suffix_keys(
+            cm_by_card_name,
+            "catch of the day",
+            cm_rows=cm_rows,
+        )
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["idProduct"], 732282)
+
+    def test_matches_skill_card_with_parenthetical_cardmarket_name(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        engine = _sqlite_engine(tmp.name)
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        session.add(RarityPriceRank(sort_order=1, name="Common", rarity_code="C"))
+        session.add(Card(id=1, name="Catch of the Day"))
+        session.add(
+            Printing(
+                card_id=1,
+                set_code="SBAD-EN001",
+                set_rarity="Common",
+                set_rarity_code="C",
+            )
+        )
+        session.commit()
+
+        singles = [
+            {
+                "idProduct": 732282,
+                "name": "Catch of the Day (Skill)",
+                "idCategory": 5,
+                "idExpansion": 5397,
+                "idMetacard": 271230,
+            }
+        ]
+        prices = [
+            {"idProduct": 732282, "trend": 0.22, "avg": 0.33, "low": 0.2},
+        ]
+        mappings = {
+            "SBAD": ExpansionMapping(
+                abbr="SBAD",
+                set_name="Speed Duel: Attack from the Deep",
+                expansion_ids=(5397,),
+                matched_product_names=["Speed Duel: Attack from the Deep Booster Box"],
+            )
+        }
+
+        export_rows, stats, rejections = match_printings_to_catalog(
+            session,
+            singles=singles,
+            price_rows=prices,
+            expansion_mappings=mappings,
+        )
+        session.close()
+        engine.dispose()
+
+        self.assertEqual(rejections, [])
+        self.assertEqual(len(export_rows), 1)
+        self.assertEqual(export_rows[0]["set_code"], "SBAD-EN001")
+        self.assertEqual(export_rows[0]["cardmarket_product_id"], 732282)
+        self.assertEqual(stats["matched"], 1)
+
     def test_dedupes_duplicate_card_across_expansions_to_dominant(self):
         cm_matches = [
             {"idProduct": 1, "name": "Bujintei Susanowo", "idExpansion": 1497},

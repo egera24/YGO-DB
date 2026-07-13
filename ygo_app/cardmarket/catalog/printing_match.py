@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -22,6 +24,119 @@ from ygo_app.models import Card, Printing, RarityPriceRank
 
 
 YGO_SINGLE_CATEGORY = 5
+
+_ALLOWED_PAREN_SUFFIXES = frozenset({"skill"})
+_PARENTHETICAL_SUFFIX_RE = re.compile(r"^\s*\(([^)]+)\)\s*$")
+
+
+def _parenthetical_suffix_key_matches(cm_key: str, needle: str) -> bool:
+    """True when a normalized CM key is '<needle> (<allowed suffix>)' only."""
+    if not needle or not cm_key.startswith(needle):
+        return False
+    if len(cm_key) <= len(needle):
+        return False
+    if cm_key[len(needle)] not in " \t":
+        return False
+    remainder = cm_key[len(needle) :]
+    match = _PARENTHETICAL_SUFFIX_RE.match(remainder)
+    if not match:
+        return False
+    return match.group(1).strip().lower() in _ALLOWED_PAREN_SUFFIXES
+
+
+def _raw_cm_name_matches_parenthetical_suffix(raw_name: str, needle: str) -> bool:
+    """Match raw Cardmarket names like 'Catch of the Day (Skill)' to a Yugipedia needle."""
+    text = unicodedata.normalize("NFKC", (raw_name or "").strip().lower())
+    text = text.replace("&amp;", "&")
+    if not text.startswith(needle):
+        return False
+    if len(text) <= len(needle):
+        return False
+    if text[len(needle)] not in " \t":
+        return False
+    remainder = text[len(needle) :].lstrip()
+    match = re.fullmatch(r"\(([^)]+)\)", remainder)
+    if not match:
+        return False
+    return match.group(1).strip().lower() in _ALLOWED_PAREN_SUFFIXES
+
+
+def _fallback_parenthetical_suffix_keys(
+    cm_by_card_name: dict[str, list[dict]],
+    needle: str,
+    *,
+    cm_rows: list[dict] | None = None,
+) -> list[dict]:
+    """Stage-B lookup when exact normalized name match fails."""
+    matches: list[dict] = []
+    seen_ids: set[int] = set()
+
+    for cm_key, rows in cm_by_card_name.items():
+        if not _parenthetical_suffix_key_matches(cm_key, needle):
+            continue
+        for row in rows:
+            product_id = int(row["idProduct"])
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
+            matches.append(row)
+
+    if cm_rows:
+        for row in cm_rows:
+            raw_name = str(row.get("name") or "")
+            if not _raw_cm_name_matches_parenthetical_suffix(raw_name, needle):
+                continue
+            product_id = int(row["idProduct"])
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
+            matches.append(row)
+
+    return matches
+
+
+def _lookup_cm_matches(
+    cm_by_card_name: dict[str, list[dict]],
+    *,
+    needle: str,
+    cm_rows: list[dict],
+) -> tuple[list[dict], bool]:
+    exact = cm_by_card_name.get(needle, [])
+    if exact:
+        return exact, False
+
+    fallback = _fallback_parenthetical_suffix_keys(
+        cm_by_card_name,
+        needle,
+        cm_rows=cm_rows,
+    )
+    return fallback, bool(fallback)
+
+
+def _dbg(message: str, *, data: dict, hypothesis_id: str, run_id: str = "post-fix") -> None:
+    # #region agent log
+    try:
+        import json, time
+
+        with open("debug-05154c.log", "a", encoding="utf-8") as fp:
+            fp.write(
+                json.dumps(
+                    {
+                        "sessionId": "05154c",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": "ygo_app/cardmarket/catalog/printing_match.py:match_printings_to_catalog",
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
 
 
 def _build_price_index(price_rows: list[dict]) -> dict[int, dict]:
@@ -195,6 +310,18 @@ def match_printings_to_catalog(
         for row in cm_rows:
             cm_by_card_name[normalize_card_name(str(row.get("name") or ""))].append(row)
 
+        if abbr == "SBAD":
+            _dbg(
+                "Built CM singles index for expansion mapping",
+                hypothesis_id="H2",
+                data={
+                    "abbr": abbr,
+                    "expansion_ids": list(mapping.expansion_ids),
+                    "cm_rows": len(cm_rows),
+                    "unique_cm_names": len(cm_by_card_name),
+                },
+            )
+
         printings = session.scalars(
             select(Printing)
             .options(joinedload(Printing.card))
@@ -210,7 +337,49 @@ def match_printings_to_catalog(
         for card_id, card_printings in by_card_id.items():
             stats["cards_processed"] += 1
             card: Card = card_printings[0].card
-            cm_matches = cm_by_card_name.get(normalize_card_name(card.name), [])
+            needle = normalize_card_name(card.name)
+            cm_matches, used_fallback = _lookup_cm_matches(
+                cm_by_card_name,
+                needle=needle,
+                cm_rows=cm_rows,
+            )
+
+            if used_fallback:
+                _dbg(
+                    "Parenthetical suffix fallback matched CM rows",
+                    hypothesis_id="H4",
+                    data={
+                        "abbr": abbr,
+                        "card_name": card.name,
+                        "normalized_needle": needle,
+                        "cm_match_count": len(cm_matches),
+                        "matched_keys": sorted(
+                            {
+                                normalize_card_name(str(row.get("name") or ""))
+                                for row in cm_matches
+                            }
+                        ),
+                    },
+                )
+
+            if abbr == "SBAD" and needle in {"catch of the day", "catch of the day skill"}:
+                candidates = [
+                    key
+                    for key in cm_by_card_name.keys()
+                    if "catch of the day" in key
+                ][:20]
+                _dbg(
+                    "SBAD: lookup CM matches for card",
+                    hypothesis_id="H3",
+                    data={
+                        "abbr": abbr,
+                        "card_name": card.name,
+                        "normalized_needle": needle,
+                        "cm_match_count": len(cm_matches),
+                        "used_fallback": used_fallback,
+                        "cm_candidate_keys": candidates,
+                    },
+                )
             cm_matches = _dedupe_cm_matches_by_expansion_preference(
                 cm_matches,
                 expansion_match_counts=mapping.expansion_match_counts,

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -25,6 +28,27 @@ from ygo_app.cardmarket.catalog.normalize import (
     product_line_matches_yugipedia_set,
 )
 from ygo_app.models import CardmarketExpansion, Printing, TcgSet
+
+_DEBUG_LOG_PATH = Path(__file__).resolve().parents[3] / "debug-b572ed.log"
+
+
+def _agent_debug_log(*, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    # region agent log
+    try:
+        payload = {
+            "sessionId": "b572ed",
+            "runId": "post-fix",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    # endregion
 
 
 @dataclass
@@ -99,6 +123,35 @@ def map_expansions_from_nonsingles(
     excluded_exp_ids = excluded_nonsingle_expansion_ids(nonsingles)
     tcg_nonsingles = [row for row in nonsingles if _is_eligible_nonsingle(row, excluded_exp_ids)]
 
+    # region agent log
+    sdy_exp_id = 1051
+    sdy_raw = [
+        {
+            "idProduct": row.get("idProduct"),
+            "name": row.get("name"),
+            "idExpansion": row.get("idExpansion"),
+            "non_tcg": is_non_tcg_nonsingle_product(str(row.get("name") or "")),
+        }
+        for row in nonsingles
+        if sdy_exp_id == int(row.get("idExpansion") or 0)
+        or "starter deck: yugi" in str(row.get("name") or "").lower()
+    ]
+    _agent_debug_log(
+        hypothesis_id="A",
+        location="expansion_map.py:map_expansions_from_nonsingles",
+        message="SDY expansion 1051 catalog snapshot",
+        data={
+            "excluded_exp_ids_contains_1051": sdy_exp_id in excluded_exp_ids,
+            "raw_products": sdy_raw,
+            "eligible_products": [
+                row.get("name")
+                for row in tcg_nonsingles
+                if int(row.get("idExpansion") or 0) == sdy_exp_id
+            ],
+        },
+    )
+    # endregion
+
     mappings: dict[str, ExpansionMapping] = {}
     errors: list[dict] = []
     skipped: list[dict] = []
@@ -166,6 +219,20 @@ def map_expansions_from_nonsingles(
         expansion_ids = sorted({int(row["idExpansion"]) for row in hits if row.get("idExpansion") is not None})
 
         if len(expansion_ids) == 0:
+            # region agent log
+            if tcg_set.abbr == "SDY":
+                _agent_debug_log(
+                    hypothesis_id="B",
+                    location="expansion_map.py:map_expansions_from_nonsingles",
+                    message="SDY no_nonsingle_match rejection context",
+                    data={
+                        "aliases": list(aliases or ()),
+                        "hits": [str(row.get("name") or "") for row in hits],
+                        "tcg_nonsingles_count": len(tcg_nonsingles),
+                        "excluded_exp_ids_contains_1051": 1051 in excluded_exp_ids,
+                    },
+                )
+            # endregion
             errors.append(
                 {
                     "abbr": tcg_set.abbr,

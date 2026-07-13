@@ -31,8 +31,10 @@ def normalize_card_name(name: str) -> str:
     for ch in _TCG_BRANDING_STARS:
         text = text.replace(ch, "")
     text = text.replace("&amp;", "&")
-    # Cardmarket appends "(Skill)" to Skill cards, while Yugipedia typically does not.
-    # Normalize both to the base card name so printing-match lookups align.
+    # Cardmarket appends "(Skill)" or "(Skills)" to Skill cards, while Yugipedia
+    # typically does not. Normalize both to the base card name so lookups align.
+    if "(skills)" in text:
+        text = text.replace("(skills)", " ")
     if "(skill)" in text:
         text = text.replace("(skill)", " ")
     text = re.sub(r"[^\w\s\-']", " ", text)

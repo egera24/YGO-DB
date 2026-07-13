@@ -31,6 +31,32 @@ def _sqlite_engine(path: str):
 
 
 class TestCardmarketCatalogPrintingMatch(unittest.TestCase):
+    def test_parenthetical_suffix_key_matches_skills_suffix(self):
+        self.assertTrue(
+            _parenthetical_suffix_key_matches(
+                "unlocking the power (skills)",
+                "unlocking the power",
+            )
+        )
+
+    def test_fallback_parenthetical_suffix_keys_matches_raw_skills_name(self):
+        cm_rows = [
+            {
+                "idProduct": 702782,
+                "name": "Unlocking the Power (Skills)",
+                "idCategory": 5,
+                "idExpansion": 5180,
+            }
+        ]
+        cm_by_card_name = {"unlocking the power": cm_rows}
+        matches = _fallback_parenthetical_suffix_keys(
+            cm_by_card_name,
+            "unlocking the power",
+            cm_rows=cm_rows,
+        )
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["idProduct"], 702782)
+
     def test_parenthetical_suffix_key_matches_skill_suffix(self):
         self.assertTrue(
             _parenthetical_suffix_key_matches("catch of the day (skill)", "catch of the day")
@@ -66,6 +92,64 @@ class TestCardmarketCatalogPrintingMatch(unittest.TestCase):
         )
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["idProduct"], 732282)
+
+    def test_matches_sgx3_unlocking_the_power_skills_plural_suffix(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        engine = _sqlite_engine(tmp.name)
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        session.add(RarityPriceRank(sort_order=1, name="Common", rarity_code="C"))
+        session.add(Card(id=1, name="Unlocking the Power"))
+        session.add(
+            Printing(
+                card_id=1,
+                set_code="SGX3-EN001",
+                set_rarity="Common",
+                set_rarity_code="C",
+            )
+        )
+        session.commit()
+
+        singles = [
+            {
+                "idProduct": 702782,
+                "name": "Unlocking the Power (Skills)",
+                "idCategory": 5,
+                "idExpansion": 5180,
+                "idMetacard": 417920,
+            }
+        ]
+        prices = [
+            {"idProduct": 702782, "trend": 0.22, "avg": 0.33, "low": 0.2},
+        ]
+        mappings = {
+            "SGX3": ExpansionMapping(
+                abbr="SGX3",
+                set_name="Speed Duel GX: Duelists of Shadows",
+                expansion_ids=(5180,),
+                matched_product_names=[
+                    "Speed Duel GX: Duelists of Shadows Box",
+                ],
+            )
+        }
+
+        export_rows, stats, rejections = match_printings_to_catalog(
+            session,
+            singles=singles,
+            price_rows=prices,
+            expansion_mappings=mappings,
+        )
+        session.close()
+        engine.dispose()
+
+        self.assertEqual(rejections, [])
+        self.assertEqual(len(export_rows), 1)
+        self.assertEqual(export_rows[0]["set_code"], "SGX3-EN001")
+        self.assertEqual(export_rows[0]["cardmarket_product_id"], 702782)
+        self.assertEqual(stats["matched"], 1)
 
     def test_matches_skill_card_with_parenthetical_cardmarket_name(self):
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)

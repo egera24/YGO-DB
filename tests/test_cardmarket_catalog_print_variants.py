@@ -82,6 +82,16 @@ class TestSplitConsecutiveIdRuns(unittest.TestCase):
             [882204, 882206, 882208, 882209, 882211, 882212, 882213],
         )
 
+    def test_splits_far_apart_id_products(self):
+        rows = [
+            _single_row(id_product=248154, name="Number 39: Utopia", id_expansion=1282),
+            _single_row(id_product=327225, name="Number 39: Utopia", id_expansion=1282),
+        ]
+        runs = split_consecutive_id_runs(rows)
+        self.assertEqual(len(runs), 2)
+        self.assertEqual([row["idProduct"] for row in runs[0]], [248154])
+        self.assertEqual([row["idProduct"] for row in runs[1]], [327225])
+
 
 class TestCollapseCmPrintVariants(unittest.TestCase):
     def test_25lp_diabellstar_keeps_cheaper_normal_pair(self):
@@ -167,6 +177,25 @@ class TestCollapseCmPrintVariants(unittest.TestCase):
             [row["idProduct"] for row in collapsed],
             [882204, 882206, 882208, 882209, 882211, 882212, 882213],
         )
+
+    def test_keeps_cheaper_run_for_far_apart_singleton_variants(self):
+        rows = [
+            _single_row(
+                id_product=327225,
+                name="Number 39: Utopia",
+                id_expansion=1282,
+                id_metacard=203571,
+            ),
+            _single_row(
+                id_product=248154,
+                name="Number 39: Utopia",
+                id_expansion=1282,
+                id_metacard=203571,
+            ),
+        ]
+        prices = _price_index((327225, 0.74), (248154, 0.36))
+        collapsed = collapse_cm_print_variants(rows, target_count=1, price_index=prices)
+        self.assertEqual([row["idProduct"] for row in collapsed], [248154])
 
     def test_ambiguous_structure_leaves_rows_unchanged(self):
         rows = [

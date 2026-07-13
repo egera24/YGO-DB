@@ -5,10 +5,16 @@ from __future__ import annotations
 from statistics import median
 
 
+MAX_MAJOR_GAP = 5000
+
+
 def _major_gap_threshold(gaps: list[int]) -> int:
     if not gaps:
         return 2
-    return max(2, int(median(gaps)) * 2)
+    # Median-based threshold works well when there are many ids, but with only a
+    # couple ids the median can be huge (e.g. jumbo/oversized variants with a big
+    # idProduct gap). Cap it so obvious separate batches split reliably.
+    return min(MAX_MAJOR_GAP, max(2, int(median(gaps)) * 2))
 
 
 def split_consecutive_id_runs(

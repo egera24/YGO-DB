@@ -181,7 +181,7 @@ function applyFieldValue(row, field, value) {
 function onCellEdited(cell) {
   const field = cell.getField();
   const row = cell.getRow().getData();
-  applyFieldValue(row, field, row[field]);
+  applyFieldValue(row, field, cell.getValue());
   markRowDirty(row);
   cell.getRow().update(row);
 }
@@ -428,11 +428,28 @@ function injectPendingTypeahead(cell) {
   });
 }
 
+function bulkGridKeydownShouldIgnore(target) {
+  const active = document.activeElement;
+  if (target?.closest?.(".tabulator-editing")) return true;
+  if (target?.closest?.(".tabulator-header-filter")) return true;
+  if (active?.closest?.(".tabulator-header-filter")) return true;
+  if (target?.id === "bulk-collection-set-code") return true;
+  if (active?.id === "bulk-collection-set-code") return true;
+  return false;
+}
+
+function clearGridSelection() {
+  if (!table) return;
+  table.getRanges().forEach((range) => range.remove());
+  rangeAnchorCell = null;
+  onRangeChanged();
+}
+
 function onBulkGridKeydown(e) {
   const dlg = $("#bulk-collection-modal");
   if (!dlg || dlg.hidden) return;
   if (!table) return;
-  if (e.target.closest(".tabulator-editing")) return;
+  if (bulkGridKeydownShouldIgnore(e.target)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   if (e.key === "Delete" || e.key === "Backspace") {
@@ -571,8 +588,9 @@ function buildTable(rows) {
       { column: "set_code", dir: "asc" },
       { column: "rarity_name", dir: "asc" },
     ],
-    cellEdited: onCellEdited,
   });
+
+  table.on("cellEdited", onCellEdited);
 
   table.on("cellEditing", (cell) => {
     injectPendingTypeahead(cell);
@@ -603,6 +621,11 @@ function buildTable(rows) {
   });
 
   table.on("columnVisibilityChanged", renderColumnMenu);
+
+  gridEl.addEventListener("focusin", (e) => {
+    if (!e.target.closest(".tabulator-header-filter")) return;
+    clearGridSelection();
+  });
 }
 
 function removeFillHandle() {

@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from ygo_app.api.main import app
 from ygo_app.auth import create_access_token
 from ygo_app.database import get_db
-from ygo_app.models import Base, Card, CollectionItem, Printing, User
+from ygo_app.models import Base, Card, CollectionItem, Printing, PrintingMarketPrice, User
 from ygo_app.trade_share import generate_trade_share_slug
 
 
@@ -139,6 +139,49 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(item["rarity_name"], "Ultra Rare")
         self.assertNotIn("email", payload)
         self.assertNotIn("notes", item)
+
+    def test_public_trade_falls_back_to_market_trend_when_sell_price_unset(self):
+        session = self.Session()
+        card = Card(id=48206762, name="Fallen of Albaz")
+        session.add(card)
+        session.add(
+            Printing(
+                card_id=card.id,
+                set_code="CH01-EN001",
+                set_rarity_code="(UR)",
+                set_rarity="Ultra Rare",
+            )
+        )
+        session.flush()
+        trade_item = CollectionItem(
+            user_id=self.owner.id,
+            set_code="CH01-EN001",
+            rarity_code="(UR)",
+            card_name=card.name,
+            quantity=1,
+            trade_quantity=1,
+            condition="NearMint",
+        )
+        session.add(trade_item)
+        session.add(
+            PrintingMarketPrice(
+                set_code="CH01-EN001",
+                rarity_code="(UR)",
+                trend_price=0.2,
+                currency="EUR",
+                valid_from=datetime.utcnow(),
+                is_current=True,
+            )
+        )
+        session.commit()
+        trade_item_id = trade_item.id
+        session.close()
+
+        response = self.client.get("/api/public/trade/owner-trade-list")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        row = next(item for item in payload["items"] if item["item_id"] == trade_item_id)
+        self.assertEqual(row["sell_price"], 0.2)
 
     def test_public_trade_resolves_full_rarity_name_from_code_not_printing_label(self):
         session = self.Session()

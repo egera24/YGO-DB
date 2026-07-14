@@ -2431,7 +2431,23 @@ def update_trade_settings(
     }
 
 
-def _public_trade_item_row(item: CollectionItem, *, set_code_fallback: dict | None = None) -> dict:
+def _public_trade_sell_price(
+    item: CollectionItem,
+    market_row: PrintingMarketPrice | None,
+) -> float | None:
+    if item.sell_price is not None:
+        return float(item.sell_price)
+    if market_row is not None and market_row.trend_price is not None:
+        return float(market_row.trend_price)
+    return None
+
+
+def _public_trade_item_row(
+    item: CollectionItem,
+    *,
+    set_code_fallback: dict | None = None,
+    market_row: PrintingMarketPrice | None = None,
+) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
     linked = item.linked_printing
     resolved = resolve_rarity(item.rarity_code)
@@ -2449,7 +2465,7 @@ def _public_trade_item_row(item: CollectionItem, *, set_code_fallback: dict | No
         "rarity_name": rarity_name,
         "condition": normalize_collection_condition(item.condition),
         "trade_quantity": item.trade_quantity,
-        "sell_price": item.sell_price,
+        "sell_price": _public_trade_sell_price(item, market_row),
         "image_url_small": card.image_url_small if card else None,
     }
 
@@ -2512,9 +2528,17 @@ def list_public_trade_items(
         item.set_code for item in items if _card_for_collection_item(item) is None
     }
     fallback_map = _cards_by_set_codes(session, missing_codes)
+    market_map = load_market_prices(
+        session, [(item.set_code, item.rarity_code) for item in items]
+    )
 
     results = [
-        _public_trade_item_row(item, set_code_fallback=fallback_map) for item in items
+        _public_trade_item_row(
+            item,
+            set_code_fallback=fallback_map,
+            market_row=market_map.get((item.set_code, item.rarity_code)),
+        )
+        for item in items
     ]
     return results, int(total)
 
@@ -2625,6 +2649,9 @@ def validate_and_build_trade_order(
         )
     ).unique().scalars().all()
     by_id = {item.id: item for item in items}
+    market_map = load_market_prices(
+        session, [(item.set_code, item.rarity_code) for item in items]
+    )
 
     built: list[dict] = []
     for line in lines:
@@ -2637,6 +2664,7 @@ def validate_and_build_trade_order(
             raise ValueError(
                 f"Requested quantity exceeds trade quantity for item {item_id}"
             )
+        market_row = market_map.get((item.set_code, item.rarity_code))
         built.append(
             {
                 "item_id": item_id,
@@ -2649,7 +2677,7 @@ def validate_and_build_trade_order(
                 "rarity_code": item.rarity_code,
                 "rarity_display": rarity_display(item.rarity_code),
                 "condition": normalize_collection_condition(item.condition),
-                "list_price": item.sell_price,
+                "list_price": _public_trade_sell_price(item, market_row),
             }
         )
     return built

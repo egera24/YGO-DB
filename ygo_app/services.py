@@ -2432,19 +2432,25 @@ def update_trade_settings(
 
 
 def _public_trade_item_row(item: CollectionItem, *, set_code_fallback: dict | None = None) -> dict:
-    row = _collection_item_row(item, set_code_fallback=set_code_fallback)
+    card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
+    linked = item.linked_printing
+    resolved = resolve_rarity(item.rarity_code)
+    if resolved is not None:
+        rarity_name = resolved.name
+    else:
+        rarity_name = linked.set_rarity if linked is not None else None
     return {
-        "item_id": row["id"],
-        "card_name": row.get("card_name"),
-        "set_code": row["set_code"],
-        "set_name": row.get("set_name"),
-        "rarity_code": row["rarity_code"],
-        "rarity_display": row.get("rarity_display"),
-        "rarity_name": row.get("rarity_name"),
-        "condition": row.get("condition"),
-        "trade_quantity": row["trade_quantity"],
-        "sell_price": row.get("sell_price"),
-        "image_url_small": row.get("image_url_small"),
+        "item_id": item.id,
+        "card_name": item.card_name or (card.name if card else None),
+        "set_code": item.set_code,
+        "set_name": item.set_name,
+        "rarity_code": item.rarity_code,
+        "rarity_display": rarity_display(item.rarity_code),
+        "rarity_name": rarity_name,
+        "condition": normalize_collection_condition(item.condition),
+        "trade_quantity": item.trade_quantity,
+        "sell_price": item.sell_price,
+        "image_url_small": card.image_url_small if card else None,
     }
 
 

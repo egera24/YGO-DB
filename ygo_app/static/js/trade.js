@@ -40,6 +40,8 @@ const $ = (sel) => document.querySelector(sel);
   const OFFER_INFO_TITLE = "Alternate Offer Price";
 
   let offerInfoTrigger = null;
+  let initStarted = false;
+  let turnstileInitPromise = null;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -519,7 +521,10 @@ const $ = (sel) => document.querySelector(sel);
     backdrop.classList.toggle("hidden", !open);
     backdrop.hidden = !open;
     toggle.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) renderCart();
+    if (open) {
+      renderCart();
+      void ensureTurnstile();
+    }
   }
 
   function setViewMode(mode) {
@@ -786,7 +791,6 @@ const $ = (sel) => document.querySelector(sel);
     return "";
   }
 
-  function createFilterCombobox(config) {
   const setCombobox = createFilterCombobox({
     inputSel: "#trade-set-code",
     listSel: "#trade-set-list",
@@ -885,26 +889,41 @@ const $ = (sel) => document.querySelector(sel);
   function loadTurnstileScript() {
     return new Promise((resolve) => {
       if (window.turnstile) {
-        resolve();
+        resolve(true);
         return;
       }
+      const timeoutId = setTimeout(() => resolve(false), 5000);
       const script = document.createElement("script");
       script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
       script.async = true;
       script.defer = true;
-      script.onload = () => resolve();
-      script.onerror = () => resolve();
+      script.onload = () => {
+        clearTimeout(timeoutId);
+        resolve(true);
+      };
+      script.onerror = () => {
+        clearTimeout(timeoutId);
+        resolve(false);
+      };
       document.head.appendChild(script);
     });
   }
 
   async function initTurnstile() {
-    await loadTurnstileScript();
+    const scriptOk = await loadTurnstileScript();
     const container = $("#trade-turnstile");
-    if (!container || !state.publicConfig.turnstile_site_key || !window.turnstile) return;
+    if (!container || !state.publicConfig.turnstile_site_key || !scriptOk || !window.turnstile) return;
+    if (state.turnstileWidgetId != null) return;
     state.turnstileWidgetId = window.turnstile.render(container, {
       sitekey: state.publicConfig.turnstile_site_key,
     });
+  }
+
+  function ensureTurnstile() {
+    if (!state.publicConfig.turnstile_site_key) return Promise.resolve();
+    if (turnstileInitPromise) return turnstileInitPromise;
+    turnstileInitPromise = initTurnstile().catch(() => {});
+    return turnstileInitPromise;
   }
 
   function getTurnstileToken() {
@@ -958,6 +977,11 @@ const $ = (sel) => document.querySelector(sel);
 
     const turnstileToken = getTurnstileToken();
     if (state.publicConfig.turnstile_site_key && !turnstileToken) {
+      await ensureTurnstile();
+    }
+
+    const turnstileTokenAfterInit = getTurnstileToken();
+    if (state.publicConfig.turnstile_site_key && !turnstileTokenAfterInit) {
       if (errorEl) {
         errorEl.textContent = "Please complete the captcha.";
         errorEl.classList.remove("hidden");
@@ -977,7 +1001,7 @@ const $ = (sel) => document.querySelector(sel);
         address: $("#trade-contact-address")?.value.trim() || undefined,
         gdpr_consent: true,
       };
-      if (turnstileToken) body.turnstile_token = turnstileToken;
+      if (turnstileTokenAfterInit) body.turnstile_token = turnstileTokenAfterInit;
 
       await api(`/api/public/trade/${encodeURIComponent(slug)}/order-request`, {
         method: "POST",
@@ -1144,6 +1168,9 @@ const $ = (sel) => document.querySelector(sel);
   }
 
   async function init() {
+    if (initStarted) return;
+    initStarted = true;
+
     bindEvents();
     updateCartCount();
     setViewMode("list");
@@ -1151,13 +1178,14 @@ const $ = (sel) => document.querySelector(sel);
     syncCurrencySelect();
     syncCurrencySuffixes();
 
+    const subtitle = $("#trade-subtitle");
+    if (subtitle) subtitle.textContent = "Loading cards…";
+
     try {
       state.publicConfig = await api("/api/public/config");
       syncCurrencySelect();
       syncCurrencySuffixes();
-      await initTurnstile();
-      await loadFilters();
-      await loadItems();
+      await Promise.all([loadFilters(), loadItems()]);
     } catch (err) {
       showLoadError(err.message || "Could not load trade list.");
     }

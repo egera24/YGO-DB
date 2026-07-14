@@ -1,5 +1,7 @@
 /** Bulk collection spreadsheet modal (Tabulator). */
 
+import { rarityBadgeHtml } from "./rarity-badges.js";
+
 let deps = null;
 let table = null;
 let meta = null;
@@ -213,6 +215,15 @@ function tabulatorColumns() {
     if (col.field === "rarity_name") {
       def.sorter = (a, b, aRow, bRow) => {
         return (aRow.getData().rarity_sort_order || 9999) - (bRow.getData().rarity_sort_order || 9999);
+      };
+      def.formatter = (cell) => {
+        const data = cell.getRow().getData();
+        const wrap = document.createElement("span");
+        wrap.innerHTML = rarityBadgeHtml({
+          rarity_name: data.rarity_name,
+          rarity_code: data.rarity_code,
+        });
+        return wrap;
       };
     }
 

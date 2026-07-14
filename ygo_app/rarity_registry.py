@@ -55,6 +55,54 @@ RARITY_ROWS: list[tuple[int, str, str]] = [
     (42, "Grand Master Rare", "GMR"),
 ]
 
+# UI badge tone per canonical name (keyed by name, not code — CR/UtR are shared).
+RARITY_UI_TONES: dict[str, str] = {
+    "Common": "common",
+    "Normal Rare": "rare",
+    "Short Print": "common",
+    "Super Short Print": "common",
+    "Normal Parallel Rare (Parallel Common)": "parallel-common",
+    "Duel Terminal Normal Parallel Rare": "parallel-common",
+    "Rare": "rare",
+    "Duel Terminal Normal Rare Parallel Rare": "parallel-rare",
+    "Duel Terminal Rare Parallel Rare": "parallel-rare",
+    "Super Rare": "super",
+    "Holofoil Rare": "super",
+    "Super Parallel Rare": "super-parallel",
+    "Duel Terminal Super Parallel Rare": "super-parallel",
+    "Starfoil Rare": "starfoil",
+    "Mosaic Rare": "mosaic",
+    "Shatterfoil Rare": "shatterfoil",
+    "Millennium Rare": "millennium",
+    "Ultra Rare": "ultra",
+    "Ultra Parallel Rare": "ultra",
+    "Duel Terminal Ultra Parallel Rare": "ultra",
+    "Gold Rare": "gold",
+    "Ultimate Rare": "ultimate",
+    "Secret Rare": "secret",
+    "Ultra Secret Rare": "secret",
+    "Secret Ultra Rare": "secret",
+    "Duel Terminal Secret Parallel Rare": "secret",
+    "Gold Secret Rare": "gold",
+    "Ghost/Gold Rare": "gold",
+    "Premium Gold Rare": "gold",
+    "Platinum Rare": "platinum",
+    "Collector's Rare": "collectors",
+    "Ultra Rare (Pharaoh's Rare)": "ultra",
+    "Ghost Rare": "ghost",
+    "Starlight Rare": "starlight",
+    "Prismatic Collector's Rare": "prismatic-collectors",
+    "Prismatic Ultimate Rare": "prismatic-ultimate",
+    "Platinum Secret Rare": "platinum-secret",
+    "Extra Secret Rare": "secret",
+    "10000 Secret Rare": "10000-secret",
+    "Prismatic Secret Rare": "prismatic-secret",
+    "Quarter Century Secret Rare": "quarter-century",
+    "Grand Master Rare": "grand-master",
+}
+
+_DEFAULT_RARITY_TONE = "unknown"
+
 # Portal-specific abbreviations beyond the canonical code and full name.
 EXTRA_ALIASES: dict[str, list[str]] = {
     "Quarter Century Secret Rare": ["QCScR", "QCR"],
@@ -266,3 +314,33 @@ def rarity_code_for_name(rarity_name: str) -> str:
     """Return bare canonical code for Yugipedia/catalog ingest, or empty if unknown."""
     resolved = resolve_rarity(rarity_name)
     return resolved.code if resolved else ""
+
+
+def resolve_rarity_tone(name: str | None = None, code: str | None = None) -> str:
+    """Return CSS tone slug for a rarity; prefers canonical name over bare code."""
+    if name and name.strip():
+        tone = RARITY_UI_TONES.get(name.strip())
+        if tone:
+            return tone
+    resolved = resolve_rarity(name) or resolve_rarity(code)
+    if resolved is not None:
+        return RARITY_UI_TONES.get(resolved.name, _DEFAULT_RARITY_TONE)
+    return _DEFAULT_RARITY_TONE
+
+
+def list_rarity_ui_metadata() -> list[dict[str, str | int]]:
+    """All canonical rarities with UI badge metadata for the frontend."""
+    rows: list[dict[str, str | int]] = []
+    for sort_order, name, code in RARITY_ROWS:
+        normalized_code = normalize_rarity_code(code)
+        rows.append(
+            {
+                "sort_order": sort_order,
+                "name": name,
+                "code": code,
+                "normalized_code": normalized_code,
+                "display": rarity_display(normalized_code),
+                "tone": RARITY_UI_TONES.get(name, _DEFAULT_RARITY_TONE),
+            }
+        )
+    return rows

@@ -9,6 +9,7 @@ from ygo_app.card_filters import parse_json_string_list
 from ygo_app.config import IS_PRODUCTION
 from ygo_app.database import get_db
 from ygo_app.models import Card, CollectionItem, Deck, Printing, User
+from ygo_app.schemas import RarityUiOut
 
 router = APIRouter(tags=["meta"])
 
@@ -92,6 +93,13 @@ def _load_catalog_filters(db: Session) -> dict:
 @router.get("/health")
 def health():
     return {"ok": True}
+
+
+@router.get("/rarities", response_model=list[RarityUiOut])
+def rarities():
+    from ygo_app.rarity_registry import list_rarity_ui_metadata
+
+    return list_rarity_ui_metadata()
 
 
 @router.get("/status")

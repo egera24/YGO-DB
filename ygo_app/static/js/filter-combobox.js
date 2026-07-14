@@ -72,8 +72,11 @@ export function createFilterCombobox(config) {
     matches.forEach((option) => {
       const value = config.getValue(option);
       const label = config.getLabel(option);
+      const inner = config.renderOption
+        ? config.renderOption(option, label)
+        : escapeHtml(label);
       parts.push(
-        `<button type="button" class="${optionClass}" role="option" data-filter-value="${escapeHtml(value)}">${escapeHtml(label)}</button>`
+        `<button type="button" class="${optionClass}" role="option" data-filter-value="${escapeHtml(value)}">${inner}</button>`
       );
     });
 

@@ -1626,6 +1626,140 @@ tr:hover td { background: var(--surface); }
   white-space: nowrap;
 }
 
+.rarity-badge {
+  display: inline-block;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  line-height: 1.2;
+  vertical-align: middle;
+}
+.rarity-badge--long {
+  font-size: 0.65rem;
+  letter-spacing: -0.02em;
+  padding: 2px 4px;
+}
+.rarity-badge--common {
+  background: color-mix(in srgb, #6b7280 30%, transparent);
+  color: #9ca3af;
+}
+.rarity-badge--parallel-common {
+  background: color-mix(in srgb, #8899aa 28%, transparent);
+  color: #b0bec5;
+}
+.rarity-badge--rare {
+  background: color-mix(in srgb, #c0c0c0 25%, transparent);
+  color: #d1d5db;
+}
+.rarity-badge--parallel-rare {
+  background: color-mix(in srgb, #94a3b8 28%, transparent);
+  color: #cbd5e1;
+}
+.rarity-badge--super {
+  background: color-mix(in srgb, #22c55e 28%, transparent);
+  color: #4ade80;
+}
+.rarity-badge--super-parallel {
+  background: color-mix(in srgb, #16a34a 28%, transparent);
+  color: #86efac;
+}
+.rarity-badge--starfoil {
+  background: color-mix(in srgb, #e2e8f0 22%, transparent);
+  color: #f1f5f9;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 12%, transparent);
+}
+.rarity-badge--mosaic {
+  background: linear-gradient(135deg, color-mix(in srgb, #f97316 22%, transparent), color-mix(in srgb, #14b8a6 22%, transparent));
+  color: #fdba74;
+}
+.rarity-badge--shatterfoil {
+  background: color-mix(in srgb, #f97316 28%, transparent);
+  color: #fb923c;
+}
+.rarity-badge--millennium {
+  background: color-mix(in srgb, #92400e 30%, transparent);
+  color: #d97706;
+}
+.rarity-badge--ultra {
+  background: color-mix(in srgb, #eab308 28%, transparent);
+  color: #facc15;
+}
+.rarity-badge--gold {
+  background: color-mix(in srgb, #fbbf24 30%, transparent);
+  color: #fcd34d;
+}
+.rarity-badge--ultimate {
+  background: color-mix(in srgb, #f59e0b 30%, transparent);
+  color: #fbbf24;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, #78350f 40%, transparent);
+}
+.rarity-badge--prismatic-ultimate {
+  background: linear-gradient(135deg, color-mix(in srgb, #f59e0b 28%, transparent), color-mix(in srgb, #a855f7 20%, transparent));
+  color: #fde68a;
+}
+.rarity-badge--secret {
+  background: color-mix(in srgb, #a855f7 28%, transparent);
+  color: #c084fc;
+}
+.rarity-badge--platinum {
+  background: color-mix(in srgb, #94a3b8 28%, transparent);
+  color: #cbd5e1;
+}
+.rarity-badge--platinum-secret {
+  background: linear-gradient(135deg, color-mix(in srgb, #94a3b8 24%, transparent), color-mix(in srgb, #a855f7 22%, transparent));
+  color: #ddd6fe;
+}
+.rarity-badge--collectors {
+  background: color-mix(in srgb, #3b82f6 28%, transparent);
+  color: #60a5fa;
+}
+.rarity-badge--prismatic-collectors {
+  background: linear-gradient(135deg, color-mix(in srgb, #3b82f6 26%, transparent), color-mix(in srgb, #ec4899 18%, transparent));
+  color: #93c5fd;
+}
+.rarity-badge--ghost {
+  background: color-mix(in srgb, #e0f2fe 18%, transparent);
+  color: #bae6fd;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #e0f2fe 25%, transparent);
+}
+.rarity-badge--starlight {
+  background: linear-gradient(135deg, color-mix(in srgb, #ef4444 20%, transparent), color-mix(in srgb, #eab308 20%, transparent), color-mix(in srgb, #22c55e 20%, transparent), color-mix(in srgb, #3b82f6 20%, transparent), color-mix(in srgb, #a855f7 20%, transparent));
+  color: #fafafa;
+}
+.rarity-badge--10000-secret {
+  background: linear-gradient(135deg, color-mix(in srgb, #eab308 26%, transparent), color-mix(in srgb, #a855f7 22%, transparent));
+  color: #fde68a;
+}
+.rarity-badge--prismatic-secret {
+  background: linear-gradient(135deg, color-mix(in srgb, #a855f7 26%, transparent), color-mix(in srgb, #ec4899 18%, transparent));
+  color: #e9d5ff;
+}
+.rarity-badge--quarter-century {
+  background: linear-gradient(135deg, color-mix(in srgb, #dc2626 24%, transparent), color-mix(in srgb, #eab308 24%, transparent));
+  color: #fca5a5;
+}
+.rarity-badge--grand-master {
+  background: linear-gradient(135deg, color-mix(in srgb, #1f2937 50%, transparent), color-mix(in srgb, #eab308 22%, transparent));
+  color: #fcd34d;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #eab308 25%, transparent);
+}
+.rarity-badge--unknown {
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  color: var(--muted);
+}
+
+.rarity-badge-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rarity-badge-option .rarity-badge {
+  flex-shrink: 0;
+}
+
 .printing-variant-hint {
   font-size: 0.7rem;
   font-weight: 500;
@@ -3109,7 +3243,7 @@ tr:hover td { background: var(--surface); }
   gap: 0.35rem;
   min-width: 0;
 }
-.printing-main .rarity { color: var(--text); }
+.printing-main .rarity { display: inline-flex; align-items: center; }
 .printing-qty-badges {
   display: inline-flex;
   align-items: center;

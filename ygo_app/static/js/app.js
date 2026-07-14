@@ -4,6 +4,7 @@ import {
   refreshBulkCollectionAuthVisibility,
 } from "./bulk-collection.js";
 import { createFilterCombobox } from "./filter-combobox.js";
+import { rarityBadgeHtml } from "./rarity-badges.js";
 import { bindSortDirToggle, readSortDir, setSortDir } from "./sort-controls.js";
 
 const API = "/api";
@@ -4278,7 +4279,7 @@ function renderModalPrintingsList(printings, selectedKey) {
         aria-label="${escapeHtml(`${p.set_code} ${p.set_rarity || ""}. ${rowAction}`)}">
         <span class="printing-col printing-col-main">
           <span class="set-code">${escapeHtml(p.set_code)}</span>
-          <span class="rarity">${escapeHtml(p.set_rarity)}</span>
+          <span class="rarity">${rarityBadgeHtml({ set_rarity: p.set_rarity, set_rarity_code: p.set_rarity_code })}</span>
           ${formatPrintingOwnershipBadges(p)}
         </span>
         ${priceCell}
@@ -4694,7 +4695,7 @@ function renderCollectionDetailStats(data) {
       <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
-      <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+      <td>${rarityBadgeHtml(item)}</td>
       <td>${editionBadgeHtml(item.printing || item.edition)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
@@ -5279,7 +5280,10 @@ function syncAddCollectionPrintingFields() {
 
   const rarityEl = $("#collection-add-rarity");
   if (rarityEl) {
-    rarityEl.textContent = printing.set_rarity || printing.set_rarity_code || "";
+    rarityEl.innerHTML = rarityBadgeHtml({
+      set_rarity: printing.set_rarity,
+      set_rarity_code: printing.set_rarity_code,
+    });
   }
 
   const staticEl = $("#collection-add-card-number-static");
@@ -5775,7 +5779,7 @@ function renderCollectionTable(items) {
       <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
-      <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+      <td>${rarityBadgeHtml(item)}</td>
       <td>${editionBadgeHtml(item.printing || item.edition)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>

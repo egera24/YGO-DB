@@ -202,6 +202,15 @@ class CollectionFilterRarityOut(BaseModel):
     rarity_name: str | None = None
 
 
+class RarityUiOut(BaseModel):
+    sort_order: int
+    name: str
+    code: str
+    normalized_code: str
+    display: str
+    tone: str
+
+
 class CollectionFiltersOut(BaseModel):
     rarities: list[CollectionFilterRarityOut]
     editions: list[str]

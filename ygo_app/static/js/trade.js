@@ -1,4 +1,5 @@
 import { createFilterCombobox } from "./filter-combobox.js";
+import { rarityBadgeHtml } from "./rarity-badges.js";
 import { bindSortDirToggle, readSortDir } from "./sort-controls.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -569,7 +570,7 @@ const $ = (sel) => document.querySelector(sel);
           <td>${cardImgTag(item.image_url_small, item.card_name)}</td>
           <td>${escapeHtml(item.card_name)}</td>
           <td>${escapeHtml(item.set_code)}</td>
-          <td>${escapeHtml(formatItemRarity(item))}</td>
+          <td>${rarityBadgeHtml(item)}</td>
           <td>${escapeHtml(item.condition || "—")}</td>
           <td>${item.trade_quantity}</td>
           <td>${formatDisplayPrice(item.sell_price)}</td>
@@ -586,7 +587,7 @@ const $ = (sel) => document.querySelector(sel);
           <div class="card-tile-image-wrap">${cardImgTag(item.image_url_small, item.card_name)}</div>
           <div class="info">
             <div class="name" title="${escapeHtml(item.card_name)}">${escapeHtml(item.card_name)}</div>
-            <div>${escapeHtml(item.set_code)} · ${escapeHtml(formatItemRarity(item))} · Qty ${item.trade_quantity}</div>
+            <div>${escapeHtml(item.set_code)} · ${rarityBadgeHtml(item)} · Qty ${item.trade_quantity}</div>
             <div>Price ${formatDisplayPrice(item.sell_price)}</div>
             <button type="button" class="secondary" data-add-cart="${item.item_id}">Add to cart</button>
           </div>
@@ -808,6 +809,8 @@ const $ = (sel) => document.querySelector(sel);
     getValue: (row) => row.rarity_code,
     filterOptions: filterRarityOptions,
     resolveValue: resolveRarityFilterValue,
+    renderOption: (row, label) =>
+      `<span class="rarity-badge-option">${rarityBadgeHtml(row)}<span>${escapeHtml(label)}</span></span>`,
   });
 
   async function loadFilters() {

@@ -250,6 +250,43 @@ class TestCollectionItemUpdate(unittest.TestCase):
         self.assertEqual(item.sell_price, 4.5)
         session.close()
 
+    def test_update_notes(self):
+        session = self.Session()
+        item = session.get(CollectionItem, self.item_id)
+        update_collection_item(
+            session,
+            user_id=self.user_id,
+            item=item,
+            data={"notes": "  in binder 1  "},
+        )
+        session.refresh(item)
+        self.assertEqual(item.notes, "in binder 1")
+        session.close()
+
+    def test_clear_notes(self):
+        session = self.Session()
+        item = session.get(CollectionItem, self.item_id)
+        update_collection_item(
+            session,
+            user_id=self.user_id,
+            item=item,
+            data={"notes": "temporary"},
+        )
+        session.refresh(item)
+        update_collection_item(
+            session,
+            user_id=self.user_id,
+            item=item,
+            data={"notes": None},
+        )
+        session.refresh(item)
+        self.assertIsNone(item.notes)
+        session.close()
+
+    def test_notes_schema_rejects_overlong_values(self):
+        with self.assertRaises(ValidationError):
+            CollectionItemUpdate(notes="x" * 501)
+
 
 if __name__ == "__main__":
     unittest.main()

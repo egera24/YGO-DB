@@ -155,6 +155,23 @@ class TestExportCollectionCsv(unittest.TestCase):
         self.assertEqual(row["TREND"], "0.32")
         self.assertEqual(row["Sell Price"], "0.45")
 
+    def test_export_includes_notes_column(self):
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        item.notes = "Toploader bin"
+        session.commit()
+        csv_text, _, _ = export_collection_csv(
+            session, user_id=self.user_id, format_id="dragonshield"
+        )
+        session.close()
+
+        reader = csv.DictReader(io.StringIO("\n".join(csv_text.splitlines()[1:])))
+        row = next(reader)
+        self.assertIn("Notes", row)
+        self.assertEqual(row["Notes"], "Toploader bin")
+
     def test_export_zero_fills_missing_market_prices(self):
         session = self.Session()
         session.query(PrintingMarketPrice).delete()

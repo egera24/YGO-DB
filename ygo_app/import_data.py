@@ -24,6 +24,7 @@ from ygo_app.collection_identity import (
     collection_item_key_from_row,
     normalize_collection_condition,
     normalize_collection_edition,
+    normalize_collection_notes,
 )
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
@@ -897,6 +898,15 @@ def _nonempty(value) -> str | None:
     return text or None
 
 
+def _csv_notes(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return normalize_collection_notes(text)
+
+
 def _match_printing_cached(
     set_code: str,
     rarity_raw: str,
@@ -1061,7 +1071,7 @@ def import_collection_csv(
             item.price_bought = price_bought
         if date_bought := _nonempty(row.get("Date Bought")):
             item.date_bought = date_bought
-        if notes := _nonempty(row.get("Notes")):
+        if notes := _csv_notes(row.get("Notes")):
             item.notes = notes
         if catalog_name := _catalog_card_name(printing_id, item=item):
             item.card_name = catalog_name
@@ -1090,7 +1100,7 @@ def import_collection_csv(
             state["price_bought"] = price_bought
         if date_bought := _nonempty(row.get("Date Bought")):
             state["date_bought"] = date_bought
-        if notes := _nonempty(row.get("Notes")):
+        if notes := _csv_notes(row.get("Notes")):
             state["notes"] = notes
         if catalog_name := _catalog_card_name(printing_id, item=item):
             state["card_name"] = catalog_name
@@ -1138,6 +1148,12 @@ def import_collection_csv(
             rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
             return
 
+        try:
+            row_notes = _csv_notes(row.get("Notes"))
+        except ValueError as exc:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: str(exc)})
+            return
+
         stored_set_code = matched_set_code or set_code
         quantity = int(row.get("Quantity") or 1)
         folder_raw = (row.get("Folder Name") or "").strip()
@@ -1183,7 +1199,7 @@ def import_collection_csv(
             language=row.get("Language"),
             price_bought=_float_or_none(row.get("Price Bought")),
             date_bought=row.get("Date Bought"),
-            notes=_nonempty(row.get("Notes")),
+            notes=row_notes,
             sell_price=None,
             printing_id=printing_id,
         )

@@ -5,9 +5,11 @@ from __future__ import annotations
 import unittest
 
 from ygo_app.collection_identity import (
+    COLLECTION_NOTES_MAX_LENGTH,
     collection_item_key,
     normalize_collection_condition,
     normalize_collection_edition,
+    normalize_collection_notes,
 )
 
 
@@ -49,6 +51,16 @@ class TestCollectionIdentity(unittest.TestCase):
         for raw, expected in cases.items():
             with self.subTest(raw=raw):
                 self.assertEqual(normalize_collection_condition(raw), expected)
+
+    def test_normalize_collection_notes(self):
+        self.assertIsNone(normalize_collection_notes(None))
+        self.assertIsNone(normalize_collection_notes(""))
+        self.assertIsNone(normalize_collection_notes("   "))
+        self.assertEqual(normalize_collection_notes("  binder A  "), "binder A")
+        ok = "x" * COLLECTION_NOTES_MAX_LENGTH
+        self.assertEqual(normalize_collection_notes(ok), ok)
+        with self.assertRaises(ValueError):
+            normalize_collection_notes("x" * (COLLECTION_NOTES_MAX_LENGTH + 1))
 
     def test_collection_item_key_treats_aliases_as_equal(self):
         key_a = collection_item_key(

@@ -1266,11 +1266,20 @@ body.search-help-resizing {
   font-size: 0.9rem;
 }
 .collection-edit-field select,
-.collection-edit-field input {
+.collection-edit-field input,
+.collection-edit-field textarea {
   width: 100%;
   padding: 0.3rem 0.4rem;
 }
-.collection-edit-note {
+.collection-edit-field--notes {
+  align-items: start;
+}
+.collection-edit-field--notes textarea {
+  resize: vertical;
+  min-height: 3rem;
+  font-family: inherit;
+}
+.collection-edit-hint {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
 }
@@ -2202,6 +2211,9 @@ tr:hover td { background: var(--surface); }
   white-space: nowrap;
   color: var(--muted);
   font-size: 0.85rem;
+}
+.collection-notes--filled {
+  color: var(--text, #e2e8f0);
 }
 .collection-delete-btn { font-size: 0.8rem; padding: 0.25rem 0.5rem; }
 

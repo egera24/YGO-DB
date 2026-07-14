@@ -34,6 +34,7 @@ from ygo_app.collection_identity import (
     find_collection_item_by_identity,
     normalize_collection_condition,
     normalize_collection_edition,
+    normalize_collection_notes,
 )
 from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.search_sort import (
@@ -2089,6 +2090,7 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
     sell_price = (
         float(data["sell_price"]) if data.get("sell_price") is not None else None
     )
+    notes = normalize_collection_notes(data.get("notes"))
 
     existing = find_collection_item_by_identity(
         session,
@@ -2123,7 +2125,7 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         price_bought=data.get("price_bought"),
         date_bought=data.get("date_bought"),
         sell_price=sell_price,
-        notes=data.get("notes"),
+        notes=notes,
         printing_id=None,
     )
     printing = find_printing_for_rarity(session, set_code, rarity_raw)
@@ -2252,6 +2254,8 @@ def update_collection_item(
         data["edition"] = normalize_collection_edition(data["edition"])
     if "condition" in data:
         data["condition"] = normalize_collection_condition(data["condition"])
+    if "notes" in data:
+        data["notes"] = normalize_collection_notes(data["notes"])
     for field, value in data.items():
         setattr(item, field, value)
     if any(field in data for field in ("edition", "condition")):

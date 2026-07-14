@@ -23,6 +23,21 @@ COLLECTION_CONDITIONS = (
 
 COLLECTION_EDITIONS = ("Unlimited", "1st Edition", "Limited Edition")
 
+COLLECTION_NOTES_MAX_LENGTH = 500
+
+
+def normalize_collection_notes(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) > COLLECTION_NOTES_MAX_LENGTH:
+        raise ValueError(
+            f"Notes must be at most {COLLECTION_NOTES_MAX_LENGTH} characters"
+        )
+    return text
+
 
 def _alias_key(value: str) -> str:
     return " ".join(value.strip().lower().split())

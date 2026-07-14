@@ -6,8 +6,10 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 from ygo_app.collection_identity import (
     COLLECTION_CONDITIONS,
     COLLECTION_EDITIONS,
+    COLLECTION_NOTES_MAX_LENGTH,
     normalize_collection_condition,
     normalize_collection_edition,
+    normalize_collection_notes,
 )
 
 
@@ -291,7 +293,7 @@ class CollectionItemCreate(BaseModel):
     price_bought: float | None = None
     date_bought: str | None = None
     sell_price: float | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=COLLECTION_NOTES_MAX_LENGTH)
 
     @model_validator(mode="before")
     @classmethod
@@ -303,6 +305,11 @@ class CollectionItemCreate(BaseModel):
         if "printing" in data:
             data["printing"] = normalize_collection_edition(data.get("printing"))
         return data
+
+    @field_validator("notes")
+    @classmethod
+    def _validate_notes(cls, value: str | None) -> str | None:
+        return normalize_collection_notes(value)
 
 
 COLLECTION_LANGUAGES = (
@@ -324,7 +331,7 @@ class CollectionItemUpdate(BaseModel):
     printing: str | None = None
     folder_allocations: list[FolderAllocation] | None = None
     sell_price: float | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=COLLECTION_NOTES_MAX_LENGTH)
 
     @model_validator(mode="before")
     @classmethod
@@ -344,6 +351,11 @@ class CollectionItemUpdate(BaseModel):
             allowed = ", ".join(COLLECTION_CONDITIONS)
             raise ValueError(f"Condition must be one of: {allowed}")
         return value
+
+    @field_validator("notes")
+    @classmethod
+    def _validate_notes(cls, value: str | None) -> str | None:
+        return normalize_collection_notes(value)
 
 
 class DeckPreviewCard(BaseModel):

@@ -407,6 +407,26 @@ class TestImportCollectionCsv(unittest.TestCase):
             result.rejected[0][IMPORT_ERROR_COLUMN],
         )
 
+    def test_rejects_overlong_notes(self):
+        csv_path = Path(self._tmp.name).with_suffix(".notes.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "Blue-Eyes White Dragon",
+                    "Quantity": "1",
+                    "Notes": "x" * 501,
+                }
+            ],
+            fieldnames=["Card Number", "Rarity", "Card Name", "Quantity", "Notes"],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(len(result.rejected), 1)
+        self.assertIn("500 characters", result.rejected[0][IMPORT_ERROR_COLUMN])
+
     def test_import_resolves_short_print_alias(self):
         session = self.Session()
         session.add(

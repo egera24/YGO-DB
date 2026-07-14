@@ -47,6 +47,7 @@ DRAGONSHIELD_HEADERS = [
     "LOW",
     "TREND",
     "Sell Price",
+    "Notes",
 ]
 
 
@@ -69,6 +70,7 @@ class ExportRow:
     low_price: float
     trend_price: float
     sell_price: float
+    notes: str | None
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,7 @@ def _item_base_row(
         "low_price": low_price,
         "trend_price": trend_price,
         "sell_price": resolve_sell_price(item.sell_price, market_trend),
+        "notes": item.notes,
     }
 
 
@@ -217,6 +220,7 @@ def _write_dragonshield(rows: list[ExportRow]) -> str:
                 "LOW": _format_export_market_price(row.low_price),
                 "TREND": _format_export_market_price(row.trend_price),
                 "Sell Price": _format_export_market_price(row.sell_price),
+                "Notes": row.notes or "",
             }
         )
     return buf.getvalue()

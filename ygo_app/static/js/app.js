@@ -430,6 +430,14 @@ function collectionReleaseDateCell(item) {
   return `<td class="collection-release-date"${titleAttr}>${escapeHtml(text)}</td>`;
 }
 
+function collectionNotesCell(item) {
+  const notes = (item.notes || "").trim();
+  if (!notes) {
+    return '<td class="collection-notes"></td>';
+  }
+  return `<td class="collection-notes collection-notes--filled" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>`;
+}
+
 function conditionBadgeHtml(value) {
   if (!value) return "—";
   const canonical = normalizeConditionValue(value);
@@ -4724,7 +4732,7 @@ function renderCollectionDetailStats(data) {
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
       ${collectionReleaseDateCell(item)}
-      <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
+      ${collectionNotesCell(item)}
     </tr>`;
 
   tbody.querySelector(".collection-thumb")?.addEventListener("click", () => {
@@ -5392,6 +5400,7 @@ async function openAddCollectionModal(card, { printingKey: preselectKey = null }
   $("#collection-add-language").value = "English";
   $("#collection-add-price-bought").value = "0";
   $("#collection-add-date-bought").value = todayIsoDate();
+  $("#collection-add-notes").value = "";
   $("#collection-add-folder").value = "";
   resetAddCollectionNewFolderRow();
 
@@ -5485,6 +5494,11 @@ async function submitAddCollection() {
     price_bought: priceBought,
     date_bought: $("#collection-add-date-bought").value || todayIsoDate(),
   };
+
+  const notesVal = ($("#collection-add-notes")?.value || "").trim();
+  if (notesVal) {
+    body.notes = notesVal;
+  }
 
   const btn = $("#collection-add-submit");
   try {
@@ -5638,11 +5652,12 @@ async function openCollectionEditModal(item, itemId) {
   $("#collection-edit-trade-quantity").value = String(item.trade_quantity ?? 0);
   const sellDefault = resolvedCollectionSellPrice(item);
   $("#collection-edit-sell-price").value = String(sellDefault);
+  $("#collection-edit-notes").value = item.notes || "";
 
   const setSel = $("#collection-edit-set");
   const raritySel = $("#collection-edit-rarity");
-  const note = $("#collection-edit-note");
-  note.classList.add("hidden");
+  const hint = $("#collection-edit-hint");
+  hint.classList.add("hidden");
   setSel.disabled = true;
   raritySel.disabled = true;
   setSel.innerHTML = `<option value="${escapeHtml(item.set_code)}">${escapeHtml(item.set_code)}</option>`;
@@ -5653,9 +5668,9 @@ async function openCollectionEditModal(item, itemId) {
   $("#collection-edit-close")?.focus();
 
   if (!item.card_id) {
-    note.textContent =
+    hint.textContent =
       "This row isn't matched to the catalog, so Set and Rarity can't be changed here.";
-    note.classList.remove("hidden");
+    hint.classList.remove("hidden");
     return;
   }
   try {
@@ -5674,8 +5689,8 @@ async function openCollectionEditModal(item, itemId) {
     raritySel.disabled = false;
   } catch (err) {
     if (!collectionEditContext || collectionEditContext.itemId !== itemId) return;
-    note.textContent = `Could not load printings: ${err.message}`;
-    note.classList.remove("hidden");
+    hint.textContent = `Could not load printings: ${err.message}`;
+    hint.classList.remove("hidden");
   }
 }
 
@@ -5754,6 +5769,12 @@ async function saveCollectionEdit() {
     body.sell_price = sellPrice;
   }
 
+  const notesVal = ($("#collection-edit-notes")?.value || "").trim();
+  const currentNotes = (item.notes || "").trim();
+  if (notesVal !== currentNotes) {
+    body.notes = notesVal || null;
+  }
+
   if (!Object.keys(body).length) {
     closeCollectionEditModal();
     return;
@@ -5810,7 +5831,7 @@ function renderCollectionTable(items) {
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
       ${collectionReleaseDateCell(item)}
-      <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
+      ${collectionNotesCell(item)}
       <td class="collection-row-actions-col">
         <div class="collection-row-actions-wrap">
           <button type="button" class="icon-btn collection-folder-picker collection-folder-icon-btn${hasNamedFolderAssignment(item.folders) ? " collection-folder-icon-btn--assigned" : ""}" aria-label="Edit folder assignments: ${escapeHtml(formatFolderAllocationsLabel(item.folders))}" title="${escapeHtml(formatFolderAllocationsLabel(item.folders))}" aria-haspopup="dialog" aria-expanded="false">

@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=111" />
+  <link rel="stylesheet" href="/static/css/style.css?v=112" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -998,6 +998,10 @@
           <span>Date bought</span>
           <input type="date" id="collection-add-date-bought" />
         </label>
+        <label class="collection-edit-field collection-edit-field--notes" for="collection-add-notes">
+          <span>Notes</span>
+          <textarea id="collection-add-notes" rows="2" maxlength="500" placeholder="Optional"></textarea>
+        </label>
       </div>
       <div class="collection-edit-actions">
         <button type="button" id="collection-add-cancel" class="secondary">Cancel</button>
@@ -1052,7 +1056,11 @@
             <option value="Limited Edition">Limited Edition</option>
           </select>
         </label>
-        <p id="collection-edit-note" class="muted collection-edit-note hidden"></p>
+        <label class="collection-edit-field collection-edit-field--notes" for="collection-edit-notes">
+          <span>Notes</span>
+          <textarea id="collection-edit-notes" rows="2" maxlength="500" placeholder="Optional"></textarea>
+        </label>
+        <p id="collection-edit-hint" class="muted collection-edit-hint hidden"></p>
       </div>
       <div class="collection-edit-actions">
         <button type="button" id="collection-edit-cancel" class="secondary">Cancel</button>
@@ -1146,6 +1154,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=173" type="module"></script>
+  <script src="/static/js/app.js?v=174" type="module"></script>
 </body>
 </html>

@@ -2236,9 +2236,13 @@ tr:hover td { background: var(--surface); }
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
-#collection-table.collection-table--in-folder thead th:nth-child(7),
-#collection-table.collection-table--in-folder tbody tr.collection-row td:nth-child(7) {
+#collection-table.collection-table--in-folder .collection-col-folder,
+#collection-table.collection-table--in-folder .collection-col-trade-qty {
   display: none;
+}
+.collection-col-folder {
+  color: var(--muted);
+  white-space: nowrap;
 }
 #collection-table td:last-child,
 #collection-table th:last-child {

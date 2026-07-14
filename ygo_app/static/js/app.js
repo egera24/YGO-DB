@@ -451,6 +451,11 @@ function collectionNotesCell(item) {
   return `<td class="collection-notes collection-notes--filled" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>`;
 }
 
+function collectionFolderCell(item) {
+  const label = formatFolderAllocationsLabel(item.folders);
+  return `<td class="collection-col-folder">${escapeHtml(label)}</td>`;
+}
+
 function conditionBadgeHtml(value) {
   if (!value) return "—";
   const canonical = normalizeConditionValue(value);
@@ -4985,10 +4990,11 @@ function renderCollectionDetailStats(data) {
       <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
+      ${collectionFolderCell(item)}
       <td>${rarityBadgeHtml(item)}</td>
       <td>${editionBadgeHtml(item.printing || item.edition)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
-      <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
+      <td class="collection-qty-cell collection-col-trade-qty">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
       ${collectionReleaseDateCell(item)}
@@ -6086,10 +6092,11 @@ function renderCollectionTable(items) {
       <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
+      ${collectionFolderCell(item)}
       <td>${rarityBadgeHtml(item)}</td>
       <td>${editionBadgeHtml(item.printing || item.edition)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
-      <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
+      <td class="collection-qty-cell collection-col-trade-qty">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
       ${collectionReleaseDateCell(item)}

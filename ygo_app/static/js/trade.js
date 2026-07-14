@@ -43,6 +43,9 @@ const $ = (sel) => document.querySelector(sel);
   let initStarted = false;
   let turnstileInitPromise = null;
 
+  const TRADE_TABLE_SKELETON_ROWS = 10;
+  const TRADE_TILE_SKELETON_COUNT = 12;
+
   function escapeHtml(value) {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -214,6 +217,26 @@ const $ = (sel) => document.querySelector(sel);
     return num;
   }
 
+  function updateCurrencyRateHint() {
+    const hint = $("#trade-currency-rate");
+    if (!hint) return;
+    if (getSelectedCurrency() !== "HUF") {
+      hint.textContent = "";
+      hint.classList.add("hidden");
+      hint.setAttribute("aria-hidden", "true");
+      return;
+    }
+    const source = state.publicConfig.eur_huf_rate_source;
+    const rateText = getEurHufRate().toFixed(2);
+    let message = `1 EUR = ${rateText} HUF`;
+    if (source === "fallback") {
+      message += " · fallback";
+    }
+    hint.textContent = message;
+    hint.classList.remove("hidden");
+    hint.removeAttribute("aria-hidden");
+  }
+
   function updateCurrencyNote() {
     const note = $("#trade-rate-note");
     if (!note) return;
@@ -240,6 +263,7 @@ const $ = (sel) => document.querySelector(sel);
   function syncCurrencySelect() {
     const select = $("#trade-currency");
     if (select) select.value = getSelectedCurrency();
+    updateCurrencyRateHint();
     updateCurrencyNote();
   }
 
@@ -552,6 +576,74 @@ const $ = (sel) => document.querySelector(sel);
     return `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt || "Card")}" loading="lazy" />`;
   }
 
+  function renderTradeTableSkeletonRow() {
+    return `
+    <tr class="collection-row collection-row--skeleton" aria-hidden="true">
+      <td class="collection-thumb"><div class="skeleton collection-skel-thumb"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-actions"></div></td>
+    </tr>`;
+  }
+
+  function renderTradeTableLoadingSkeleton() {
+    const rows = Array.from({ length: TRADE_TABLE_SKELETON_ROWS }, () =>
+      renderTradeTableSkeletonRow()
+    ).join("");
+    return `<tr class="collection-skel-sr-only"><td colspan="8"><p class="sr-only" role="status">Loading cards…</p></td></tr>${rows}`;
+  }
+
+  function renderTradeTileLoadingSkeleton() {
+    const tiles = Array.from({ length: TRADE_TILE_SKELETON_COUNT }, () => `
+    <article class="card-tile card-tile--skeleton" aria-hidden="true">
+      <div class="skeleton search-card-skeleton-img"></div>
+      <div class="info">
+        <div class="skeleton skeleton-line"></div>
+        <div class="skeleton skeleton-line skeleton-line--short"></div>
+      </div>
+    </article>`).join("");
+    return `<p class="sr-only" role="status">Loading cards…</p>${tiles}`;
+  }
+
+  function clearTradeLoading() {
+    $("#trade-list-view")?.removeAttribute("aria-busy");
+    $("#trade-grid")?.removeAttribute("aria-busy");
+  }
+
+  function showTradeLoading() {
+    $("#trade-empty")?.classList.add("hidden");
+    $("#trade-error")?.classList.add("hidden");
+    $("#trade-pagination")?.classList.add("hidden");
+
+    const stats = $("#trade-stats");
+    if (stats) {
+      stats.innerHTML =
+        '<span class="skeleton skeleton-line trade-stats-skeleton" aria-hidden="true"></span>';
+    }
+
+    const tbody = $("#trade-tbody");
+    const grid = $("#trade-grid");
+    if (state.view === "tiles") {
+      if (grid) {
+        grid.innerHTML = renderTradeTileLoadingSkeleton();
+        grid.setAttribute("aria-busy", "true");
+      }
+      if (tbody) tbody.innerHTML = "";
+      $("#trade-list-view")?.removeAttribute("aria-busy");
+    } else {
+      if (tbody) {
+        tbody.innerHTML = renderTradeTableLoadingSkeleton();
+      }
+      if (grid) grid.innerHTML = "";
+      $("#trade-list-view")?.setAttribute("aria-busy", "true");
+      $("#trade-grid")?.removeAttribute("aria-busy");
+    }
+  }
+
   function renderItems() {
     const tbody = $("#trade-tbody");
     const grid = $("#trade-grid");
@@ -564,6 +656,7 @@ const $ = (sel) => document.querySelector(sel);
       tbody.innerHTML = "";
       grid.innerHTML = "";
       empty.classList.remove("hidden");
+      clearTradeLoading();
       return;
     }
     empty.classList.add("hidden");
@@ -600,6 +693,7 @@ const $ = (sel) => document.querySelector(sel);
       `
       )
       .join("");
+    clearTradeLoading();
   }
 
   function renderPagination() {
@@ -621,6 +715,13 @@ const $ = (sel) => document.querySelector(sel);
   }
 
   function showLoadError(message) {
+    clearTradeLoading();
+    const tbody = $("#trade-tbody");
+    const grid = $("#trade-grid");
+    if (tbody) tbody.innerHTML = "";
+    if (grid) grid.innerHTML = "";
+    const stats = $("#trade-stats");
+    if (stats) stats.textContent = "";
     const err = $("#trade-error");
     if (err) {
       err.textContent = message;
@@ -857,6 +958,7 @@ const $ = (sel) => document.querySelector(sel);
       showLoadError("Missing trade list slug in URL.");
       return;
     }
+    showTradeLoading();
     const params = currentQueryParams();
     const data = await api(
       `/api/public/trade/${encodeURIComponent(slug)}${buildQuery(params)}`
@@ -1180,6 +1282,8 @@ const $ = (sel) => document.querySelector(sel);
 
     const subtitle = $("#trade-subtitle");
     if (subtitle) subtitle.textContent = "Loading cards…";
+
+    showTradeLoading();
 
     try {
       state.publicConfig = await api("/api/public/config");

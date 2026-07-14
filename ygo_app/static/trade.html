@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark" />
   <title>Trade list</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
-  <link rel="stylesheet" href="/static/css/style.css?v=110" />
-  <link rel="stylesheet" href="/static/css/trade.css?v=10" />
+  <link rel="stylesheet" href="/static/css/style.css?v=125" />
+  <link rel="stylesheet" href="/static/css/trade.css?v=11" />
 </head>
 <body class="trade-page">
   <header class="trade-header">
@@ -37,11 +37,10 @@
         <div id="trade-rarity-list" class="trade-filter-list" role="listbox" hidden></div>
       </div>
       <div class="sort-controls">
-        <span class="sort-controls-label" id="trade-sort-label" aria-hidden="true">
+        <span class="sort-controls-label sort-controls-label--icon-only" id="trade-sort-label" aria-hidden="true">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
-          Sort by
         </span>
-        <select id="trade-sort" aria-label="Sort" aria-labelledby="trade-sort-label">
+        <select id="trade-sort" aria-label="Sort trade list">
           <option value="set_code">Set code</option>
           <option value="card_name">Name</option>
           <option value="trade_quantity">Trade quantity</option>
@@ -50,10 +49,18 @@
         </select>
         <button type="button" id="trade-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
       </div>
-      <select id="trade-currency" aria-label="Currency">
-        <option value="EUR">EUR</option>
-        <option value="HUF">HUF</option>
-      </select>
+      <div class="app-currency-group">
+        <div class="sort-controls sort-controls--field-only app-currency-control">
+          <span class="sort-controls-label sort-controls-label--icon-only" id="trade-currency-label" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+          </span>
+          <select id="trade-currency" aria-label="Currency">
+            <option value="EUR">EUR (€)</option>
+            <option value="HUF">HUF (Ft)</option>
+          </select>
+        </div>
+        <span id="trade-currency-rate" class="app-currency-rate hidden" aria-live="polite"></span>
+      </div>
       <div class="trade-view-toggle" role="group" aria-label="View mode">
         <button type="button" id="trade-view-list" class="secondary active" aria-pressed="true">List</button>
         <button type="button" id="trade-view-tiles" class="secondary" aria-pressed="false">Tiles</button>
@@ -187,6 +194,6 @@
 
   <div id="trade-toast" class="trade-toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/trade.js?v=23" type="module"></script>
+  <script src="/static/js/trade.js?v=24" type="module"></script>
 </body>
 </html>

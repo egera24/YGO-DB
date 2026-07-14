@@ -151,6 +151,24 @@ body.modal-open {
   align-items: center;
   gap: 0.5rem;
 }
+.app-currency {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.app-rate-note {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  max-width: min(420px, 100%);
+}
+.app-rate-note.hidden {
+  display: none;
+}
 .auth-form {
   display: flex;
   flex-wrap: wrap;

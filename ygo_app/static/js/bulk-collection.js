@@ -163,7 +163,12 @@ function applyFieldValue(row, field, value) {
   if (field === "folder_name" || field === "date_bought") {
     row[field] = value ?? "";
   } else if (field === "price_bought") {
-    row.price_bought = value == null || value === "" ? null : Number(value);
+    if (value == null || value === "") {
+      row.price_bought = null;
+    } else {
+      const parsed = deps.parsePriceInput?.(value);
+      row.price_bought = parsed == null || Number.isNaN(parsed) ? null : parsed;
+    }
   } else if (field === "quantity" || field === "trade_quantity") {
     row[field] = Math.max(0, Number(value) || 0);
   } else {
@@ -195,6 +200,54 @@ function buildEditor(type) {
   return "input";
 }
 
+function priceBoughtColumnTitle() {
+  const code = deps.getSelectedCurrency?.() ?? "EUR";
+  return `Price Bought (${code})`;
+}
+
+function buildPriceBoughtEditor() {
+  return function priceBoughtEditor(cell, onRendered, success, cancel) {
+    const eur = cell.getValue();
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = deps.getSelectedCurrency?.() === "HUF" ? "1" : "0.01";
+    input.value =
+      eur == null || eur === ""
+        ? ""
+        : deps.displayInputValue?.(eur) ?? String(eur);
+    input.style.width = "100%";
+    input.style.boxSizing = "border-box";
+
+    const finish = () => {
+      const raw = input.value.trim();
+      if (raw === "") {
+        success(null);
+        return;
+      }
+      const parsed = deps.parsePriceInput?.(raw);
+      if (parsed == null || Number.isNaN(parsed)) {
+        cancel();
+        return;
+      }
+      success(parsed);
+    };
+
+    input.addEventListener("blur", finish);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finish();
+      if (e.key === "Escape") cancel();
+    });
+
+    onRendered(() => {
+      input.focus();
+      input.select();
+    });
+
+    return input;
+  };
+}
+
 function tabulatorColumns() {
   const conditions = meta?.conditions || ["NearMint"];
   const editions = meta?.editions || ["1st Edition"];
@@ -202,7 +255,7 @@ function tabulatorColumns() {
 
   return COLUMN_DEFS.map((col) => {
     const def = {
-      title: col.title,
+      title: col.field === "price_bought" ? priceBoughtColumnTitle() : col.title,
       field: col.field,
       minWidth: col.minWidth,
       hozAlign: col.hozAlign || "left",
@@ -255,7 +308,12 @@ function tabulatorColumns() {
       def.editor = buildEditor("number");
       def.mutatorEdit = (value) => Math.max(0, Number(value) || 0);
     } else if (col.field === "price_bought") {
-      def.editor = buildEditor("number");
+      def.editor = buildPriceBoughtEditor();
+      def.formatter = (cell) => {
+        const val = cell.getValue();
+        if (val == null || val === "") return "";
+        return deps.formatDisplayPrice?.(val) ?? String(val);
+      };
     } else if (col.field === "date_bought") {
       def.editor = buildEditor("date");
     } else if (col.field === "folder_name") {
@@ -780,6 +838,15 @@ async function saveGrid() {
 
 function hasUnsavedChanges() {
   return dirtyRowIds.size > 0;
+}
+
+export function refreshBulkCollectionCurrency() {
+  if (!table) return;
+  const col = table.getColumn("price_bought");
+  if (col) {
+    col.updateDefinition({ title: priceBoughtColumnTitle() });
+  }
+  table.redraw(true);
 }
 
 export function openBulkCollectionModal() {

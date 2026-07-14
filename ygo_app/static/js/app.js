@@ -2,12 +2,14 @@ import {
   closeBulkCollectionModal,
   initBulkCollection,
   refreshBulkCollectionAuthVisibility,
+  refreshBulkCollectionCurrency,
 } from "./bulk-collection.js";
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
 import { bindSortDirToggle, readSortDir, setSortDir } from "./sort-controls.js";
 
 const API = "/api";
+const CURRENCY_STORAGE_KEY = "ygo-currency";
 
 const IMG_PLACEHOLDER =
   "data:image/svg+xml," +
@@ -55,6 +57,12 @@ const state = {
   genesysPointLists: [],
   zoneTooltips: {},
   tradeSettings: null,
+  currency: "EUR",
+  publicConfig: {
+    eur_huf_rate: 390,
+    eur_huf_rate_source: "fallback",
+    eur_huf_rate_as_of: null,
+  },
 };
 
 let searchRequestSeq = 0;
@@ -933,6 +941,11 @@ async function bootstrapAuthenticatedApp() {
   initFilterMultiWidgets();
   setupLinkMarkerGrid();
   setupSummoningSuggestions();
+
+  state.currency = loadCurrencyPreference();
+  syncCurrencySelect();
+  syncPriceInputFields();
+  await loadPublicConfig();
 
   const route = parseRouteHash();
   const initialView =
@@ -4073,9 +4086,171 @@ function closeCardTipsModal() {
   $("#modal-tips-trigger")?.focus();
 }
 
+function loadCurrencyPreference() {
+  try {
+    const stored = localStorage.getItem(CURRENCY_STORAGE_KEY);
+    if (stored === "HUF" || stored === "EUR") return stored;
+  } catch {
+    /* ignore */
+  }
+  return "EUR";
+}
+
+function saveCurrencyPreference(currency) {
+  try {
+    localStorage.setItem(CURRENCY_STORAGE_KEY, currency);
+  } catch {
+    /* ignore */
+  }
+}
+
+function getSelectedCurrency() {
+  return state.currency === "HUF" ? "HUF" : "EUR";
+}
+
+function getEurHufRate() {
+  const rate = Number(state.publicConfig?.eur_huf_rate);
+  return Number.isFinite(rate) && rate > 0 ? rate : 390;
+}
+
+function formatDisplayPrice(eurValue) {
+  if (eurValue == null || Number.isNaN(Number(eurValue))) return "—";
+  const eur = Number(eurValue);
+  if (getSelectedCurrency() === "HUF") {
+    return `${Math.round(eur * getEurHufRate()).toLocaleString("hu-HU")} HUF`;
+  }
+  return `${eur.toFixed(2).replace(".", ",")} €`;
+}
+
+function displayInputValue(eurValue) {
+  if (eurValue === "" || eurValue == null) return "";
+  const num = Number(eurValue);
+  if (Number.isNaN(num)) return "";
+  if (getSelectedCurrency() === "HUF") {
+    return String(Math.round(num * getEurHufRate()));
+  }
+  return String(num);
+}
+
+function priceInputStep() {
+  return getSelectedCurrency() === "HUF" ? "1" : "0.01";
+}
+
+function parsePriceInput(raw, currency = getSelectedCurrency()) {
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed === "") return 0;
+  const num = Number(trimmed);
+  if (Number.isNaN(num) || num < 0) return Number.NaN;
+  if (currency === "HUF") {
+    return Math.round((num / getEurHufRate()) * 100) / 100;
+  }
+  return num;
+}
+
+function updateCurrencyNote() {
+  const note = $("#app-rate-note");
+  if (!note) return;
+  if (getSelectedCurrency() !== "HUF") {
+    note.textContent = "";
+    note.classList.add("hidden");
+    note.setAttribute("aria-hidden", "true");
+    return;
+  }
+  const asOf = state.publicConfig?.eur_huf_rate_as_of;
+  const source = state.publicConfig?.eur_huf_rate_source;
+  const rateText = getEurHufRate().toFixed(2);
+  let message = `Prices shown in HUF (1 EUR = ${rateText} HUF`;
+  if (asOf) {
+    message += `, rate as of ${asOf}`;
+  }
+  if (source === "fallback") {
+    message += ", fallback rate";
+  }
+  message += "). Values are stored in EUR.";
+  note.textContent = message;
+  note.classList.remove("hidden");
+  note.removeAttribute("aria-hidden");
+}
+
+function syncCurrencySelect() {
+  const select = $("#app-currency");
+  if (select) select.value = getSelectedCurrency();
+  updateCurrencyNote();
+}
+
+function syncPriceInputFields() {
+  const code = getSelectedCurrency();
+  document.querySelectorAll("[data-currency-suffix]").forEach((el) => {
+    el.textContent = code;
+  });
+  const addPrice = $("#collection-add-price-bought");
+  const editSell = $("#collection-edit-sell-price");
+  if (addPrice) addPrice.step = priceInputStep();
+  if (editSell) editSell.step = priceInputStep();
+}
+
+function refreshPriceSurfaces() {
+  if (Array.isArray(state.collectionLastItems)) {
+    renderCollectionTable(state.collectionLastItems);
+  }
+  if (collectionDetailStatsCache && isModalVisible("#collection-stats-modal")) {
+    renderCollectionDetailStats(collectionDetailStatsCache);
+  }
+  if (state.currentCard && isModalVisible("#card-modal")) {
+    renderModalCard(state.currentCard);
+  }
+  if (isModalVisible("#collection-add-modal")) {
+    syncAddCollectionPrintingFields();
+  }
+  refreshBulkCollectionCurrency();
+}
+
+function setCurrency(currency) {
+  const prevCurrency = getSelectedCurrency();
+  let addPriceEur = null;
+  let editSellEur = null;
+
+  if (isModalVisible("#collection-add-modal")) {
+    addPriceEur = parsePriceInput($("#collection-add-price-bought")?.value, prevCurrency);
+  }
+  if (isModalVisible("#collection-edit-modal")) {
+    editSellEur = parsePriceInput($("#collection-edit-sell-price")?.value, prevCurrency);
+  }
+
+  const next = currency === "HUF" ? "HUF" : "EUR";
+  state.currency = next;
+  saveCurrencyPreference(next);
+  syncCurrencySelect();
+  syncPriceInputFields();
+
+  if (addPriceEur != null && !Number.isNaN(addPriceEur)) {
+    const input = $("#collection-add-price-bought");
+    if (input) input.value = displayInputValue(addPriceEur);
+  }
+  if (editSellEur != null && !Number.isNaN(editSellEur)) {
+    const input = $("#collection-edit-sell-price");
+    if (input) input.value = displayInputValue(editSellEur);
+  }
+
+  refreshPriceSurfaces();
+}
+
+async function loadPublicConfig() {
+  try {
+    const res = await fetch(`${API}/public/config`);
+    if (res.ok) {
+      state.publicConfig = await res.json();
+    }
+  } catch {
+    /* keep defaults */
+  }
+  syncCurrencySelect();
+  syncPriceInputFields();
+  refreshPriceSurfaces();
+}
+
 function formatMarketPrice(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
-  return `${Number(value).toFixed(2).replace(".", ",")} €`;
+  return formatDisplayPrice(value);
 }
 
 function resolvedCollectionSellPrice(item) {
@@ -4489,6 +4664,7 @@ const collectionSuggestionCache = {
 let collectionFilterComboboxes = null;
 let collectionStatsRequestSeq = 0;
 let collectionStatsTrigger = null;
+let collectionDetailStatsCache = null;
 
 function makeSuggestionCombobox(field, inputSel, listSel, placeholders) {
   return createFilterCombobox({
@@ -4612,8 +4788,7 @@ async function loadCollectionFilterOptions() {
 }
 
 function formatCollectionStatPrice(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
-  return `${Number(value).toFixed(2).replace(".", ",")} €`;
+  return formatDisplayPrice(value);
 }
 
 const COLLECTION_STAT_VALUE_IDS = [
@@ -4688,6 +4863,7 @@ function renderCollectionStatsFolderOptions(selectedFolder = state.collectionFol
 }
 
 function renderCollectionDetailStats(data) {
+  collectionDetailStatsCache = data;
   $("#collection-stats-body")?.removeAttribute("aria-busy");
   $("#collection-stat-printings")?.replaceChildren(
     document.createTextNode((data.unique_printings ?? 0).toLocaleString())
@@ -5398,7 +5574,8 @@ async function openAddCollectionModal(card, { printingKey: preselectKey = null }
   $("#collection-add-condition").value = "NearMint";
   $("#collection-add-edition").value = "Unlimited";
   $("#collection-add-language").value = "English";
-  $("#collection-add-price-bought").value = "0";
+  $("#collection-add-price-bought").value = displayInputValue(0);
+  syncPriceInputFields();
   $("#collection-add-date-bought").value = todayIsoDate();
   $("#collection-add-notes").value = "";
   $("#collection-add-folder").value = "";
@@ -5469,8 +5646,8 @@ async function submitAddCollection() {
     return;
   }
 
-  const priceBought = Number($("#collection-add-price-bought").value);
-  if (!Number.isFinite(priceBought) || priceBought < 0) {
+  const priceBought = parsePriceInput($("#collection-add-price-bought").value);
+  if (Number.isNaN(priceBought) || priceBought < 0) {
     showToast("Price bought must be 0 or greater.", { variant: "error" });
     return;
   }
@@ -5651,7 +5828,8 @@ async function openCollectionEditModal(item, itemId) {
   $("#collection-edit-quantity").value = String(item.quantity);
   $("#collection-edit-trade-quantity").value = String(item.trade_quantity ?? 0);
   const sellDefault = resolvedCollectionSellPrice(item);
-  $("#collection-edit-sell-price").value = String(sellDefault);
+  $("#collection-edit-sell-price").value = displayInputValue(sellDefault);
+  syncPriceInputFields();
   $("#collection-edit-notes").value = item.notes || "";
 
   const setSel = $("#collection-edit-set");
@@ -5710,8 +5888,8 @@ async function saveCollectionEdit() {
     return;
   }
 
-  const sellPrice = Number($("#collection-edit-sell-price").value);
-  if (!Number.isFinite(sellPrice) || sellPrice < 0) {
+  const sellPrice = parsePriceInput($("#collection-edit-sell-price").value);
+  if (Number.isNaN(sellPrice) || sellPrice < 0) {
     alert("Sell price must be 0 or greater.");
     return;
   }
@@ -7179,6 +7357,14 @@ function wireEvents() {
       loadCollectionStats();
     },
     closeCollectionToolbarMenus,
+    formatDisplayPrice,
+    parsePriceInput,
+    displayInputValue,
+    getSelectedCurrency,
+  });
+
+  $("#app-currency")?.addEventListener("change", (e) => {
+    setCurrency(e.target.value);
   });
 
   setupSearchResultsDelegation();

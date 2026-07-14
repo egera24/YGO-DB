@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=106" />
+  <link rel="stylesheet" href="/static/css/style.css?v=108" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -131,18 +131,21 @@
               <label class="check"><input type="checkbox" id="favorites-only" /> Favourites</label>
             </div>
             <div class="search-buttons">
-              <select id="search-sort" aria-label="Sort search results">
-                <option value="name">Sort: Name</option>
-                <option value="passcode">Sort: Passcode</option>
-                <option value="release_date">Sort: Latest release</option>
-                <option value="owned_quantity">Sort: Owned quantity</option>
-                <option value="trade_quantity">Sort: Trade quantity</option>
-                <option value="total_quantity">Sort: Total quantity</option>
-              </select>
-              <select id="search-sort-dir" aria-label="Sort direction">
-                <option value="asc">Ascending</option>
-                <option value="desc">Descending</option>
-              </select>
+              <div class="sort-controls">
+                <span class="sort-controls-label" id="search-sort-label" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+                  Sort by
+                </span>
+                <select id="search-sort" aria-label="Sort search results" aria-labelledby="search-sort-label">
+                  <option value="name">Name</option>
+                  <option value="passcode">Passcode</option>
+                  <option value="release_date">Latest release</option>
+                  <option value="owned_quantity">Owned quantity</option>
+                  <option value="trade_quantity">Trade quantity</option>
+                  <option value="total_quantity">Total quantity</option>
+                </select>
+                <button type="button" id="search-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
+              </div>
               <button type="button" id="search-reset" class="secondary">Clear all</button>
               <button type="submit">Search</button>
             </div>
@@ -416,19 +419,22 @@
                 <select id="collection-condition" aria-label="Filter by condition">
                   <option value="">All conditions</option>
                 </select>
-                <select id="collection-sort" aria-label="Sort collection">
-                  <option value="set_code">Sort: Set code</option>
-                  <option value="card_name">Sort: Name</option>
-                  <option value="folder_name">Sort: Folder</option>
-                  <option value="quantity">Sort: Quantity</option>
-                  <option value="trade_quantity">Sort: Trade quantity</option>
-                  <option value="passcode">Sort: Passcode</option>
-                  <option value="release_date">Sort: Release date</option>
-                </select>
-                <select id="collection-sort-dir" aria-label="Sort direction">
-                  <option value="asc">Ascending</option>
-                  <option value="desc">Descending</option>
-                </select>
+                <div class="sort-controls">
+                  <span class="sort-controls-label" id="collection-sort-label" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+                    Sort by
+                  </span>
+                  <select id="collection-sort" aria-label="Sort collection" aria-labelledby="collection-sort-label">
+                    <option value="set_code">Set code</option>
+                    <option value="card_name">Name</option>
+                    <option value="folder_name">Folder</option>
+                    <option value="quantity">Quantity</option>
+                    <option value="trade_quantity">Trade quantity</option>
+                    <option value="passcode">Passcode</option>
+                    <option value="release_date">Release date</option>
+                  </select>
+                  <button type="button" id="collection-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
+                </div>
                 <button type="submit">Apply</button>
                 <div id="collection-toolbar-actions" class="collection-toolbar-actions hidden" aria-label="Collection actions">
                   <button type="button" id="collection-stats-btn" class="icon-btn supplement-icon-btn collection-stats-btn" aria-label="Collection statistics" data-tooltip="Statistics" aria-haspopup="dialog" aria-controls="collection-stats-modal" aria-expanded="false">
@@ -504,11 +510,17 @@
       <div id="decks-list-view">
         <div class="decks-toolbar">
           <input type="search" id="decks-q" placeholder="Search decks or cards…" autocomplete="off" aria-label="Search decks" />
-          <select id="decks-sort" aria-label="Sort decks">
-            <option value="updated_at">Sort: Last modified</option>
-            <option value="created_at">Sort: Created</option>
-            <option value="name">Sort: Name</option>
-          </select>
+          <div class="sort-controls sort-controls--field-only">
+            <span class="sort-controls-label" id="decks-sort-label" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+              Sort by
+            </span>
+            <select id="decks-sort" aria-label="Sort decks" aria-labelledby="decks-sort-label">
+              <option value="updated_at">Last modified</option>
+              <option value="created_at">Created</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
           <button type="button" id="new-deck-btn" class="primary">+ New deck</button>
         </div>
         <div id="decks-grid" class="decks-grid"></div>
@@ -1127,6 +1139,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=169" type="module"></script>
+  <script src="/static/js/app.js?v=170" type="module"></script>
 </body>
 </html>

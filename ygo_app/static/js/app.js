@@ -4,6 +4,7 @@ import {
   refreshBulkCollectionAuthVisibility,
 } from "./bulk-collection.js";
 import { createFilterCombobox } from "./filter-combobox.js";
+import { bindSortDirToggle, readSortDir, setSortDir } from "./sort-controls.js";
 
 const API = "/api";
 
@@ -1822,8 +1823,7 @@ function resetSearchFilters() {
 
   const searchSortEl = $("#search-sort");
   if (searchSortEl) searchSortEl.value = "name";
-  const searchSortDirEl = $("#search-sort-dir");
-  if (searchSortDirEl) searchSortDirEl.value = "asc";
+  setSortDir($("#search-sort-dir"), "asc");
 
   closeAllFilterMultiPanels();
   renderActiveSearchFilters();
@@ -2226,7 +2226,7 @@ function buildSearchParams() {
   }
   const searchSort = $("#search-sort")?.value || "name";
   if (searchSort !== "name") params.set("sort", searchSort);
-  const searchSortDir = $("#search-sort-dir")?.value || "asc";
+  const searchSortDir = readSortDir($("#search-sort-dir"));
   if (searchSortDir !== "asc") params.set("sort_dir", searchSortDir);
   return params;
 }
@@ -2324,8 +2324,7 @@ function applySearchParams(snapshot) {
     if (el) el.value = s.sort;
   }
   if (s.sort_dir) {
-    const el = $("#search-sort-dir");
-    if (el) el.value = s.sort_dir;
+    setSortDir($("#search-sort-dir"), s.sort_dir);
   }
   renderActiveSearchFilters();
 }
@@ -4399,7 +4398,7 @@ function buildCollectionParams(offset = 0) {
   params.set("limit", String(COLLECTION_PAGE_SIZE));
   params.set("offset", String(offset));
   params.set("sort", $("#collection-sort")?.value || "set_code");
-  const collectionSortDir = $("#collection-sort-dir")?.value || "asc";
+  const collectionSortDir = readSortDir($("#collection-sort-dir"));
   if (collectionSortDir !== "asc") params.set("sort_dir", collectionSortDir);
   return params;
 }
@@ -7167,7 +7166,7 @@ function wireEvents() {
   $("#search-sort")?.addEventListener("change", () => {
     runSearch().catch((err) => showToast(err.message, { variant: "error" }));
   });
-  $("#search-sort-dir")?.addEventListener("change", () => {
+  bindSortDirToggle($("#search-sort-dir"), () => {
     runSearch().catch((err) => showToast(err.message, { variant: "error" }));
   });
   $("#search-clear-filters")?.addEventListener("click", async () => {
@@ -7505,7 +7504,7 @@ function wireEvents() {
     state.collectionPage = 0;
     await loadCollectionPage(0);
   });
-  $("#collection-sort-dir")?.addEventListener("change", async () => {
+  bindSortDirToggle($("#collection-sort-dir"), async () => {
     state.collectionPage = 0;
     await loadCollectionPage(0);
   });

@@ -1,4 +1,5 @@
 import { createFilterCombobox } from "./filter-combobox.js";
+import { bindSortDirToggle, readSortDir } from "./sort-controls.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -645,7 +646,7 @@ const $ = (sel) => document.querySelector(sel);
       set_code: setCombobox.resolveValue() || undefined,
       rarity: rarityCombobox.resolveValue() || undefined,
       sort: $("#trade-sort")?.value || "set_code",
-      sort_dir: $("#trade-sort-dir")?.value || "asc",
+      sort_dir: readSortDir($("#trade-sort-dir")),
       limit: state.limit,
       offset: state.offset,
     };
@@ -1000,6 +1001,8 @@ const $ = (sel) => document.querySelector(sel);
   function bindEvents() {
     setCombobox.bindEvents();
     rarityCombobox.bindEvents();
+
+    bindSortDirToggle($("#trade-sort-dir"));
 
     $("#trade-filter-form")?.addEventListener("submit", (event) => {
       event.preventDefault();

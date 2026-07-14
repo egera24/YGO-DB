@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark" />
   <title>Trade list</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
-  <link rel="stylesheet" href="/static/css/style.css?v=100" />
+  <link rel="stylesheet" href="/static/css/style.css?v=108" />
   <link rel="stylesheet" href="/static/css/trade.css?v=10" />
 </head>
 <body class="trade-page">
@@ -36,17 +36,20 @@
         <input type="text" id="trade-rarity" placeholder="All rarities" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="trade-rarity-list" aria-label="Filter by rarity" />
         <div id="trade-rarity-list" class="trade-filter-list" role="listbox" hidden></div>
       </div>
-      <select id="trade-sort" aria-label="Sort">
-        <option value="set_code">Sort: Set code</option>
-        <option value="card_name">Sort: Name</option>
-        <option value="trade_quantity">Sort: Trade quantity</option>
-        <option value="sell_price">Sort: Sell price</option>
-        <option value="condition">Sort: Condition</option>
-      </select>
-      <select id="trade-sort-dir" aria-label="Sort direction">
-        <option value="asc">Ascending</option>
-        <option value="desc">Descending</option>
-      </select>
+      <div class="sort-controls">
+        <span class="sort-controls-label" id="trade-sort-label" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+          Sort by
+        </span>
+        <select id="trade-sort" aria-label="Sort" aria-labelledby="trade-sort-label">
+          <option value="set_code">Set code</option>
+          <option value="card_name">Name</option>
+          <option value="trade_quantity">Trade quantity</option>
+          <option value="sell_price">Sell price</option>
+          <option value="condition">Condition</option>
+        </select>
+        <button type="button" id="trade-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
+      </div>
       <select id="trade-currency" aria-label="Currency">
         <option value="EUR">EUR</option>
         <option value="HUF">HUF</option>
@@ -184,6 +187,6 @@
 
   <div id="trade-toast" class="trade-toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/trade.js?v=16" type="module"></script>
+  <script src="/static/js/trade.js?v=17" type="module"></script>
 </body>
 </html>

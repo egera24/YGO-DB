@@ -1626,6 +1626,10 @@ tr:hover td { background: var(--surface); }
   white-space: nowrap;
 }
 
+.collection-release-date {
+  white-space: nowrap;
+}
+
 .rarity-badge {
   display: inline-block;
   font-family: ui-monospace, monospace;

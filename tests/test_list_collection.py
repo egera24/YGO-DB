@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import date
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
@@ -15,6 +16,7 @@ from ygo_app.models import (
     CollectionItem,
     CollectionItemFolder,
     Printing,
+    TcgSet,
     User,
 )
 from ygo_app.services import NO_FOLDER, list_collection
@@ -185,7 +187,7 @@ class TestListCollection(unittest.TestCase):
             event.remove(self.engine, "before_cursor_execute", _count_queries)
         session.close()
 
-        self.assertLessEqual(query_count, 4)
+        self.assertLessEqual(query_count, 5)
 
     def test_sort_by_trade_quantity(self):
         session = self.Session()
@@ -205,6 +207,37 @@ class TestListCollection(unittest.TestCase):
         self.assertEqual(total, 2)
         self.assertEqual(sorted_items[0]["trade_quantity"], 1)
         self.assertEqual(sorted_items[1]["trade_quantity"], 5)
+
+    def test_list_includes_release_date_from_tcg_set(self):
+        session = self.Session()
+        session.add(
+            TcgSet(abbr="LOB", name="Legend of Blue Eyes White Dragon", release_date=date(2002, 3, 8))
+        )
+        session.add(
+            TcgSet(abbr="UNK", name="Unknown Set", release_date=None)
+        )
+        session.flush()
+        _add_item(
+            session,
+            user_id=self.user_id,
+            set_code="UNK-001",
+            rarity_code="(C)",
+            card_name="Unknown Card",
+            quantity=1,
+        )
+        session.commit()
+
+        items, total = list_collection(session, user_id=self.user_id, limit=10)
+        session.close()
+
+        self.assertEqual(total, 3)
+        lob_items = [item for item in items if item["set_code"].startswith("LOB")]
+        self.assertTrue(lob_items)
+        for item in lob_items:
+            self.assertEqual(item["release_date"], date(2002, 3, 8))
+
+        unknown = next(item for item in items if item["set_code"] == "UNK-001")
+        self.assertIsNone(unknown["release_date"])
 
 
 if __name__ == "__main__":

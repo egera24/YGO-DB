@@ -70,15 +70,20 @@ const NO_FOLDER = "__no_folder__";
 const COLLECTION_FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 const INFO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>`;
 const COLLECTION_CONDITIONS = [
-  { value: "Mint", label: "Mint (MT)", tone: "mint" },
-  { value: "NearMint", label: "Near Mint (NM)", tone: "nearmint" },
-  { value: "Excellent", label: "Excellent (EX)", tone: "excellent" },
-  { value: "Good", label: "Good (GD)", tone: "good" },
-  { value: "LightPlayed", label: "Light Played (LP)", tone: "lightplayed" },
-  { value: "Played", label: "Played (PL)", tone: "played" },
-  { value: "Poor", label: "Poor (PO)", tone: "poor" },
+  { value: "Mint", label: "Mint (MT)", full: "Mint", short: "MT", tone: "mint" },
+  { value: "NearMint", label: "Near Mint (NM)", full: "Near Mint", short: "NM", tone: "nearmint" },
+  { value: "Excellent", label: "Excellent (EX)", full: "Excellent", short: "EX", tone: "excellent" },
+  { value: "Good", label: "Good (GD)", full: "Good", short: "GD", tone: "good" },
+  { value: "LightPlayed", label: "Light Played (LP)", full: "Light Played", short: "LP", tone: "lightplayed" },
+  { value: "Played", label: "Played (PL)", full: "Played", short: "PL", tone: "played" },
+  { value: "Poor", label: "Poor (PO)", full: "Poor", short: "PO", tone: "poor" },
 ];
 const COLLECTION_EDITIONS = ["Unlimited", "1st Edition", "Limited Edition"];
+const EDITION_SHORT_LABELS = {
+  Unlimited: "UE",
+  "1st Edition": "1st",
+  "Limited Edition": "LE",
+};
 
 const CONDITION_ALIAS_MAP = {
   mint: "Mint",
@@ -419,13 +424,20 @@ function conditionLabel(value) {
   return match ? match.label : canonical;
 }
 
+function collectionReleaseDateCell(item) {
+  const text = formatNumericDate(item.release_date) || "—";
+  const titleAttr = item.release_date ? ` title="${escapeHtml(text)}"` : "";
+  return `<td class="collection-release-date"${titleAttr}>${escapeHtml(text)}</td>`;
+}
+
 function conditionBadgeHtml(value) {
   if (!value) return "—";
   const canonical = normalizeConditionValue(value);
   const match = COLLECTION_CONDITIONS.find((c) => c.value === canonical);
-  const label = match ? match.label : canonical;
+  const short = match ? match.short : canonical;
+  const full = match ? match.full : canonical;
   const tone = match ? match.tone : "unknown";
-  return `<span class="condition-badge condition-badge--${tone}">${escapeHtml(label)}</span>`;
+  return `<span class="condition-badge condition-badge--${tone}" title="${escapeHtml(full)}" aria-label="${escapeHtml(full)}">${escapeHtml(short)}</span>`;
 }
 
 async function api(path, options = {}) {
@@ -3900,6 +3912,14 @@ function formatDisplayDate(isoDate) {
   }).format(dt);
 }
 
+function formatNumericDate(isoDate) {
+  if (!isoDate) return "";
+  const parts = String(isoDate).split("-");
+  if (parts.length !== 3) return isoDate;
+  const [year, month, day] = parts;
+  return `${day.padStart(2, "0")}.${month.padStart(2, "0")}.${year}`;
+}
+
 function resetModalSupplements() {
   const supplements = $("#modal-supplements");
   const errataOpen = $("#modal-errata-open");
@@ -4430,6 +4450,7 @@ function renderCollectionTableSkeletonRow() {
       <td><div class="skeleton collection-skel-cell"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--notes"></div></td>
       <td><div class="skeleton collection-skel-actions"></div></td>
     </tr>`;
@@ -4439,7 +4460,7 @@ function renderCollectionTableLoadingSkeleton() {
   const rows = Array.from({ length: COLLECTION_TABLE_SKELETON_ROWS }, () =>
     renderCollectionTableSkeletonRow()
   ).join("");
-  return `<tr class="collection-skel-sr-only"><td colspan="11"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
+  return `<tr class="collection-skel-sr-only"><td colspan="12"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
 }
 
 function showCollectionTableLoading() {
@@ -4607,6 +4628,7 @@ function renderCollectionStatsMaxSkeletonRow() {
       <td><div class="skeleton collection-skel-cell"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--notes"></div></td>
     </tr>`;
 }
@@ -4624,7 +4646,7 @@ function showCollectionDetailStatsLoading() {
   $("#collection-stats-max-wrap")?.classList.remove("hidden");
   const tbody = $("#collection-stats-max-tbody");
   if (tbody) {
-    tbody.innerHTML = `<tr class="collection-skel-sr-only"><td colspan="10"><p class="sr-only" role="status">Loading statistics…</p></td></tr>${renderCollectionStatsMaxSkeletonRow()}`;
+    tbody.innerHTML = `<tr class="collection-skel-sr-only"><td colspan="11"><p class="sr-only" role="status">Loading statistics…</p></td></tr>${renderCollectionStatsMaxSkeletonRow()}`;
   }
 }
 
@@ -4701,6 +4723,7 @@ function renderCollectionDetailStats(data) {
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
+      ${collectionReleaseDateCell(item)}
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
     </tr>`;
 
@@ -5566,8 +5589,9 @@ function editionLabel(value) {
 }
 
 function editionBadgeHtml(value) {
-  const label = editionLabel(value);
-  return `<span class="edition-badge">${escapeHtml(label)}</span>`;
+  const full = editionLabel(value);
+  const short = EDITION_SHORT_LABELS[full] || full;
+  return `<span class="edition-badge" title="${escapeHtml(full)}" aria-label="${escapeHtml(full)}">${escapeHtml(short)}</span>`;
 }
 
 async function openCollectionEditModal(item, itemId) {
@@ -5785,6 +5809,7 @@ function renderCollectionTable(items) {
       <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
+      ${collectionReleaseDateCell(item)}
       <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
       <td class="collection-row-actions-col">
         <div class="collection-row-actions-wrap">
@@ -5900,7 +5925,7 @@ async function loadCollectionPage(pageIndex) {
     if (seq !== collectionRequestSeq) return;
     setCollectionBusy(false);
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -5928,7 +5953,7 @@ async function loadCollectionView({ background = false } = {}) {
       setCollectionBusy(false);
       const tbody = $("#collection-tbody");
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
       }
     });
     return;
@@ -5940,7 +5965,7 @@ async function loadCollectionView({ background = false } = {}) {
     setCollectionBusy(false);
     const tbody = $("#collection-tbody");
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="11" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }

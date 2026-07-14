@@ -159,6 +159,7 @@ class CollectionItemOut(BaseModel):
     notes: str | None
     card_id: int | None = None
     image_url_small: str | None = None
+    release_date: date | None = None
 
     model_config = {"from_attributes": True}
 

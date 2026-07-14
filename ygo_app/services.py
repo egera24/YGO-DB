@@ -1201,12 +1201,45 @@ def _card_for_collection_item(
     return None
 
 
+def _release_dates_by_set_codes(
+    session: Session, set_codes: set[str] | list[str]
+) -> dict[str, date]:
+    from ygo_app.formats.pool import expansion_abbr_from_set_code
+
+    set_code_to_abbr: dict[str, str] = {}
+    abbrs: set[str] = set()
+    for set_code in set_codes:
+        abbr = expansion_abbr_from_set_code(set_code or "")
+        if not abbr:
+            continue
+        set_code_to_abbr[set_code] = abbr
+        abbrs.add(abbr)
+    if not abbrs:
+        return {}
+
+    abbr_to_date = {
+        abbr: release_date
+        for abbr, release_date in session.execute(
+            select(TcgSet.abbr, TcgSet.release_date).where(
+                TcgSet.abbr.in_(abbrs),
+                TcgSet.release_date.is_not(None),
+            )
+        ).all()
+    }
+    return {
+        set_code: abbr_to_date[abbr]
+        for set_code, abbr in set_code_to_abbr.items()
+        if abbr in abbr_to_date
+    }
+
+
 def _collection_item_row(
     item: CollectionItem,
     *,
     set_code_fallback: dict[str, Card | None] | None = None,
     folder_filter: str | None = None,
     market_row: PrintingMarketPrice | None = None,
+    release_date_map: dict[str, date] | None = None,
 ) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
     linked = item.linked_printing
@@ -1246,6 +1279,7 @@ def _collection_item_row(
         "rarity_display": rarity_display(item.rarity_code),
         "rarity_name": rarity_name,
         "folders": folders,
+        "release_date": release_date_map.get(item.set_code) if release_date_map else None,
     }
 
 
@@ -1540,6 +1574,7 @@ def collection_detail_stats(
     fallback_map = _cards_by_set_codes(session, missing_codes)
     market_keys = [(item.set_code, item.rarity_code) for item in items]
     market_map = load_market_prices(session, market_keys)
+    release_date_map = _release_dates_by_set_codes(session, {item.set_code for item in items})
 
     unique_printings = 0
     total_quantity = 0
@@ -1590,6 +1625,7 @@ def collection_detail_stats(
                     set_code_fallback=fallback_map,
                     folder_filter=folder,
                     market_row=market_row,
+                    release_date_map=release_date_map,
                 )
                 if qty > max_qty or (
                     qty == max_qty
@@ -1604,6 +1640,7 @@ def collection_detail_stats(
                     set_code_fallback=fallback_map,
                     folder_filter=folder,
                     market_row=market_row,
+                    release_date_map=release_date_map,
                 )
 
     return {
@@ -1685,6 +1722,7 @@ def list_collection(
 
     market_keys = [(item.set_code, item.rarity_code) for item in items]
     market_map = load_market_prices(session, market_keys)
+    release_date_map = _release_dates_by_set_codes(session, {item.set_code for item in items})
 
     results = [
         _collection_item_row(
@@ -1692,6 +1730,7 @@ def list_collection(
             set_code_fallback=fallback_map,
             folder_filter=folder,
             market_row=market_map.get((item.set_code, item.rarity_code)),
+            release_date_map=release_date_map,
         )
         for item in items
     ]

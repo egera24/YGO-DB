@@ -1,6 +1,7 @@
 import {
   closeBulkCollectionModal,
   initBulkCollection,
+  isBulkCollectionSaving,
   refreshBulkCollectionAuthVisibility,
   refreshBulkCollectionCurrency,
 } from "./bulk-collection.js";
@@ -7440,6 +7441,7 @@ function wireEvents() {
     $,
     API,
     showToast,
+    readNdjsonStream,
     isLoggedIn: () => Boolean(state.token && state.user),
     authHeaders: () => (state.token ? { Authorization: `Bearer ${state.token}` } : {}),
     onSaved: () => {
@@ -7923,7 +7925,9 @@ function wireEvents() {
     }
     else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
-    else if (isModalVisible("#bulk-collection-modal")) closeBulkCollectionModal();
+    else if (isModalVisible("#bulk-collection-modal") && !isBulkCollectionSaving()) {
+      closeBulkCollectionModal();
+    }
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
@@ -8203,7 +8207,7 @@ function wireEvents() {
   $("#deck-genesys-list")?.addEventListener("change", applyDraftFormatSettings);
 
   window.addEventListener("beforeunload", (e) => {
-    if (!state.deckDirty) return;
+    if (!state.deckDirty && !isBulkCollectionSaving()) return;
     e.preventDefault();
     e.returnValue = "";
   });

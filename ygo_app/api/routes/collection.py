@@ -8,8 +8,9 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -17,7 +18,7 @@ from ygo_app.auth import get_current_user
 from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.collection_export import export_collection_csv, list_export_formats
 from ygo_app.config import COLLECTION_CSV_MAX_BYTES
-from ygo_app.database import get_db
+from ygo_app.database import SessionLocal, get_db
 from ygo_app.import_data import CollectionImportResult, import_collection_csv
 from ygo_app.import_progress import build_progress_event
 from ygo_app.models import CollectionItem, CollectionItemFolder, Printing, User
@@ -25,7 +26,6 @@ from ygo_app.schemas import (
     BulkGridListOut,
     BulkGridMetaOut,
     BulkGridSaveIn,
-    BulkGridSaveResult,
     CollectionDetailStatsOut,
     CollectionFiltersOut,
     CollectionFolderCreate,
@@ -421,22 +421,100 @@ def get_bulk_grid(
     return BulkGridListOut(rows=rows, total=total, set_code=abbr)
 
 
-@router.post("/bulk-grid/save", response_model=BulkGridSaveResult)
-def post_bulk_grid_save(
-    body: BulkGridSaveIn,
-    db: Session = Depends(get_db),
+def _bulk_save_progress_event(update: dict, started: float) -> dict:
+    return build_progress_event(started=started, **update)
+
+
+def _log_bulk_save_progress(update: dict) -> None:
+    phase = update.get("phase", "?")
+    current = update.get("current", 0)
+    total = update.get("total", 0)
+    message = update.get("message")
+    if message:
+        logger.info("Bulk grid save [%s] %s (%s/%s)", phase, message, current, total)
+    elif total:
+        logger.info("Bulk grid save [%s] %s/%s", phase, current, total)
+    else:
+        logger.info("Bulk grid save [%s]", phase)
+
+
+@router.post("/bulk-grid/save")
+async def post_bulk_grid_save(
+    request: Request,
     user: User = Depends(get_current_user),
 ):
     try:
-        result = save_bulk_collection_grid(
-            db,
-            user_id=user.id,
-            set_code=body.set_code,
-            changes=[change.model_dump() for change in body.changes],
+        body = BulkGridSaveIn.model_validate(await request.json())
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid JSON body") from exc
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    started = time.monotonic()
+    changes = [change.model_dump() for change in body.changes]
+
+    def on_progress(update: dict) -> None:
+        payload = _bulk_save_progress_event(update, started)
+        _log_bulk_save_progress(update)
+        loop.call_soon_threadsafe(queue.put_nowait, ("event", payload))
+
+    def worker() -> None:
+        session = SessionLocal()
+        try:
+            result = save_bulk_collection_grid(
+                session,
+                user_id=user.id,
+                set_code=body.set_code,
+                changes=changes,
+                progress_callback=on_progress,
+            )
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                ("event", {"type": "done", **result}),
+            )
+        except ValueError as exc:
+            session.rollback()
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                ("event", {"type": "error", "detail": str(exc)}),
+            )
+        except Exception as exc:
+            session.rollback()
+            logger.exception("Bulk grid save failed")
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                ("event", {"type": "error", "detail": str(exc)}),
+            )
+        finally:
+            session.close()
+            loop.call_soon_threadsafe(queue.put_nowait, ("close", None))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        started_payload = build_progress_event(
+            phase="started",
+            message="Starting save…",
+            started=started,
         )
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-    return BulkGridSaveResult(**result)
+        yield json.dumps(started_payload) + "\n"
+        while True:
+            kind, payload = await queue.get()
+            if kind == "close":
+                break
+            yield json.dumps(payload) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("", response_model=CollectionItemOut)

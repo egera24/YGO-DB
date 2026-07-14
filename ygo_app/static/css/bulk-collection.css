@@ -218,6 +218,92 @@
   margin: 0;
 }
 
+.bulk-collection-save-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.bulk-collection-save-overlay.hidden {
+  display: none;
+}
+
+.bulk-collection-save-panel {
+  width: min(100%, 24rem);
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar {
+  --import-progress-track: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar::-webkit-progress-bar {
+  background: var(--import-progress-track, var(--surface));
+  border-radius: var(--radius);
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar::-webkit-progress-value {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 75%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 35%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: import-progress-shimmer 1.4s ease-in-out infinite;
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar::-moz-progress-bar {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 75%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 35%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: import-progress-shimmer 1.4s ease-in-out infinite;
+}
+
+.bulk-collection-save-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.bulk-collection-save-phase {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.bulk-collection-save-bar {
+  width: 100%;
+  height: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.bulk-collection-save-meta {
+  margin: 0;
+}
+
+.bulk-collection-card.is-saving .bulk-collection-header-actions,
+.bulk-collection-card.is-saving .bulk-collection-toolbar,
+.bulk-collection-card.is-saving .bulk-collection-grid,
+.bulk-collection-card.is-saving .bulk-collection-empty,
+.bulk-collection-card.is-saving .bulk-collection-loading {
+  pointer-events: none;
+  user-select: none;
+}
+
 @media (max-width: 720px) {
   .bulk-collection-overlay {
     padding: 0;

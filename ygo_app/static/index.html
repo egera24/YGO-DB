@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
   <link rel="stylesheet" href="/static/css/style.css?v=125" />
-  <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
+  <link rel="stylesheet" href="/static/css/bulk-collection.css?v=5" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
 <body>
@@ -1174,10 +1174,21 @@
         <span class="loading-spinner" aria-hidden="true"></span>
         Loading printings…
       </p>
+      <div id="bulk-collection-save-overlay" class="bulk-collection-save-overlay hidden" aria-hidden="true">
+        <div class="bulk-collection-save-panel" role="status" aria-live="polite" aria-busy="true">
+          <h3 id="bulk-collection-save-title" class="bulk-collection-save-title">Saving collection</h3>
+          <p id="bulk-collection-save-phase" class="bulk-collection-save-phase">Preparing save…</p>
+          <progress id="bulk-collection-save-bar" class="import-progress-modal-bar bulk-collection-save-bar" max="100"></progress>
+          <div class="import-progress-meta bulk-collection-save-meta">
+            <span id="bulk-collection-save-percent" class="import-progress-percent"></span>
+            <span id="bulk-collection-save-eta" class="import-progress-eta muted"></span>
+          </div>
+        </div>
+      </div>
     </article>
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=206" type="module"></script>
+  <script src="/static/js/app.js?v=208" type="module"></script>
 </body>
 </html>

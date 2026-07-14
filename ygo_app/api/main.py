@@ -6,7 +6,10 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
 
-SKIP_GZIP_PATHS = frozenset({"/api/collection/import-csv"})
+SKIP_GZIP_PATHS = frozenset({
+    "/api/collection/import-csv",
+    "/api/collection/bulk-grid/save",
+})
 
 
 class AppGZipMiddleware(GZipMiddleware):

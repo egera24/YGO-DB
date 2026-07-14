@@ -12,6 +12,9 @@ let loadRequestSeq = 0;
 let fillHandleEl = null;
 let fillDrag = null;
 let pendingTypeahead = null;
+let saveInProgress = false;
+let saveOverlayStartedMs = 0;
+let saveHasServerEvent = false;
 
 const EDITABLE_FIELDS = new Set([
   "folder_name",
@@ -726,6 +729,138 @@ async function loadMeta() {
   meta = await res.json();
 }
 
+function formatBulkSaveEta(seconds) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return "calculating…";
+  }
+  const totalSec = Math.ceil(seconds);
+  if (totalSec < 60) return "<1 min remaining";
+  const min = Math.ceil(totalSec / 60);
+  if (min < 60) return `~${min} min remaining`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (remMin === 0) return `~${hr} hr remaining`;
+  return `~${hr} hr ${remMin} min remaining`;
+}
+
+function setBulkSaveIndeterminate(indeterminate) {
+  const panel = document.querySelector(".bulk-collection-save-panel");
+  panel?.classList.toggle("bulk-collection-save-panel--indeterminate", indeterminate);
+}
+
+function setBulkSaveControlsDisabled(disabled) {
+  [
+    "bulk-collection-save",
+    "bulk-collection-close",
+    "bulk-collection-load",
+    "bulk-collection-duplicate-row",
+    "bulk-collection-columns-btn",
+  ].forEach((id) => {
+    const el = $(`#${id}`);
+    if (el) el.disabled = disabled;
+  });
+  const setCodeInput = $("#bulk-collection-set-code");
+  if (!setCodeInput) return;
+  if (disabled) setCodeInput.setAttribute("disabled", "disabled");
+  else setCodeInput.removeAttribute("disabled");
+}
+
+function openBulkSaveOverlay() {
+  saveOverlayStartedMs = performance.now();
+  saveHasServerEvent = false;
+  const overlay = $("#bulk-collection-save-overlay");
+  const card = document.querySelector(".bulk-collection-card");
+  overlay?.classList.remove("hidden");
+  overlay?.setAttribute("aria-hidden", "false");
+  card?.classList.add("is-saving");
+  const bar = $("#bulk-collection-save-bar");
+  if (bar) {
+    bar.max = 100;
+    bar.removeAttribute("value");
+  }
+  $("#bulk-collection-save-percent") && ($("#bulk-collection-save-percent").textContent = "");
+  $("#bulk-collection-save-eta") && ($("#bulk-collection-save-eta").textContent = "");
+  setBulkSaveIndeterminate(true);
+  updateBulkSaveOverlay({ phase: "preparing", message: "Preparing save…" });
+  setBulkSaveControlsDisabled(true);
+}
+
+function closeBulkSaveOverlay() {
+  const overlay = $("#bulk-collection-save-overlay");
+  const card = document.querySelector(".bulk-collection-card");
+  overlay?.classList.add("hidden");
+  overlay?.setAttribute("aria-hidden", "true");
+  card?.classList.remove("is-saving");
+  setBulkSaveIndeterminate(false);
+}
+
+function updateBulkSaveOverlay({ phase, current = 0, total = 0, message, etaSeconds }) {
+  const titleEl = $("#bulk-collection-save-title");
+  const phaseEl = $("#bulk-collection-save-phase");
+  const bar = $("#bulk-collection-save-bar");
+  const pctEl = $("#bulk-collection-save-percent");
+  const etaEl = $("#bulk-collection-save-eta");
+
+  if (titleEl) {
+    if (phase === "refreshing") titleEl.textContent = "Refreshing collection";
+    else if (phase === "error") titleEl.textContent = "Save failed";
+    else titleEl.textContent = "Saving collection";
+  }
+
+  if (phaseEl) {
+    if (message) {
+      phaseEl.textContent = message;
+    } else if (phase === "saving" && total > 0) {
+      phaseEl.textContent = `Saving ${current.toLocaleString()} of ${total.toLocaleString()} printings…`;
+    } else if (phase === "refreshing") {
+      phaseEl.textContent = "Refreshing grid…";
+    } else {
+      phaseEl.textContent = "Preparing save…";
+    }
+  }
+
+  const indeterminate =
+    phase === "preparing" || (phase === "saving" && !saveHasServerEvent && total <= 0);
+  setBulkSaveIndeterminate(indeterminate);
+
+  if (bar) {
+    bar.max = 100;
+    if (indeterminate) {
+      bar.removeAttribute("value");
+    } else if (phase === "refreshing" || phase === "complete") {
+      bar.value = 100;
+    } else if (total > 0) {
+      bar.value = Math.round((current / total) * 100);
+    }
+  }
+
+  if (pctEl) {
+    if (indeterminate) pctEl.textContent = "";
+    else if (phase === "refreshing" || phase === "complete") pctEl.textContent = "100%";
+    else if (total > 0) pctEl.textContent = `${Math.round((current / total) * 100)}%`;
+    else pctEl.textContent = "";
+  }
+
+  if (etaEl) {
+    if (phase === "saving" && etaSeconds != null) {
+      const eta = formatBulkSaveEta(etaSeconds);
+      etaEl.textContent = eta ? `About ${eta}` : "";
+    } else {
+      etaEl.textContent = "";
+    }
+  }
+}
+
+function formatBulkSaveResultMessage(result) {
+  const parts = [];
+  if (result.printings_updated) parts.push(`${result.printings_updated} printings updated`);
+  if (result.quantities_added) parts.push(`${result.quantities_added} quantities added`);
+  if (result.trade_quantities_added) {
+    parts.push(`${result.trade_quantities_added} trade quantities added`);
+  }
+  return parts.length ? `${parts.join(" — ")} to your collection.` : "Collection updated.";
+}
+
 async function loadGrid(setCode) {
   const code = (setCode || "").trim();
   if (!code) {
@@ -737,9 +872,11 @@ async function loadGrid(setCode) {
   const loadingEl = $("#bulk-collection-loading");
   const emptyEl = $("#bulk-collection-empty");
   const gridEl = $("#bulk-collection-grid");
-  loadingEl?.classList.remove("hidden");
-  emptyEl?.classList.add("hidden");
-  gridEl?.classList.add("hidden");
+  if (!saveInProgress) {
+    loadingEl?.classList.remove("hidden");
+    emptyEl?.classList.add("hidden");
+    gridEl?.classList.add("hidden");
+  }
 
   try {
     if (!meta) await loadMeta();
@@ -823,8 +960,8 @@ async function saveGrid() {
     if (qty <= 0 && trade <= 0) continue;
   }
 
-  const saveBtn = $("#bulk-collection-save");
-  saveBtn?.setAttribute("disabled", "disabled");
+  saveInProgress = true;
+  openBulkSaveOverlay();
   try {
     const res = await fetch(`${deps.API}/collection/bulk-grid/save`, {
       method: "POST",
@@ -838,23 +975,40 @@ async function saveGrid() {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || "Save failed");
     }
-    const result = await res.json();
-    const parts = [];
-    if (result.printings_updated) parts.push(`${result.printings_updated} printings updated`);
-    if (result.quantities_added) parts.push(`${result.quantities_added} quantities added`);
-    if (result.trade_quantities_added) {
-      parts.push(`${result.trade_quantities_added} trade quantities added`);
-    }
-    deps.showToast?.(
-      parts.length
-        ? `${parts.join(" — ")} to your collection.`
-        : "Collection updated.",
-      { variant: "success", durationMs: 5000 }
-    );
+    const readStream = deps.readNdjsonStream;
+    if (!readStream) throw new Error("Save stream unavailable");
+    const done = await readStream(res, (ev) => {
+      if (ev.type !== "progress") return;
+      saveHasServerEvent = true;
+      updateBulkSaveOverlay({
+        phase: "saving",
+        current: ev.current || 0,
+        total: ev.total || 0,
+        message: ev.message,
+        etaSeconds: ev.eta_seconds,
+      });
+    });
+    if (!done) throw new Error("Save finished without confirmation");
+
+    updateBulkSaveOverlay({ phase: "complete", message: "Save complete" });
+    deps.showToast?.(formatBulkSaveResultMessage(done), {
+      variant: "success",
+      durationMs: 5000,
+    });
     deps.onSaved?.();
+    updateBulkSaveOverlay({ phase: "refreshing", message: "Refreshing grid…" });
     await loadGrid(loadedSetCode);
   } catch (err) {
+    updateBulkSaveOverlay({
+      phase: "error",
+      message: err.message || "Save failed.",
+    });
     deps.showToast?.(err.message || "Save failed.", { variant: "error" });
+    updateDirtyUi();
+  } finally {
+    saveInProgress = false;
+    closeBulkSaveOverlay();
+    setBulkSaveControlsDisabled(false);
     updateDirtyUi();
   }
 }
@@ -879,7 +1033,12 @@ export function openBulkCollectionModal() {
   $("#bulk-collection-set-code")?.focus();
 }
 
+export function isBulkCollectionSaving() {
+  return saveInProgress;
+}
+
 export function closeBulkCollectionModal(force = false) {
+  if (saveInProgress) return;
   if (!force && hasUnsavedChanges()) {
     if (!confirm("Discard unsaved bulk collection changes?")) return;
   }
@@ -902,10 +1061,12 @@ export function initBulkCollection(options) {
   $("#bulk-collection-close")?.addEventListener("click", () => closeBulkCollectionModal());
 
   $("#bulk-collection-modal")?.addEventListener("click", (e) => {
+    if (saveInProgress) return;
     if (e.target === $("#bulk-collection-modal")) closeBulkCollectionModal();
   });
 
   $("#bulk-collection-load")?.addEventListener("click", () => {
+    if (saveInProgress) return;
     const code = $("#bulk-collection-set-code")?.value;
     if (hasUnsavedChanges() && !confirm("Reload and discard unsaved changes?")) return;
     loadGrid(code);
@@ -942,6 +1103,7 @@ export function initBulkCollection(options) {
     const dlg = $("#bulk-collection-modal");
     if (dlg?.hidden) return;
     if (e.key === "Escape") {
+      if (saveInProgress) return;
       closeBulkCollectionModal();
       return;
     }

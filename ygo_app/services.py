@@ -5,6 +5,7 @@ import json
 from collections import defaultdict
 from datetime import date, datetime
 
+from ygo_app.import_progress import ProgressThrottle
 from ygo_app.models import (
     Card,
     CollectionFolder,
@@ -2960,6 +2961,7 @@ def save_bulk_collection_grid(
     user_id: int,
     set_code: str,
     changes: list[dict],
+    progress_callback=None,
 ) -> dict:
     raw = (set_code or "").strip()
     if not raw:
@@ -2998,7 +3000,10 @@ def save_bulk_collection_grid(
     items_updated = 0
     items_deleted = 0
 
-    for key, group_changes in groups.items():
+    total_groups = len(groups)
+    progress_throttle = ProgressThrottle() if progress_callback else None
+
+    for group_index, (key, group_changes) in enumerate(groups.items(), start=1):
         set_code_key, rarity_code, edition, condition = key
         trade_q = max(int(row.get("trade_quantity") or 0) for row in group_changes)
         folder_rows = [
@@ -3138,6 +3143,20 @@ def save_bulk_collection_grid(
                 trade_quantities_added += trade_delta
 
         printings_updated.add((set_code_key, rarity_code))
+
+        if progress_callback and (
+            progress_throttle is None
+            or progress_throttle.should_emit(group_index)
+            or group_index == total_groups
+        ):
+            progress_callback(
+                {
+                    "phase": "saving",
+                    "current": group_index,
+                    "total": total_groups,
+                    "message": f"Saving {group_index} of {total_groups} printings…",
+                }
+            )
 
     session.commit()
     return {

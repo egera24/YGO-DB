@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -372,6 +373,57 @@ class TestBulkCollectionGrid(unittest.TestCase):
         self.assertEqual(item.quantity, 0)
         self.assertEqual(item.trade_quantity, 2)
 
+    def test_save_emits_monotonic_progress(self):
+        session = self.Session()
+        printing_id = session.execute(
+            select(Printing.id).where(Printing.set_code == "RA03-EN016")
+        ).scalar_one()
+        progress_events: list[dict] = []
+
+        def on_progress(update: dict) -> None:
+            progress_events.append(update)
+
+        result = save_bulk_collection_grid(
+            session,
+            user_id=self.owner_id,
+            set_code="RA03",
+            changes=[
+                {
+                    "row_id": "p-new",
+                    "printing_id": printing_id,
+                    "set_code": "RA03-EN016",
+                    "rarity_code": "(UR)",
+                    "folder_name": "BIN2",
+                    "quantity": 2,
+                    "trade_quantity": 0,
+                    "condition": "NearMint",
+                    "edition": "1st Edition",
+                    "language": "English",
+                    "baseline": {
+                        "quantity": 0,
+                        "trade_quantity": 0,
+                        "folder_name": None,
+                        "collection_item_id": None,
+                    },
+                }
+            ],
+            progress_callback=on_progress,
+        )
+        session.close()
+        self.assertEqual(result["items_created"], 1)
+        self.assertEqual(len(progress_events), 1)
+        self.assertEqual(progress_events[0]["phase"], "saving")
+        self.assertEqual(progress_events[0]["current"], 1)
+        self.assertEqual(progress_events[0]["total"], 1)
+
+    @staticmethod
+    def _parse_stream(text: str) -> list[dict]:
+        events = []
+        for line in text.splitlines():
+            if line.strip():
+                events.append(json.loads(line))
+        return events
+
     def test_api_save_rejects_foreign_item_id(self):
         session = self.Session()
         printing_id = session.execute(
@@ -409,7 +461,14 @@ class TestBulkCollectionGrid(unittest.TestCase):
                 ],
             },
         )
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.headers.get("content-type"), "application/x-ndjson")
+        events = self._parse_stream(res.text)
+        self.assertTrue(events)
+        self.assertEqual(events[0]["type"], "progress")
+        error_events = [ev for ev in events if ev.get("type") == "error"]
+        self.assertEqual(len(error_events), 1)
+        self.assertIn("Collection item not found", error_events[0]["detail"])
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=114" />
+  <link rel="stylesheet" href="/static/css/style.css?v=124" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -31,11 +31,10 @@
     <div id="auth-panel" class="auth-panel app-shell hidden" aria-hidden="true">
       <div class="app-currency-group">
         <div class="sort-controls sort-controls--field-only app-currency-control">
-          <span class="sort-controls-label" id="app-currency-label">
+          <span class="sort-controls-label sort-controls-label--icon-only" id="app-currency-label" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
-            Currency
           </span>
-          <select id="app-currency" aria-labelledby="app-currency-label">
+          <select id="app-currency" aria-label="Currency">
             <option value="EUR">EUR (€)</option>
             <option value="HUF">HUF (Ft)</option>
           </select>
@@ -144,13 +143,47 @@
               <label class="check"><input type="checkbox" id="for-trade-only" /> Trade</label>
               <label class="check"><input type="checkbox" id="favorites-only" /> Favourites</label>
             </div>
+            <div class="search-presets-bar hidden" id="search-presets-bar">
+              <button type="button" id="search-preset-toggle" class="secondary advanced-filters-toggle search-tool-toggle" aria-label="Search presets" aria-expanded="false" aria-controls="search-presets-panel" data-tooltip="Presets">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+                <span id="search-preset-toggle-label">Presets</span>
+                <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+              </button>
+            </div>
+            <button type="button" id="advanced-filters-toggle" class="secondary advanced-filters-toggle search-tool-toggle" aria-label="Advanced filters" aria-expanded="false" aria-controls="advanced-filters" data-tooltip="Advanced filters">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></svg>
+              <span id="advanced-filters-toggle-label">Filters</span>
+              <span id="advanced-filters-count" class="filter-count-badge hidden" aria-hidden="true"></span>
+              <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+            </button>
+            <button type="button" id="search-sort-toggle" class="secondary advanced-filters-toggle search-tool-toggle" aria-label="Sort results" aria-expanded="false" aria-controls="search-sort-panel" data-tooltip="Sort">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+              <span id="search-sort-toggle-label">Sort</span>
+              <span id="search-sort-toggle-dir" class="search-sort-toggle-dir hidden" aria-hidden="true"></span>
+              <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+            </button>
             <div class="search-buttons">
-              <div class="sort-controls">
-                <span class="sort-controls-label" id="search-sort-label" aria-hidden="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
-                  Sort by
-                </span>
-                <select id="search-sort" aria-label="Sort search results" aria-labelledby="search-sort-label">
+              <button type="button" id="search-reset" class="secondary" data-tooltip="Clear all">Clear all</button>
+              <button type="submit">Search</button>
+            </div>
+          </div>
+          <details id="search-presets-panel" class="search-tool-panel">
+            <summary class="visually-hidden">Search presets</summary>
+            <div class="search-tool-panel-body search-presets-panel-body">
+              <div id="search-preset-list" class="search-preset-list" role="list"></div>
+              <p id="search-preset-empty" class="search-preset-empty muted hidden">No saved presets yet.</p>
+              <div class="search-tool-panel-footer">
+                <button type="button" id="search-preset-save">Save current search</button>
+              </div>
+            </div>
+          </details>
+          <details id="search-sort-panel" class="search-tool-panel">
+            <summary class="visually-hidden">Sort results</summary>
+            <div class="search-tool-panel-body search-sort-panel-body">
+              <div class="search-sort-panel-row">
+                <label for="search-sort" class="search-sort-panel-label">Sort by</label>
+                <select id="search-sort" aria-label="Sort search results">
+                  <option value="">—</option>
                   <option value="name">Name</option>
                   <option value="passcode">Passcode</option>
                   <option value="release_date">Latest release</option>
@@ -160,41 +193,10 @@
                 </select>
                 <button type="button" id="search-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
               </div>
-              <button type="button" id="search-reset" class="secondary">Clear all</button>
-              <button type="submit">Search</button>
             </div>
-          </div>
-        </div>
-        <div class="search-secondary">
-          <div class="search-presets-bar hidden" id="search-presets-bar">
-            <div class="search-presets-controls">
-              <label for="search-preset-select" class="search-presets-label">Search presets</label>
-              <select id="search-preset-select" aria-label="Search presets"><option value="">No preset</option></select>
-              <div class="search-presets-actions">
-                <button type="button" id="search-preset-save" class="secondary" aria-label="Save current search as preset">Save preset</button>
-                <div class="preset-menu-wrap">
-                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu" disabled title="Select a preset first">⋯</button>
-                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
-                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
-                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
-            <span class="search-active-filters-label">Active filters</span>
-            <div id="search-active-filters-chips" class="search-filter-chips"></div>
-            <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
-          </div>
+          </details>
           <details id="advanced-filters" class="advanced-filters">
-            <summary class="advanced-filters-summary">
-              <span class="advanced-filters-summary-label">Advanced filters</span>
-              <span class="advanced-filters-summary-meta">
-                <span id="advanced-filters-count" class="filter-count-badge hidden" aria-hidden="true"></span>
-                <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
-              </span>
-            </summary>
+            <summary class="visually-hidden">Advanced filters</summary>
             <div class="advanced-filters-body">
             <div class="search-format-context">
               <div class="search-format-bar">
@@ -382,11 +384,19 @@
               </div>
             </div>
           </div>
-        </details>
+          </details>
+        </div>
+        <div class="search-secondary">
+          <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
+            <span class="search-active-filters-label">Active filters</span>
+            <div id="search-active-filters-chips" class="search-filter-chips"></div>
+          </div>
         </div>
       </form>
-      <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
-      <div id="search-pagination" class="search-pagination hidden" data-search-pagination></div>
+      <div class="search-results-toolbar">
+        <p id="search-results-summary" class="search-results-summary hidden" aria-live="polite"></p>
+        <div id="search-pagination" class="search-pagination hidden" data-search-pagination></div>
+      </div>
       <div id="search-results" class="card-grid"></div>
       <div id="search-pagination-bottom" class="search-pagination search-pagination--bottom hidden" data-search-pagination></div>
     </section>
@@ -480,11 +490,10 @@
                   <option value="">All conditions</option>
                 </select>
                 <div class="sort-controls">
-                  <span class="sort-controls-label" id="collection-sort-label" aria-hidden="true">
+                  <span class="sort-controls-label sort-controls-label--icon-only" id="collection-sort-label" aria-hidden="true">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
-                    Sort by
                   </span>
-                  <select id="collection-sort" aria-label="Sort collection" aria-labelledby="collection-sort-label">
+                  <select id="collection-sort" aria-label="Sort collection">
                     <option value="set_code">Set code</option>
                     <option value="card_name">Name</option>
                     <option value="folder_name">Folder</option>
@@ -531,11 +540,10 @@
         <div class="decks-toolbar">
           <input type="search" id="decks-q" placeholder="Search decks or cards…" autocomplete="off" aria-label="Search decks" />
           <div class="sort-controls sort-controls--field-only">
-            <span class="sort-controls-label" id="decks-sort-label" aria-hidden="true">
+            <span class="sort-controls-label sort-controls-label--icon-only" id="decks-sort-label" aria-hidden="true">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
-              Sort by
             </span>
-            <select id="decks-sort" aria-label="Sort decks" aria-labelledby="decks-sort-label">
+            <select id="decks-sort" aria-label="Sort decks">
               <option value="updated_at">Last modified</option>
               <option value="created_at">Created</option>
               <option value="name">Name</option>
@@ -1168,6 +1176,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=176" type="module"></script>
+  <script src="/static/js/app.js?v=202" type="module"></script>
 </body>
 </html>

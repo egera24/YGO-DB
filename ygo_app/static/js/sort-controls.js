@@ -21,6 +21,10 @@ export function readSortDir(btn) {
   return normalizeSortDir(btn?.dataset.sortDir);
 }
 
+export function getSortDirIconHtml(dir) {
+  return SORT_DIR_SVG[normalizeSortDir(dir)];
+}
+
 export function setSortDir(btn, dir) {
   if (!btn) return;
   const normalized = normalizeSortDir(dir);

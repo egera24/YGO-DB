@@ -6,7 +6,12 @@ import {
 } from "./bulk-collection.js";
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
-import { bindSortDirToggle, readSortDir, setSortDir } from "./sort-controls.js";
+import {
+  bindSortDirToggle,
+  getSortDirIconHtml,
+  readSortDir,
+  setSortDir,
+} from "./sort-controls.js";
 
 const API = "/api";
 const CURRENCY_STORAGE_KEY = "ygo-currency";
@@ -1047,7 +1052,7 @@ function logout() {
   setAuthenticatedShell(false);
   showAuthLanding();
   updateAuthUI();
-  renderSearchPresetSelect();
+  renderSearchPresetList();
   if (location.hash !== "#/") {
     suppressHashSync = true;
     location.hash = "#/";
@@ -1856,8 +1861,9 @@ function resetSearchFilters() {
   });
 
   const searchSortEl = $("#search-sort");
-  if (searchSortEl) searchSortEl.value = "name";
+  if (searchSortEl) searchSortEl.value = "";
   setSortDir($("#search-sort-dir"), "asc");
+  syncSearchSortToggleLabel();
 
   closeAllFilterMultiPanels();
   renderActiveSearchFilters();
@@ -1966,9 +1972,21 @@ function hasAdvancedSearchFilters() {
   return collectActiveSearchFilterChips().some((chip) => !PRIMARY_SEARCH_FILTER_IDS.has(chip.id));
 }
 
+let advancedFiltersUserCollapsed = false;
+
 function syncAdvancedFiltersOpen() {
   const details = $("#advanced-filters");
-  if (details && hasAdvancedSearchFilters()) details.open = true;
+  const hadAdvanced = hasAdvancedSearchFilters();
+  if (!hadAdvanced) advancedFiltersUserCollapsed = false;
+  if (details && hadAdvanced && !advancedFiltersUserCollapsed) details.open = true;
+  syncAdvancedFiltersToggle();
+}
+
+function syncAdvancedFiltersToggle() {
+  const details = $("#advanced-filters");
+  const btn = $("#advanced-filters-toggle");
+  if (!details || !btn) return;
+  btn.setAttribute("aria-expanded", details.open ? "true" : "false");
 }
 
 function countAdvancedSearchFilters() {
@@ -1982,7 +2000,7 @@ function syncAdvancedFiltersSummary() {
   if (!badge) return;
   const count = countAdvancedSearchFilters();
   if (count > 0) {
-    badge.textContent = `· ${count}`;
+    badge.textContent = `(${count})`;
     badge.classList.remove("hidden");
   } else {
     badge.textContent = "";
@@ -2085,35 +2103,124 @@ function renderSearchResultsSummary({ loading = false } = {}) {
   el.classList.remove("hidden");
 }
 
-function closePresetMenu() {
-  const menu = $("#search-preset-menu");
-  const btn = $("#search-preset-menu-btn");
-  if (!menu || menu.hidden) return;
-  menu.hidden = true;
-  btn?.setAttribute("aria-expanded", "false");
+const SEARCH_TOOL_PANELS = ["search-presets-panel", "search-sort-panel", "advanced-filters"];
+
+/** When opening one panel, which others to close. Sort and advanced filters may stay open together. */
+const SEARCH_TOOL_PANEL_CLOSE_TARGETS = {
+  "search-presets-panel": ["search-sort-panel", "advanced-filters"],
+  "search-sort-panel": ["search-presets-panel"],
+  "advanced-filters": ["search-presets-panel"],
+};
+
+function normalizeSearchToolPanelId(panelId) {
+  if (!panelId) return null;
+  return panelId.startsWith("#") ? panelId.slice(1) : panelId;
 }
 
-function syncSearchPresetControls() {
-  const select = $("#search-preset-select");
-  const menuBtn = $("#search-preset-menu-btn");
-  if (!select || !menuBtn) return;
-  const hasPreset = Boolean(select.value);
-  menuBtn.disabled = !hasPreset;
-  menuBtn.title = hasPreset ? "" : "Select a preset first";
-  if (!hasPreset) closePresetMenu();
-}
-
-function togglePresetMenu() {
-  const menu = $("#search-preset-menu");
-  const btn = $("#search-preset-menu-btn");
-  if (!menu || !btn || btn.disabled) return;
-  if (!menu.hidden) {
-    closePresetMenu();
-    return;
+function closeSearchToolPanels(exceptDetailsId = null) {
+  const exceptId = normalizeSearchToolPanelId(exceptDetailsId);
+  const targets = exceptId
+    ? SEARCH_TOOL_PANEL_CLOSE_TARGETS[exceptId] ?? SEARCH_TOOL_PANELS.filter((id) => id !== exceptId)
+    : SEARCH_TOOL_PANELS;
+  for (const id of targets) {
+    if (id === exceptId) continue;
+    const details = $(`#${id}`);
+    if (details?.open) details.open = false;
   }
-  closeCollectionToolbarMenus();
-  menu.hidden = false;
-  btn.setAttribute("aria-expanded", "true");
+}
+
+function bindSearchToolPanel(toggleSelector, detailsId, { onUserToggle } = {}) {
+  const toggle = $(toggleSelector);
+  const details = $(detailsId);
+  if (!toggle || !details) return;
+  const sync = () => toggle.setAttribute("aria-expanded", details.open ? "true" : "false");
+  toggle.addEventListener("click", () => {
+    const willOpen = !details.open;
+    if (willOpen) closeSearchToolPanels(detailsId);
+    details.open = willOpen;
+    onUserToggle?.(willOpen);
+  });
+  details.addEventListener("toggle", sync);
+  sync();
+}
+
+function syncSearchSortToggleLabel() {
+  const select = $("#search-sort");
+  const label = $("#search-sort-toggle-label");
+  const dirIcon = $("#search-sort-toggle-dir");
+  const toggle = $("#search-sort-toggle");
+  if (!select || !label) return;
+  const sortValue = select.value;
+  const hasSort = Boolean(sortValue);
+  const option = select.options[select.selectedIndex];
+  const sortLabel = hasSort ? option?.textContent?.trim() || "Sort" : "Sort";
+  label.textContent = sortLabel;
+  if (dirIcon) {
+    if (hasSort) {
+      dirIcon.innerHTML = getSortDirIconHtml(readSortDir($("#search-sort-dir")));
+      dirIcon.classList.remove("hidden");
+    } else {
+      dirIcon.innerHTML = "";
+      dirIcon.classList.add("hidden");
+    }
+  }
+  if (toggle) {
+    const dir = readSortDir($("#search-sort-dir"));
+    const tooltip = hasSort ? `Sort by ${sortLabel} (${dir === "desc" ? "descending" : "ascending"})` : "Sort";
+    toggle.setAttribute("data-tooltip", tooltip);
+    toggle.setAttribute(
+      "aria-label",
+      hasSort ? `Sort results by ${sortLabel}, ${dir === "desc" ? "descending" : "ascending"}` : "Sort results"
+    );
+  }
+}
+
+function syncSearchPresetToggleLabel() {
+  const toggle = $("#search-preset-toggle");
+  const label = $("#search-preset-toggle-label");
+  if (!toggle) return;
+  const active = state.searchPresets.find((p) => p.id === state.activePresetId);
+  toggle.setAttribute(
+    "aria-label",
+    active ? `Search presets (${active.name} active)` : "Search presets"
+  );
+  toggle.setAttribute("data-tooltip", active ? active.name : "Presets");
+  if (label) {
+    label.textContent = active ? active.name : "Presets";
+    label.classList.remove("hidden");
+  }
+}
+
+const PRESET_RENAME_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+const PRESET_DELETE_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
+
+function renderSearchPresetList() {
+  const list = $("#search-preset-list");
+  const emptyEl = $("#search-preset-empty");
+  if (!list) return;
+  const activeId = state.activePresetId;
+  if (!state.searchPresets.length) {
+    list.innerHTML = "";
+    emptyEl?.classList.remove("hidden");
+  } else {
+    emptyEl?.classList.add("hidden");
+    list.innerHTML = state.searchPresets
+      .map((p) => {
+        const activeClass = p.id === activeId ? " search-preset-row--active" : "";
+        const safeName = escapeHtml(p.name);
+        return `<div class="search-preset-row${activeClass}" role="listitem" data-preset-id="${p.id}">
+          <button type="button" class="search-preset-row-name" data-preset-load="${p.id}">${safeName}</button>
+          <div class="search-preset-row-actions">
+            <button type="button" class="icon-btn secondary search-preset-rename-btn" data-preset-rename="${p.id}" aria-label="Rename ${safeName}" data-tooltip="Rename">${PRESET_RENAME_ICON}</button>
+            <button type="button" class="icon-btn secondary search-preset-delete-btn preset-menu-danger" data-preset-delete="${p.id}" aria-label="Delete ${safeName}" data-tooltip="Delete">${PRESET_DELETE_ICON}</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+  syncSearchPresetToggleLabel();
 }
 
 const COLLECTION_TOOLBAR_MENUS = [
@@ -2137,7 +2244,7 @@ function toggleCollectionToolbarMenu(menuId, btnId) {
   if (!menu || !btn) return;
   const isOpen = !menu.hidden;
   closeCollectionToolbarMenus();
-  closePresetMenu();
+  closeSearchToolPanels();
   closeAllCollectionRowMenus();
   closeAllDeckTileMenus();
   if (isOpen) return;
@@ -2165,7 +2272,7 @@ function openCollectionRowMenu(btn) {
   if (!menu) return;
   closeAllCollectionRowMenus();
   closeCollectionToolbarMenus();
-  closePresetMenu();
+  closeSearchToolPanels();
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   menu.classList.add("collection-row-menu--fixed");
@@ -2258,10 +2365,10 @@ function buildSearchParams() {
     if (pointsMin) params.set("points_min", pointsMin);
     if (pointsMax) params.set("points_max", pointsMax);
   }
-  const searchSort = $("#search-sort")?.value || "name";
-  if (searchSort !== "name") params.set("sort", searchSort);
+  const searchSort = $("#search-sort")?.value || "";
+  if (searchSort) params.set("sort", searchSort);
   const searchSortDir = readSortDir($("#search-sort-dir"));
-  if (searchSortDir !== "asc") params.set("sort_dir", searchSortDir);
+  if (searchSort && searchSortDir !== "asc") params.set("sort_dir", searchSortDir);
   return params;
 }
 
@@ -2360,36 +2467,20 @@ function applySearchParams(snapshot) {
   if (s.sort_dir) {
     setSortDir($("#search-sort-dir"), s.sort_dir);
   }
+  syncSearchSortToggleLabel();
   renderActiveSearchFilters();
 }
 
 function clearActivePreset() {
   state.activePresetId = null;
-  const select = $("#search-preset-select");
-  if (select) select.value = "";
-  syncSearchPresetControls();
-}
-
-function renderSearchPresetSelect() {
-  const select = $("#search-preset-select");
-  if (!select) return;
-  const activeId = state.activePresetId;
-  select.innerHTML =
-    '<option value="">No preset</option>' +
-    state.searchPresets
-      .map(
-        (p) =>
-          `<option value="${p.id}"${p.id === activeId ? " selected" : ""}>${escapeHtml(p.name)}</option>`
-      )
-      .join("");
-  syncSearchPresetControls();
+  renderSearchPresetList();
 }
 
 async function loadSearchPresets() {
   if (!state.token) {
     state.searchPresets = [];
     state.activePresetId = null;
-    renderSearchPresetSelect();
+    renderSearchPresetList();
     return;
   }
   try {
@@ -2400,10 +2491,10 @@ async function loadSearchPresets() {
     ) {
       state.activePresetId = null;
     }
-    renderSearchPresetSelect();
+    renderSearchPresetList();
   } catch {
     state.searchPresets = [];
-    renderSearchPresetSelect();
+    renderSearchPresetList();
   }
 }
 
@@ -2425,7 +2516,9 @@ async function loadSearchPresetById(presetId) {
   if (!preset) return;
   applySearchParams(preset.params);
   state.activePresetId = preset.id;
-  renderSearchPresetSelect();
+  renderSearchPresetList();
+  const panel = $("#search-presets-panel");
+  if (panel?.open) panel.open = false;
   await runSearch();
 }
 
@@ -2720,8 +2813,7 @@ async function runCollectionImport(file, replace) {
 async function finishPresetSave(preset) {
   state.activePresetId = preset.id;
   await loadSearchPresets();
-  renderSearchPresetSelect();
-  $("#search-preset-select").value = String(preset.id);
+  renderSearchPresetList();
   showToast("Preset saved.");
 }
 
@@ -2786,12 +2878,11 @@ async function saveSearchPreset() {
   await createSearchPresetByName(snapshot, name.trim());
 }
 
-async function renameSearchPreset() {
+async function renameSearchPreset(presetId) {
   if (!state.token) {
     showToast("Log in to rename presets.", { variant: "error" });
     return;
   }
-  const presetId = Number($("#search-preset-select")?.value);
   if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
   const newName = await promptPresetName({
@@ -2809,8 +2900,7 @@ async function renameSearchPreset() {
     });
     state.activePresetId = preset.id;
     await loadSearchPresets();
-    renderSearchPresetSelect();
-    $("#search-preset-select").value = String(preset.id);
+    renderSearchPresetList();
     showToast("Preset renamed.");
   } catch (err) {
     showToast(
@@ -2820,12 +2910,11 @@ async function renameSearchPreset() {
   }
 }
 
-async function deleteSearchPreset() {
+async function deleteSearchPreset(presetId) {
   if (!state.token) {
     showToast("Log in to delete presets.", { variant: "error" });
     return;
   }
-  const presetId = Number($("#search-preset-select")?.value);
   if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
   if (!confirm(`Delete preset "${current?.name || presetId}"?`)) return;
@@ -6454,7 +6543,7 @@ function openDeckTileMenu(btn) {
   const menu = wrap?.querySelector(".deck-tile-menu");
   if (!menu) return;
   closeAllDeckTileMenus();
-  closePresetMenu();
+  closeSearchToolPanels();
   closeAllCollectionRowMenus();
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
@@ -7395,30 +7484,56 @@ function wireEvents() {
     await runSearch();
   });
   $("#search-sort")?.addEventListener("change", () => {
+    syncSearchSortToggleLabel();
     runSearch().catch((err) => showToast(err.message, { variant: "error" }));
   });
   bindSortDirToggle($("#search-sort-dir"), () => {
+    syncSearchSortToggleLabel();
     runSearch().catch((err) => showToast(err.message, { variant: "error" }));
   });
-  $("#search-clear-filters")?.addEventListener("click", async () => {
-    resetSearchFilters();
-    clearActivePreset();
-    await runSearch();
+  bindSearchToolPanel("#search-preset-toggle", "#search-presets-panel");
+  bindSearchToolPanel("#search-sort-toggle", "#search-sort-panel");
+  bindSearchToolPanel("#advanced-filters-toggle", "#advanced-filters", {
+    onUserToggle(willOpen) {
+      advancedFiltersUserCollapsed = !willOpen;
+    },
   });
-  $("#search-preset-select")?.addEventListener("change", async () => {
-    const presetId = Number($("#search-preset-select")?.value);
-    syncSearchPresetControls();
-    if (presetId) await loadSearchPresetById(presetId);
-    else clearActivePreset();
+  syncSearchSortToggleLabel();
+  $("#search-preset-list")?.addEventListener("click", (e) => {
+    const loadBtn = e.target.closest("[data-preset-load]");
+    if (loadBtn) {
+      const presetId = Number(loadBtn.dataset.presetLoad);
+      if (presetId) {
+        if (presetId === state.activePresetId) {
+          clearActivePreset();
+        } else {
+          loadSearchPresetById(presetId).catch((err) =>
+            showToast(err.message, { variant: "error", durationMs: 5000 })
+          );
+        }
+      }
+      return;
+    }
+    const renameBtn = e.target.closest("[data-preset-rename]");
+    if (renameBtn) {
+      const presetId = Number(renameBtn.dataset.presetRename);
+      renameSearchPreset(presetId).catch((err) =>
+        showToast(err.message, { variant: "error", durationMs: 5000 })
+      );
+      return;
+    }
+    const deleteBtn = e.target.closest("[data-preset-delete]");
+    if (deleteBtn) {
+      const presetId = Number(deleteBtn.dataset.presetDelete);
+      deleteSearchPreset(presetId).catch((err) =>
+        showToast(err.message, { variant: "error", durationMs: 5000 })
+      );
+    }
   });
   $("#search-preset-save")?.addEventListener("click", () => {
     saveSearchPreset().catch((err) =>
       showToast(err.message, { variant: "error", durationMs: 5000 })
     );
-  });
-  $("#search-preset-menu-btn")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    togglePresetMenu();
   });
   $("#collection-manage-menu-btn")?.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -7428,25 +7543,12 @@ function wireEvents() {
     e.stopPropagation();
     toggleCollectionToolbarMenu("collection-trade-menu", "collection-trade-menu-btn");
   });
-  $("#search-preset-rename")?.addEventListener("click", () => {
-    closePresetMenu();
-    renameSearchPreset().catch((err) =>
-      showToast(err.message, { variant: "error", durationMs: 5000 })
-    );
-  });
-  $("#search-preset-delete")?.addEventListener("click", () => {
-    closePresetMenu();
-    deleteSearchPreset().catch((err) =>
-      showToast(err.message, { variant: "error", durationMs: 5000 })
-    );
-  });
   document.addEventListener("click", (e) => {
     if (
       !e.target.closest(
-        ".preset-menu-wrap:not(.collection-row-menu-wrap):not(.deck-tile-menu-wrap)"
+        ".collection-sidebar-menu-wrap"
       )
     ) {
-      closePresetMenu();
       closeCollectionToolbarMenus();
     }
     if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
@@ -7800,8 +7902,13 @@ function wireEvents() {
     else if (document.querySelector(".deck-tile-menu:not([hidden])")) closeAllDeckTileMenus();
     else if (document.querySelector("#collection-manage-menu:not([hidden]), #collection-trade-menu:not([hidden])")) {
       closeCollectionToolbarMenus();
-    } else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
-    else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
+    } else if (
+      $("#search-presets-panel")?.open ||
+      $("#search-sort-panel")?.open ||
+      $("#advanced-filters")?.open
+    ) {
+      closeSearchToolPanels();
+    } else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
     else if (isModalVisible("#import-mode-modal")) closeImportModeModal(null);
     else if (isModalVisible("#import-progress-modal") && importProgressCanClose) {

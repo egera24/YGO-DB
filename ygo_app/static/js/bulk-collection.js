@@ -943,7 +943,17 @@ function collectChanges() {
   return changes;
 }
 
+async function commitActiveCellEdit() {
+  const editingInput = document.querySelector(
+    ".tabulator-editing input, .tabulator-editing textarea"
+  );
+  if (!editingInput) return;
+  editingInput.dispatchEvent(new Event("blur", { bubbles: true }));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
 async function saveGrid() {
+  await commitActiveCellEdit();
   const changes = collectChanges();
   if (!changes.length) {
     deps.showToast?.("No quantity changes to save.", { variant: "error" });
@@ -953,8 +963,16 @@ async function saveGrid() {
   for (const change of changes) {
     const qty = change.quantity;
     const trade = change.trade_quantity;
-    if (qty > 0 && !(change.folder_name || "").trim()) {
+    const folder = (change.folder_name || "").trim();
+    if (qty > 0 && !folder) {
       deps.showToast?.(`Folder name is required for ${change.set_code}.`, { variant: "error" });
+      return;
+    }
+    if (folder && qty <= 0 && trade <= 0) {
+      deps.showToast?.(
+        `Set quantity or trade quantity before assigning a folder for ${change.set_code}.`,
+        { variant: "error" }
+      );
       return;
     }
     if (qty <= 0 && trade <= 0) continue;

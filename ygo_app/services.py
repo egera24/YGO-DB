@@ -1082,6 +1082,13 @@ def delete_collection_folder(
     return moved_allocations, moved_quantity
 
 
+def _folder_allocation_target(item: CollectionItem) -> int:
+    keeper_qty = int(item.quantity or 0)
+    if keeper_qty > 0:
+        return keeper_qty
+    return int(item.trade_quantity or 0)
+
+
 def _validate_folder_allocations(
     session: Session,
     *,
@@ -1103,9 +1110,11 @@ def _validate_folder_allocations(
                 raise ValueError("Folder not found")
         merged[folder_id] = merged.get(folder_id, 0) + qty
     total = sum(merged.values())
-    if total != item.quantity:
+    target = _folder_allocation_target(item)
+    if total != target:
+        label = "quantity" if int(item.quantity or 0) > 0 else "trade quantity"
         raise ValueError(
-            f"Folder allocations must sum to item quantity ({item.quantity}), got {total}"
+            f"Folder allocations must sum to item {label} ({target}), got {total}"
         )
     return [{"folder_id": key, "quantity": value} for key, value in merged.items()]
 
@@ -2751,7 +2760,7 @@ def _bulk_build_row(
     if allocation is not None:
         folder_name = allocation.folder.name if allocation.folder else None
         folder_id = allocation.folder_id
-        quantity = int(allocation.quantity)
+        quantity = int(item.quantity) if item else int(allocation.quantity)
         allocation_id = allocation.id
         collection_item_id = item.id if item else None
     elif item is not None:
@@ -2989,6 +2998,22 @@ def _bulk_change_eligible(change: dict) -> bool:
     return False
 
 
+def _bulk_folder_row_alloc_qty(row: dict) -> int:
+    qty = int(row.get("quantity") or 0)
+    if qty > 0:
+        return qty
+    return int(row.get("trade_quantity") or 0)
+
+
+def _bulk_folder_rows(group_changes: list[dict], *, trade_q: int) -> list[dict]:
+    keeper_rows = [row for row in group_changes if int(row.get("quantity") or 0) > 0]
+    if keeper_rows:
+        return keeper_rows
+    if trade_q <= 0:
+        return []
+    return [row for row in group_changes if (row.get("folder_name") or "").strip()]
+
+
 def save_bulk_collection_grid(
     session: Session,
     *,
@@ -3040,12 +3065,17 @@ def save_bulk_collection_grid(
     for group_index, (key, group_changes) in enumerate(groups.items(), start=1):
         set_code_key, rarity_code, edition, condition = key
         trade_q = max(int(row.get("trade_quantity") or 0) for row in group_changes)
-        folder_rows = [
-            row for row in group_changes if int(row.get("quantity") or 0) > 0
-        ]
+        folder_rows = _bulk_folder_rows(group_changes, trade_q=trade_q)
         total_qty = sum(int(row.get("quantity") or 0) for row in folder_rows)
 
         if total_qty > 0:
+            for row in folder_rows:
+                if not (row.get("folder_name") or "").strip():
+                    raise ValueError(
+                        f"Folder name is required for {set_code_key} "
+                        f"({rarity_display(rarity_code)})"
+                    )
+        elif trade_q > 0 and folder_rows:
             for row in folder_rows:
                 if not (row.get("folder_name") or "").strip():
                     raise ValueError(
@@ -3104,8 +3134,8 @@ def save_bulk_collection_grid(
                 session, user_id, (row.get("folder_name") or "").strip()
             )
             folder_id = folder.id if folder else None
-            merged_folders[folder_id] = merged_folders.get(folder_id, 0) + int(
-                row["quantity"]
+            merged_folders[folder_id] = merged_folders.get(folder_id, 0) + _bulk_folder_row_alloc_qty(
+                row
             )
         for folder_id, qty in merged_folders.items():
             folder_allocations.append({"folder_id": folder_id, "quantity": qty})
@@ -3131,7 +3161,7 @@ def save_bulk_collection_grid(
             )
             session.add(item)
             session.flush()
-            if total_qty > 0:
+            if folder_allocations:
                 set_item_folder_allocations(
                     session,
                     user_id=user_id,
@@ -3158,7 +3188,7 @@ def save_bulk_collection_grid(
                 existing.printing_id = printing.id
             if card_name and not existing.card_name:
                 existing.card_name = card_name
-            if total_qty > 0:
+            if folder_allocations:
                 set_item_folder_allocations(
                     session,
                     user_id=user_id,

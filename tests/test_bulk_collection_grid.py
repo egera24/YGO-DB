@@ -292,6 +292,136 @@ class TestBulkCollectionGrid(unittest.TestCase):
         self.assertEqual(item.quantity, 2)
         self.assertEqual(folders, [("BIN2", 1), ("BOX2", 1)])
 
+    def test_save_assigns_folder_on_trade_only_row(self):
+        session = self.Session()
+        printing_id = session.execute(
+            select(Printing.id).where(Printing.set_code == "RA03-EN016")
+        ).scalar_one()
+        item = CollectionItem(
+            user_id=self.owner_id,
+            set_code="RA03-EN016",
+            rarity_code="(UR)",
+            card_name="Blue-Eyes White Dragon",
+            expansion_code="RA03",
+            set_name="Quarter Century Bonanza",
+            quantity=0,
+            trade_quantity=1,
+            condition="NearMint",
+            edition="1st Edition",
+            language="English",
+            printing_id=printing_id,
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        result = save_bulk_collection_grid(
+            session,
+            user_id=self.owner_id,
+            set_code="RA03",
+            changes=[
+                {
+                    "row_id": f"r-{item_id}-a0",
+                    "printing_id": printing_id,
+                    "collection_item_id": item_id,
+                    "set_code": "RA03-EN016",
+                    "rarity_code": "(UR)",
+                    "folder_name": "BIN6",
+                    "quantity": 0,
+                    "trade_quantity": 1,
+                    "condition": "NearMint",
+                    "edition": "1st Edition",
+                    "language": "English",
+                    "baseline": {
+                        "quantity": 0,
+                        "trade_quantity": 1,
+                        "folder_name": None,
+                        "collection_item_id": item_id,
+                    },
+                }
+            ],
+        )
+        item = session.get(CollectionItem, item_id)
+        folders = [
+            (alloc.folder.name if alloc.folder else None, alloc.quantity)
+            for alloc in item.folder_allocations
+        ]
+        rows, _, _ = list_bulk_collection_grid(
+            session, user_id=self.owner_id, set_code="RA03"
+        )
+        session.close()
+        self.assertEqual(result["items_updated"], 1)
+        self.assertEqual(folders, [("BIN6", 1)])
+        owned = [row for row in rows if row["collection_item_id"] == item_id]
+        self.assertEqual(len(owned), 1)
+        self.assertEqual(owned[0]["folder_name"], "BIN6")
+        self.assertEqual(owned[0]["quantity"], 0)
+        self.assertEqual(owned[0]["trade_quantity"], 1)
+
+    def test_save_assigns_folder_to_existing_item_without_allocation(self):
+        session = self.Session()
+        printing_id = session.execute(
+            select(Printing.id).where(Printing.set_code == "RA03-EN016")
+        ).scalar_one()
+        item = CollectionItem(
+            user_id=self.owner_id,
+            set_code="RA03-EN016",
+            rarity_code="(UR)",
+            card_name="Blue-Eyes White Dragon",
+            expansion_code="RA03",
+            set_name="Quarter Century Bonanza",
+            quantity=2,
+            trade_quantity=0,
+            condition="NearMint",
+            edition="1st Edition",
+            language="English",
+            printing_id=printing_id,
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        result = save_bulk_collection_grid(
+            session,
+            user_id=self.owner_id,
+            set_code="RA03",
+            changes=[
+                {
+                    "row_id": f"r-{item_id}-a0",
+                    "printing_id": printing_id,
+                    "collection_item_id": item_id,
+                    "set_code": "RA03-EN016",
+                    "rarity_code": "(UR)",
+                    "folder_name": "BIN6",
+                    "quantity": 2,
+                    "trade_quantity": 0,
+                    "condition": "NearMint",
+                    "edition": "1st Edition",
+                    "language": "English",
+                    "baseline": {
+                        "quantity": 2,
+                        "trade_quantity": 0,
+                        "folder_name": None,
+                        "collection_item_id": item_id,
+                    },
+                }
+            ],
+        )
+        item = session.get(CollectionItem, item_id)
+        folders = [
+            (alloc.folder.name if alloc.folder else None, alloc.quantity)
+            for alloc in item.folder_allocations
+        ]
+        rows, _, _ = list_bulk_collection_grid(
+            session, user_id=self.owner_id, set_code="RA03"
+        )
+        session.close()
+        self.assertEqual(result["items_updated"], 1)
+        self.assertEqual(folders, [("BIN6", 2)])
+        owned = [row for row in rows if row["collection_item_id"] == item_id]
+        self.assertEqual(len(owned), 1)
+        self.assertEqual(owned[0]["folder_name"], "BIN6")
+
     def test_save_ignores_folder_only_edit_on_zero_row(self):
         session = self.Session()
         printing_id = session.execute(

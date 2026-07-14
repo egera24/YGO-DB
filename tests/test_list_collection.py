@@ -35,12 +35,12 @@ def _sqlite_engine(path: str):
     return eng
 
 
-def _add_item(session, *, user_id, set_code, rarity_code, quantity=1, folder_id=None, printing_id=None):
+def _add_item(session, *, user_id, set_code, rarity_code, quantity=1, folder_id=None, printing_id=None, card_name="Blue-Eyes White Dragon"):
     item = CollectionItem(
         user_id=user_id,
         set_code=set_code,
         rarity_code=rarity_code,
-        card_name="Blue-Eyes White Dragon",
+        card_name=card_name,
         quantity=quantity,
         printing_id=printing_id,
     )
@@ -105,6 +105,7 @@ class TestListCollection(unittest.TestCase):
             user_id=self.user_id,
             set_code="LOB-001",
             rarity_code="(SR)",
+            card_name="Dark Magician",
             quantity=1,
             folder_id=None,
         )

@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=101" />
+  <link rel="stylesheet" href="/static/css/style.css?v=106" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -390,30 +390,90 @@
           <ul id="collection-folder-list" class="collection-folder-list"></ul>
         </aside>
         <div class="collection-panel">
-          <form id="collection-filter-form" class="collection-toolbar">
-            <input type="search" id="collection-q" placeholder="Search name or set…" autocomplete="off" />
-            <input type="text" id="collection-set-code" placeholder="Set code" />
-            <select id="collection-sort" aria-label="Sort collection">
-              <option value="set_code">Sort: Set code</option>
-              <option value="card_name">Sort: Name</option>
-              <option value="folder_name">Sort: Folder</option>
-              <option value="quantity">Sort: Quantity</option>
-              <option value="trade_quantity">Sort: Trade quantity</option>
-              <option value="passcode">Sort: Passcode</option>
-              <option value="release_date">Sort: Release date</option>
-            </select>
-            <select id="collection-sort-dir" aria-label="Sort direction">
-              <option value="asc">Ascending</option>
-              <option value="desc">Descending</option>
-            </select>
-            <button type="submit">Apply</button>
-            <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
-            <button type="button" id="bulk-collection-btn" class="secondary hidden">Bulk Collection</button>
-            <button type="button" id="export-collection-btn" class="secondary hidden">Export</button>
-            <button type="button" id="copy-trade-link-btn" class="secondary hidden">Copy trade link</button>
-            <button type="button" id="trade-settings-btn" class="secondary hidden">Trade settings</button>
-          </form>
-          <p id="collection-stats-line" class="stats-bar"></p>
+          <div class="collection-toolbar">
+            <form id="collection-filter-form" class="collection-toolbar-filters">
+              <div class="collection-filter-row">
+                <div class="collection-filter-combobox" id="collection-card-name-combobox">
+                  <input type="search" id="collection-card-name" placeholder="Card name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collection-card-name-list" aria-label="Filter by card name" />
+                  <div id="collection-card-name-list" class="collection-filter-list" role="listbox" hidden></div>
+                </div>
+                <div class="collection-filter-combobox" id="collection-set-code-combobox">
+                  <input type="text" id="collection-set-code" placeholder="Set code" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collection-set-code-list" aria-label="Filter by set code" />
+                  <div id="collection-set-code-list" class="collection-filter-list" role="listbox" hidden></div>
+                </div>
+                <div class="collection-filter-combobox" id="collection-set-name-combobox">
+                  <input type="text" id="collection-set-name" placeholder="Set name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collection-set-name-list" aria-label="Filter by set name" />
+                  <div id="collection-set-name-list" class="collection-filter-list" role="listbox" hidden></div>
+                </div>
+              </div>
+              <div class="collection-filter-row collection-filter-row--controls">
+                <select id="collection-rarity" aria-label="Filter by rarity">
+                  <option value="">All rarities</option>
+                </select>
+                <select id="collection-edition" aria-label="Filter by edition">
+                  <option value="">All editions</option>
+                </select>
+                <select id="collection-condition" aria-label="Filter by condition">
+                  <option value="">All conditions</option>
+                </select>
+                <select id="collection-sort" aria-label="Sort collection">
+                  <option value="set_code">Sort: Set code</option>
+                  <option value="card_name">Sort: Name</option>
+                  <option value="folder_name">Sort: Folder</option>
+                  <option value="quantity">Sort: Quantity</option>
+                  <option value="trade_quantity">Sort: Trade quantity</option>
+                  <option value="passcode">Sort: Passcode</option>
+                  <option value="release_date">Sort: Release date</option>
+                </select>
+                <select id="collection-sort-dir" aria-label="Sort direction">
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </select>
+                <button type="submit">Apply</button>
+                <div id="collection-toolbar-actions" class="collection-toolbar-actions hidden" aria-label="Collection actions">
+                  <button type="button" id="collection-stats-btn" class="icon-btn supplement-icon-btn collection-stats-btn" aria-label="Collection statistics" data-tooltip="Statistics" aria-haspopup="dialog" aria-controls="collection-stats-modal" aria-expanded="false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 3v18h18" />
+                      <path d="M7 16V9" />
+                      <path d="M12 16V5" />
+                      <path d="M17 16v-3" />
+                    </svg>
+                  </button>
+                  <div class="preset-menu-wrap collection-action-menu-wrap">
+                    <button type="button" id="collection-manage-menu-btn" class="icon-btn supplement-icon-btn collection-action-btn"
+                      aria-label="Manage" data-tooltip="Manage"
+                      aria-haspopup="menu" aria-expanded="false" aria-controls="collection-manage-menu">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                    <div id="collection-manage-menu" class="preset-menu" hidden role="menu">
+                      <button type="button" role="menuitem" id="import-collection-btn">Import</button>
+                      <button type="button" role="menuitem" id="export-collection-btn">Export</button>
+                      <button type="button" role="menuitem" id="bulk-collection-btn">Bulk Collection</button>
+                    </div>
+                  </div>
+                  <div class="preset-menu-wrap collection-action-menu-wrap">
+                    <button type="button" id="collection-trade-menu-btn" class="icon-btn supplement-icon-btn collection-action-btn"
+                      aria-label="Trade" data-tooltip="Trade"
+                      aria-haspopup="menu" aria-expanded="false" aria-controls="collection-trade-menu">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m16 3 4 4-4 4" />
+                        <path d="M20 7H4" />
+                        <path d="m8 21-4-4 4-4" />
+                        <path d="M4 17h16" />
+                      </svg>
+                    </button>
+                    <div id="collection-trade-menu" class="preset-menu" hidden role="menu">
+                      <button type="button" role="menuitem" id="copy-trade-link-btn">Copy trade link</button>
+                      <button type="button" role="menuitem" id="trade-settings-btn">Trade settings</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
           <div class="collection-table-wrap">
             <table id="collection-table">
               <thead>
@@ -435,7 +495,7 @@
             </table>
           </div>
           <div id="collection-pagination" class="search-pagination hidden"></div>
-          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Import</strong> above to get started.</p>
+          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Manage → Import</strong> to get started.</p>
         </div>
       </div>
     </section>
@@ -668,6 +728,71 @@
       <div class="export-collection-actions">
         <button type="button" id="export-collection-cancel" class="secondary">Cancel</button>
         <button type="button" id="export-collection-confirm">Export</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="collection-stats-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-stats-title" hidden>
+    <article class="modal-card modal-card--wide collection-stats-modal-card">
+      <button type="button" id="collection-stats-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="collection-stats-header">
+        <h2 id="collection-stats-title">Collection statistics</h2>
+        <label class="collection-stats-folder-label" for="collection-stats-folder">
+          <span>Folder</span>
+          <select id="collection-stats-folder" aria-label="Statistics folder"></select>
+        </label>
+      </header>
+      <div id="collection-stats-body" class="collection-stats-body" aria-live="polite">
+        <div class="collection-stats-grid" id="collection-stats-grid">
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Printings</span>
+            <span class="collection-stat-value" id="collection-stat-printings">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Cards</span>
+            <span class="collection-stat-value" id="collection-stat-cards">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Sum low price</span>
+            <span class="collection-stat-value" id="collection-stat-sum-low">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Sum avg price</span>
+            <span class="collection-stat-value" id="collection-stat-sum-avg">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Sum trend price</span>
+            <span class="collection-stat-value" id="collection-stat-sum-trend">—</span>
+          </div>
+        </div>
+        <section class="collection-stats-max-section">
+          <h3 class="collection-stats-max-title">Highest trend value</h3>
+          <div id="collection-stats-max-wrap" class="collection-table-wrap collection-stats-max-wrap">
+            <table class="collection-stats-max-table" id="collection-stats-max-table">
+              <thead>
+                <tr>
+                  <th scope="col"></th>
+                  <th scope="col">Card</th>
+                  <th scope="col">Set</th>
+                  <th scope="col">Rarity</th>
+                  <th scope="col">Edition</th>
+                  <th scope="col">Quantity</th>
+                  <th scope="col">Trade Qty</th>
+                  <th scope="col">Sell Price</th>
+                  <th scope="col">Condition</th>
+                  <th scope="col">Notes</th>
+                </tr>
+              </thead>
+              <tbody id="collection-stats-max-tbody"></tbody>
+            </table>
+          </div>
+          <p id="collection-stats-max-empty" class="empty-msg hidden">No priced cards in this folder.</p>
+        </section>
       </div>
     </article>
   </div>
@@ -1002,6 +1127,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=166" type="module"></script>
+  <script src="/static/js/app.js?v=169" type="module"></script>
 </body>
 </html>

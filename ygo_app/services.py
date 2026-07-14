@@ -1270,19 +1270,32 @@ def _apply_collection_folder_filter(stmt, folder: str | None):
     )
 
 
-def list_collection(
-    session: Session,
+def _scoped_collection_quantity(item: CollectionItem, folder_filter: str | None) -> int:
+    folders = _folder_allocations_for_row(item)
+    if folder_filter == NO_FOLDER:
+        alloc = next((f for f in folders if f["folder_id"] is None), None)
+        return int(alloc["quantity"]) if alloc else 0
+    if folder_filter and folder_filter != NO_FOLDER:
+        folder_id = int(folder_filter)
+        alloc = next((f for f in folders if f["folder_id"] == folder_id), None)
+        return int(alloc["quantity"]) if alloc else 0
+    return int(item.quantity)
+
+
+def _apply_collection_item_filters(
+    stmt,
     *,
     user_id: int,
     q: str | None = None,
-    folder: str | None = None,
+    card_name: str | None = None,
     set_code: str | None = None,
-    sort: str = "set_code",
-    sort_dir: str = "asc",
-    limit: int = 100,
-    offset: int = 0,
-) -> tuple[list[dict], int]:
-    stmt = select(CollectionItem).where(CollectionItem.user_id == user_id)
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+):
+    stmt = stmt.where(CollectionItem.user_id == user_id)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -1292,9 +1305,351 @@ def list_collection(
                 CollectionItem.set_name.ilike(like),
             )
         )
-    stmt = _apply_collection_folder_filter(stmt, folder)
+    if card_name:
+        stmt = stmt.where(CollectionItem.card_name.ilike(f"%{card_name.strip()}%"))
     if set_code:
         stmt = stmt.where(CollectionItem.set_code.ilike(f"%{set_code.strip()}%"))
+    if set_name:
+        stmt = stmt.where(CollectionItem.set_name.ilike(f"%{set_name.strip()}%"))
+    if rarity:
+        stmt = stmt.where(CollectionItem.rarity_code == rarity.strip())
+    if edition:
+        norm = normalize_collection_edition(edition)
+        if norm:
+            stmt = stmt.where(CollectionItem.edition == norm)
+    if condition:
+        norm = normalize_collection_condition(condition)
+        if norm:
+            stmt = stmt.where(CollectionItem.condition == norm)
+    return _apply_collection_folder_filter(stmt, folder)
+
+
+def _resolve_collection_folder_label(
+    session: Session, *, user_id: int, folder: str | None
+) -> str:
+    if not folder:
+        return "All"
+    if folder == NO_FOLDER:
+        return "No Folder"
+    row = session.execute(
+        select(CollectionFolder.name).where(
+            CollectionFolder.id == int(folder),
+            CollectionFolder.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    return row or f"Folder {folder}"
+
+
+def _collection_filter_rarities(session: Session, filtered_ids) -> list[dict]:
+    rarity_codes = session.execute(
+        select(CollectionItem.rarity_code)
+        .where(CollectionItem.id.in_(filtered_ids))
+        .where(
+            CollectionItem.rarity_code.isnot(None),
+            CollectionItem.rarity_code != "",
+        )
+        .distinct()
+    ).scalars().all()
+
+    seen: set[str] = set()
+    rarities: list[dict] = []
+    for code in rarity_codes:
+        resolved = resolve_rarity(code)
+        key = resolved.name if resolved else code
+        if key in seen:
+            continue
+        seen.add(key)
+        rarities.append(
+            {
+                "rarity_code": code,
+                "rarity_name": resolved.name if resolved else None,
+            }
+        )
+    rarities.sort(key=lambda row: (row["rarity_name"] or row["rarity_code"]).lower())
+    return rarities
+
+
+def _collection_filtered_item_ids(
+    *,
+    user_id: int,
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+    exclude: frozenset[str] = frozenset(),
+):
+    stmt = select(CollectionItem)
+    stmt = _apply_collection_item_filters(
+        stmt,
+        user_id=user_id,
+        q=q,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=None if "rarity" in exclude else rarity,
+        edition=None if "edition" in exclude else edition,
+        condition=None if "condition" in exclude else condition,
+        folder=folder,
+    )
+    return stmt.with_only_columns(CollectionItem.id)
+
+
+def collection_filter_options(
+    session: Session,
+    *,
+    user_id: int,
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+) -> dict:
+    filter_kwargs = {
+        "user_id": user_id,
+        "q": q,
+        "card_name": card_name,
+        "set_code": set_code,
+        "set_name": set_name,
+        "rarity": rarity,
+        "edition": edition,
+        "condition": condition,
+        "folder": folder,
+    }
+
+    rarity_ids = _collection_filtered_item_ids(**filter_kwargs, exclude=frozenset({"rarity"}))
+    edition_ids = _collection_filtered_item_ids(**filter_kwargs, exclude=frozenset({"edition"}))
+    condition_ids = _collection_filtered_item_ids(**filter_kwargs, exclude=frozenset({"condition"}))
+
+    editions = session.execute(
+        select(CollectionItem.edition)
+        .where(CollectionItem.id.in_(edition_ids))
+        .where(CollectionItem.edition.isnot(None), CollectionItem.edition != "")
+        .distinct()
+        .order_by(CollectionItem.edition)
+    ).scalars().all()
+
+    conditions = session.execute(
+        select(CollectionItem.condition)
+        .where(CollectionItem.id.in_(condition_ids))
+        .where(CollectionItem.condition.isnot(None), CollectionItem.condition != "")
+        .distinct()
+        .order_by(CollectionItem.condition)
+    ).scalars().all()
+
+    normalized_editions = sorted(
+        {normalize_collection_edition(e) for e in editions if normalize_collection_edition(e)},
+        key=str.lower,
+    )
+    normalized_conditions = sorted(
+        {normalize_collection_condition(c) for c in conditions if normalize_collection_condition(c)},
+        key=str.lower,
+    )
+
+    return {
+        "rarities": _collection_filter_rarities(session, rarity_ids),
+        "editions": normalized_editions,
+        "conditions": normalized_conditions,
+    }
+
+
+def collection_suggestions(
+    session: Session,
+    *,
+    user_id: int,
+    field: str,
+    q: str | None = None,
+    limit: int = 20,
+    q_filter: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+) -> list[str]:
+    column_map = {
+        "card_name": CollectionItem.card_name,
+        "set_code": CollectionItem.set_code,
+        "set_name": CollectionItem.set_name,
+    }
+    column = column_map.get(field)
+    if column is None:
+        return []
+
+    stmt = select(CollectionItem)
+    stmt = _apply_collection_item_filters(
+        stmt,
+        user_id=user_id,
+        q=q_filter,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=rarity,
+        edition=edition,
+        condition=condition,
+        folder=folder,
+    )
+    stmt = stmt.where(column.isnot(None), column != "")
+    if q and q.strip():
+        stmt = stmt.where(column.ilike(f"%{q.strip()}%"))
+
+    rows = session.execute(
+        select(column)
+        .where(CollectionItem.id.in_(stmt.with_only_columns(CollectionItem.id)))
+        .where(column.isnot(None), column != "")
+        .distinct()
+        .order_by(column)
+        .limit(max(1, min(limit, 50)))
+    ).scalars().all()
+    return [str(value).strip() for value in rows if str(value).strip()]
+
+
+def collection_detail_stats(
+    session: Session,
+    *,
+    user_id: int,
+    folder: str | None = None,
+) -> dict:
+    stmt = select(CollectionItem).where(CollectionItem.user_id == user_id)
+    stmt = _apply_collection_folder_filter(stmt, folder)
+    items = (
+        session.execute(
+            stmt.options(
+                joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+                joinedload(CollectionItem.folder_allocations).joinedload(
+                    CollectionItemFolder.folder
+                ),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+
+    missing_codes = {
+        item.set_code for item in items if _card_for_collection_item(item) is None
+    }
+    fallback_map = _cards_by_set_codes(session, missing_codes)
+    market_keys = [(item.set_code, item.rarity_code) for item in items]
+    market_map = load_market_prices(session, market_keys)
+
+    unique_printings = 0
+    total_quantity = 0
+    sum_low = 0.0
+    sum_avg = 0.0
+    sum_trend = 0.0
+    has_low = False
+    has_avg = False
+    has_trend = False
+    max_item: CollectionItem | None = None
+    max_row: dict | None = None
+    max_trend: float | None = None
+
+    for item in items:
+        qty = _scoped_collection_quantity(item, folder)
+        if qty <= 0:
+            continue
+        unique_printings += 1
+        total_quantity += qty
+
+        market_row = market_map.get((item.set_code, item.rarity_code))
+        low = market_row.low_price if market_row else None
+        avg = market_row.avg_price if market_row else None
+        trend = market_row.trend_price if market_row else None
+
+        if low is not None:
+            has_low = True
+            sum_low += float(low) * qty
+        if avg is not None:
+            has_avg = True
+            sum_avg += float(avg) * qty
+        if trend is not None:
+            has_trend = True
+            sum_trend += float(trend) * qty
+
+        trend_val = float(trend) if trend is not None else None
+        if trend_val is not None:
+            replace = False
+            if max_item is None:
+                replace = True
+            elif max_trend is None or trend_val > max_trend:
+                replace = True
+            elif trend_val == max_trend:
+                max_qty = max_row["quantity"] if max_row else 0
+                max_name = (max_row.get("card_name") or "").lower() if max_row else ""
+                row = _collection_item_row(
+                    item,
+                    set_code_fallback=fallback_map,
+                    folder_filter=folder,
+                    market_row=market_row,
+                )
+                if qty > max_qty or (
+                    qty == max_qty
+                    and (row.get("card_name") or "").lower() < max_name
+                ):
+                    replace = True
+            if replace:
+                max_item = item
+                max_trend = trend_val
+                max_row = _collection_item_row(
+                    item,
+                    set_code_fallback=fallback_map,
+                    folder_filter=folder,
+                    market_row=market_row,
+                )
+
+    return {
+        "folder": folder,
+        "folder_label": _resolve_collection_folder_label(
+            session, user_id=user_id, folder=folder
+        ),
+        "unique_printings": unique_printings,
+        "total_quantity": total_quantity,
+        "sum_low_price": sum_low if has_low else None,
+        "sum_avg_price": sum_avg if has_avg else None,
+        "sum_trend_price": sum_trend if has_trend else None,
+        "max_value_item": max_row,
+    }
+
+
+def list_collection(
+    session: Session,
+    *,
+    user_id: int,
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+    sort: str = "set_code",
+    sort_dir: str = "asc",
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    stmt = select(CollectionItem)
+    stmt = _apply_collection_item_filters(
+        stmt,
+        user_id=user_id,
+        q=q,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=rarity,
+        edition=edition,
+        condition=condition,
+        folder=folder,
+    )
 
     total = session.execute(
         select(func.count()).select_from(stmt.subquery())

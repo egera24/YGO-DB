@@ -3,6 +3,7 @@ import {
   initBulkCollection,
   refreshBulkCollectionAuthVisibility,
 } from "./bulk-collection.js";
+import { createFilterCombobox } from "./filter-combobox.js";
 
 const API = "/api";
 
@@ -894,11 +895,8 @@ async function submitAuthForm(form, action, { busyLabel, successToast } = {}) {
 function updateAuthUI() {
   const loggedIn = Boolean(state.token && state.user);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
-  $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#collection-toolbar-actions")?.classList.toggle("hidden", !loggedIn);
   refreshBulkCollectionAuthVisibility(loggedIn);
-  $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
-  $("#copy-trade-link-btn")?.classList.toggle("hidden", !loggedIn);
-  $("#trade-settings-btn")?.classList.toggle("hidden", !loggedIn);
   $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
   if (loggedIn) {
@@ -2079,6 +2077,36 @@ function togglePresetMenu() {
     closePresetMenu();
     return;
   }
+  closeCollectionToolbarMenus();
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+
+const COLLECTION_TOOLBAR_MENUS = [
+  ["collection-manage-menu", "collection-manage-menu-btn"],
+  ["collection-trade-menu", "collection-trade-menu-btn"],
+];
+
+function closeCollectionToolbarMenus() {
+  for (const [menuId, btnId] of COLLECTION_TOOLBAR_MENUS) {
+    const menu = $(`#${menuId}`);
+    const btn = $(`#${btnId}`);
+    if (!menu || menu.hidden) continue;
+    menu.hidden = true;
+    btn?.setAttribute("aria-expanded", "false");
+  }
+}
+
+function toggleCollectionToolbarMenu(menuId, btnId) {
+  const menu = $(`#${menuId}`);
+  const btn = $(`#${btnId}`);
+  if (!menu || !btn) return;
+  const isOpen = !menu.hidden;
+  closeCollectionToolbarMenus();
+  closePresetMenu();
+  closeAllCollectionRowMenus();
+  closeAllDeckTileMenus();
+  if (isOpen) return;
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
 }
@@ -2102,6 +2130,8 @@ function openCollectionRowMenu(btn) {
   const menu = wrap?.querySelector(".collection-row-menu");
   if (!menu) return;
   closeAllCollectionRowMenus();
+  closeCollectionToolbarMenus();
+  closePresetMenu();
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   menu.classList.add("collection-row-menu--fixed");
@@ -2997,7 +3027,8 @@ function syncModalOpenClass() {
     isModalVisible("#search-preset-name-modal") ||
     isModalVisible("#collection-add-modal") ||
     isModalVisible("#collection-edit-modal") ||
-    isModalVisible("#bulk-collection-modal")
+    isModalVisible("#bulk-collection-modal") ||
+    isModalVisible("#collection-stats-modal")
   ) {
     document.body.classList.add("modal-open");
   } else {
@@ -4345,15 +4376,28 @@ async function refreshOwnedSearchState() {
   }
 }
 
-function buildCollectionParams(offset = 0) {
+function buildCollectionFilterParams() {
   const params = new URLSearchParams();
+  if (state.collectionFolder) params.set("folder", state.collectionFolder);
+  const cardName = collectionFilterComboboxes?.cardName?.resolveValue();
+  if (cardName) params.set("card_name", cardName);
+  const setCode = collectionFilterComboboxes?.setCode?.resolveValue();
+  if (setCode) params.set("set_code", setCode);
+  const setName = collectionFilterComboboxes?.setName?.resolveValue();
+  if (setName) params.set("set_name", setName);
+  const rarity = $("#collection-rarity")?.value;
+  if (rarity) params.set("rarity", rarity);
+  const edition = $("#collection-edition")?.value;
+  if (edition) params.set("edition", edition);
+  const condition = $("#collection-condition")?.value;
+  if (condition) params.set("condition", condition);
+  return params;
+}
+
+function buildCollectionParams(offset = 0) {
+  const params = buildCollectionFilterParams();
   params.set("limit", String(COLLECTION_PAGE_SIZE));
   params.set("offset", String(offset));
-  if (state.collectionFolder) params.set("folder", state.collectionFolder);
-  const q = $("#collection-q")?.value.trim();
-  if (q) params.set("q", q);
-  const setCode = $("#collection-set-code")?.value.trim();
-  if (setCode) params.set("set_code", setCode);
   params.set("sort", $("#collection-sort")?.value || "set_code");
   const collectionSortDir = $("#collection-sort-dir")?.value || "asc";
   if (collectionSortDir !== "asc") params.set("sort_dir", collectionSortDir);
@@ -4407,11 +4451,315 @@ function showCollectionTableLoading() {
   setCollectionBusy(true);
 }
 
+const collectionSuggestionCache = {
+  card_name: [],
+  set_code: [],
+  set_name: [],
+};
+
+let collectionFilterComboboxes = null;
+let collectionStatsRequestSeq = 0;
+let collectionStatsTrigger = null;
+
+function makeSuggestionCombobox(field, inputSel, listSel, placeholders) {
+  return createFilterCombobox({
+    inputSel,
+    listSel,
+    allLabel: placeholders.all,
+    emptyMessage: placeholders.empty,
+    optionClass: "collection-filter-option",
+    getOptions: () =>
+      collectionSuggestionCache[field].map((value) => ({ value, label: value })),
+    getLabel: (row) => row.label,
+    getValue: (row) => row.value,
+    filterOptions: (query) => {
+      const q = (query || "").trim().toLowerCase();
+      const rows = collectionSuggestionCache[field].map((value) => ({
+        value,
+        label: value,
+      }));
+      if (!q) return rows;
+      return rows.filter((row) => row.label.toLowerCase().includes(q));
+    },
+    resolveValue: (text, stored) => {
+      const trimmed = (text || "").trim();
+      if (!trimmed) return "";
+      if (stored && collectionSuggestionCache[field].includes(stored)) return stored;
+      const exact = collectionSuggestionCache[field].find(
+        (value) => value.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (exact) return exact;
+      const partial = collectionSuggestionCache[field].filter((value) =>
+        value.toLowerCase().includes(trimmed.toLowerCase())
+      );
+      if (partial.length === 1) return partial[0];
+      return trimmed;
+    },
+    onSearch: async (query) => {
+      const params = buildCollectionFilterParams();
+      params.set("field", field);
+      if (query?.trim()) params.set("q", query.trim());
+      params.delete(field === "card_name" ? "card_name" : field === "set_code" ? "set_code" : "set_name");
+      const data = await api(`/collection/suggestions?${params}`);
+      collectionSuggestionCache[field] = data.values || [];
+    },
+  });
+}
+
+function initCollectionFilterComboboxes() {
+  if (collectionFilterComboboxes) return collectionFilterComboboxes;
+  collectionFilterComboboxes = {
+    cardName: makeSuggestionCombobox(
+      "card_name",
+      "#collection-card-name",
+      "#collection-card-name-list",
+      { all: "All cards", empty: "No matching cards" }
+    ),
+    setCode: makeSuggestionCombobox(
+      "set_code",
+      "#collection-set-code",
+      "#collection-set-code-list",
+      { all: "All set codes", empty: "No matching set codes" }
+    ),
+    setName: makeSuggestionCombobox(
+      "set_name",
+      "#collection-set-name",
+      "#collection-set-name-list",
+      { all: "All set names", empty: "No matching set names" }
+    ),
+  };
+  collectionFilterComboboxes.cardName.bindEvents();
+  collectionFilterComboboxes.setCode.bindEvents();
+  collectionFilterComboboxes.setName.bindEvents();
+  return collectionFilterComboboxes;
+}
+
+function closeCollectionFilterComboboxes() {
+  collectionFilterComboboxes?.cardName?.close();
+  collectionFilterComboboxes?.setCode?.close();
+  collectionFilterComboboxes?.setName?.close();
+}
+
+function syncCollectionSelectOptions(selectId, values, allLabel) {
+  const select = $(selectId);
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>`;
+  for (const value of values) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  }
+  if (current && values.includes(current)) select.value = current;
+  else select.value = "";
+}
+
+async function loadCollectionFilterOptions() {
+  if (!state.token) return;
+  try {
+    const data = await api(`/collection/filters?${buildCollectionFilterParams()}`);
+    const raritySelect = $("#collection-rarity");
+    if (raritySelect) {
+      const current = raritySelect.value;
+      raritySelect.innerHTML = '<option value="">All rarities</option>';
+      for (const row of data.rarities || []) {
+        const opt = document.createElement("option");
+        opt.value = row.rarity_code;
+        opt.textContent = row.rarity_name || row.rarity_code;
+        raritySelect.appendChild(opt);
+      }
+      if (current && (data.rarities || []).some((row) => row.rarity_code === current)) {
+        raritySelect.value = current;
+      } else {
+        raritySelect.value = "";
+      }
+    }
+    syncCollectionSelectOptions("#collection-edition", data.editions || [], "All editions");
+    syncCollectionSelectOptions("#collection-condition", data.conditions || [], "All conditions");
+  } catch {
+    /* ignore filter option errors */
+  }
+}
+
+function formatCollectionStatPrice(value) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toFixed(2).replace(".", ",")} €`;
+}
+
+const COLLECTION_STAT_VALUE_IDS = [
+  "collection-stat-printings",
+  "collection-stat-cards",
+  "collection-stat-sum-low",
+  "collection-stat-sum-avg",
+  "collection-stat-sum-trend",
+];
+
+function renderCollectionStatsMaxSkeletonRow() {
+  return `
+    <tr class="collection-row collection-row--skeleton" aria-hidden="true">
+      <td class="collection-thumb"><div class="skeleton collection-skel-thumb"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--notes"></div></td>
+    </tr>`;
+}
+
+function showCollectionDetailStatsLoading() {
+  const body = $("#collection-stats-body");
+  body?.setAttribute("aria-busy", "true");
+  for (const id of COLLECTION_STAT_VALUE_IDS) {
+    const el = $(`#${id}`);
+    if (el) {
+      el.innerHTML = '<span class="skeleton collection-stat-value-skeleton" aria-hidden="true"></span>';
+    }
+  }
+  $("#collection-stats-max-empty")?.classList.add("hidden");
+  $("#collection-stats-max-wrap")?.classList.remove("hidden");
+  const tbody = $("#collection-stats-max-tbody");
+  if (tbody) {
+    tbody.innerHTML = `<tr class="collection-skel-sr-only"><td colspan="10"><p class="sr-only" role="status">Loading statistics…</p></td></tr>${renderCollectionStatsMaxSkeletonRow()}`;
+  }
+}
+
+function resetCollectionDetailStats() {
+  $("#collection-stats-body")?.removeAttribute("aria-busy");
+  for (const id of COLLECTION_STAT_VALUE_IDS) {
+    const el = $(`#${id}`);
+    if (el) el.textContent = "—";
+  }
+  const tbody = $("#collection-stats-max-tbody");
+  if (tbody) tbody.innerHTML = "";
+  $("#collection-stats-max-wrap")?.classList.add("hidden");
+  $("#collection-stats-max-empty")?.classList.remove("hidden");
+}
+
+function renderCollectionStatsFolderOptions(selectedFolder = state.collectionFolder) {
+  const select = $("#collection-stats-folder");
+  if (!select || !state.collectionStats) return;
+  const s = state.collectionStats;
+  const parts = [`<option value="">All</option>`];
+  if (s.no_folder_count > 0) {
+    parts.push(`<option value="${NO_FOLDER}">No Folder</option>`);
+  }
+  for (const folder of s.folders) {
+    parts.push(
+      `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`
+    );
+  }
+  select.innerHTML = parts.join("");
+  select.value = selectedFolder ?? "";
+}
+
+function renderCollectionDetailStats(data) {
+  $("#collection-stats-body")?.removeAttribute("aria-busy");
+  $("#collection-stat-printings")?.replaceChildren(
+    document.createTextNode((data.unique_printings ?? 0).toLocaleString())
+  );
+  $("#collection-stat-cards")?.replaceChildren(
+    document.createTextNode((data.total_quantity ?? 0).toLocaleString())
+  );
+  $("#collection-stat-sum-low")?.replaceChildren(
+    document.createTextNode(formatCollectionStatPrice(data.sum_low_price))
+  );
+  $("#collection-stat-sum-avg")?.replaceChildren(
+    document.createTextNode(formatCollectionStatPrice(data.sum_avg_price))
+  );
+  $("#collection-stat-sum-trend")?.replaceChildren(
+    document.createTextNode(formatCollectionStatPrice(data.sum_trend_price))
+  );
+
+  const tbody = $("#collection-stats-max-tbody");
+  const wrap = $("#collection-stats-max-wrap");
+  const emptyEl = $("#collection-stats-max-empty");
+  const item = data.max_value_item;
+  if (!tbody) return;
+
+  if (!item) {
+    tbody.innerHTML = "";
+    wrap?.classList.add("hidden");
+    emptyEl?.classList.remove("hidden");
+    return;
+  }
+
+  emptyEl?.classList.add("hidden");
+  wrap?.classList.remove("hidden");
+  tbody.innerHTML = `
+    <tr class="collection-row collection-stats-max-row" data-card-id="${item.card_id ?? ""}">
+      <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
+      <td>${escapeHtml(item.card_name || "—")}</td>
+      <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
+      <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+      <td>${editionBadgeHtml(item.printing || item.edition)}</td>
+      <td class="collection-qty-cell">${item.quantity}</td>
+      <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
+      <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
+      <td>${conditionBadgeHtml(item.condition)}</td>
+      <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
+    </tr>`;
+
+  tbody.querySelector(".collection-thumb")?.addEventListener("click", () => {
+    if (item.card_id) openCardModal(item.card_id);
+  });
+}
+
+async function loadCollectionDetailStats(folder = state.collectionFolder) {
+  const seq = ++collectionStatsRequestSeq;
+  showCollectionDetailStatsLoading();
+  const params = new URLSearchParams();
+  if (folder) params.set("folder", folder);
+  try {
+    const data = await api(`/collection/stats/detail?${params}`);
+    if (seq !== collectionStatsRequestSeq) return;
+    renderCollectionDetailStats(data);
+  } catch (err) {
+    if (seq !== collectionStatsRequestSeq) return;
+    resetCollectionDetailStats();
+    showToast(err.message || "Could not load statistics", { variant: "error" });
+  }
+}
+
+function openCollectionStatsModal() {
+  const modal = $("#collection-stats-modal");
+  const trigger = $("#collection-stats-btn");
+  if (!modal) return;
+  collectionStatsTrigger = trigger;
+  renderCollectionStatsFolderOptions(state.collectionFolder);
+  modal.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  syncModalOpenClass();
+  loadCollectionDetailStats($("#collection-stats-folder")?.value || state.collectionFolder);
+  $("#collection-stats-folder")?.focus();
+}
+
+function closeCollectionStatsModal() {
+  const modal = $("#collection-stats-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (collectionStatsTrigger ?? $("#collection-stats-btn"))?.setAttribute("aria-expanded", "false");
+  (collectionStatsTrigger ?? $("#collection-stats-btn"))?.focus();
+  collectionStatsTrigger = null;
+}
+
 function showCollectionStatsLoading() {
-  const el = $("#collection-stats-line");
-  if (!el) return;
-  el.innerHTML =
-    '<div class="skeleton skeleton-line collection-skel-stats" aria-hidden="true"></div>';
+  const btn = $("#collection-stats-btn");
+  if (!btn) return;
+  btn.setAttribute("aria-busy", "true");
+}
+
+function clearCollectionStatsLoading() {
+  $("#collection-stats-btn")?.removeAttribute("aria-busy");
+}
+
+function renderCollectionStatsLine() {
+  clearCollectionStatsLoading();
 }
 
 function renderCollectionSidebarLoadingSkeleton() {
@@ -4429,14 +4777,6 @@ function showCollectionViewLoading() {
   renderCollectionSidebarLoadingSkeleton();
   showCollectionTableLoading();
   $("#collection-pagination")?.classList.add("hidden");
-}
-
-function renderCollectionStatsLine() {
-  const el = $("#collection-stats-line");
-  if (!el || !state.collectionStats) return;
-  const s = state.collectionStats;
-  const folderLabel = s.folders.length + (s.no_folder_count > 0 ? 1 : 0);
-  el.textContent = `${s.unique_printings.toLocaleString()} printings · ${s.total_quantity.toLocaleString()} cards · ${folderLabel} folder${folderLabel === 1 ? "" : "s"}`;
 }
 
 function itemTotalQuantity(item) {
@@ -4764,6 +5104,8 @@ function renderCollectionSidebar() {
       state.collectionPage = 0;
       renderCollectionSidebar();
       syncRouteHash();
+      closeCollectionFilterComboboxes();
+      await loadCollectionFilterOptions();
       await loadCollectionPage(0);
     });
 
@@ -5605,6 +5947,8 @@ async function loadCollectionViewFresh() {
   await loadCollectionStats();
   renderCollectionStatsLine();
   renderCollectionSidebar();
+  initCollectionFilterComboboxes();
+  await loadCollectionFilterOptions();
   await loadCollectionPage(state.collectionPage);
 }
 
@@ -6785,6 +7129,7 @@ function wireEvents() {
       refreshCollectionIfActive();
       loadCollectionStats();
     },
+    closeCollectionToolbarMenus,
   });
 
   setupSearchResultsDelegation();
@@ -6845,6 +7190,14 @@ function wireEvents() {
     e.stopPropagation();
     togglePresetMenu();
   });
+  $("#collection-manage-menu-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCollectionToolbarMenu("collection-manage-menu", "collection-manage-menu-btn");
+  });
+  $("#collection-trade-menu-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCollectionToolbarMenu("collection-trade-menu", "collection-trade-menu-btn");
+  });
   $("#search-preset-rename")?.addEventListener("click", () => {
     closePresetMenu();
     renameSearchPreset().catch((err) =>
@@ -6864,6 +7217,7 @@ function wireEvents() {
       )
     ) {
       closePresetMenu();
+      closeCollectionToolbarMenus();
     }
     if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
     if (!e.target.closest(".deck-tile-menu-wrap")) closeAllDeckTileMenus();
@@ -6961,6 +7315,7 @@ function wireEvents() {
   $("#auth-logout")?.addEventListener("click", logout);
 
   $("#import-collection-btn")?.addEventListener("click", () => {
+    closeCollectionToolbarMenus();
     if (!state.token) {
       alert("Log in first.");
       return;
@@ -6969,6 +7324,7 @@ function wireEvents() {
   });
 
   $("#export-collection-btn")?.addEventListener("click", async () => {
+    closeCollectionToolbarMenus();
     if (!state.token) {
       alert("Log in first.");
       return;
@@ -6992,10 +7348,12 @@ function wireEvents() {
   });
 
   $("#copy-trade-link-btn")?.addEventListener("click", () => {
+    closeCollectionToolbarMenus();
     copyTradeLink();
   });
 
   $("#trade-settings-btn")?.addEventListener("click", async () => {
+    closeCollectionToolbarMenus();
     if (!state.token) {
       alert("Log in first.");
       return;
@@ -7135,7 +7493,12 @@ function wireEvents() {
 
   $("#collection-filter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    collectionFilterComboboxes?.cardName?.resolveValue();
+    collectionFilterComboboxes?.setCode?.resolveValue();
+    collectionFilterComboboxes?.setName?.resolveValue();
+    closeCollectionFilterComboboxes();
     state.collectionPage = 0;
+    await loadCollectionFilterOptions();
     await loadCollectionPage(0);
   });
   $("#collection-sort")?.addEventListener("change", async () => {
@@ -7145,6 +7508,27 @@ function wireEvents() {
   $("#collection-sort-dir")?.addEventListener("change", async () => {
     state.collectionPage = 0;
     await loadCollectionPage(0);
+  });
+
+  initCollectionFilterComboboxes();
+
+  $("#collection-stats-btn")?.addEventListener("click", () => {
+    closeCollectionToolbarMenus();
+    openCollectionStatsModal();
+  });
+  $("#collection-stats-close")?.addEventListener("click", closeCollectionStatsModal);
+  $("#collection-stats-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#collection-stats-modal")) closeCollectionStatsModal();
+  });
+  $("#collection-stats-folder")?.addEventListener("change", (e) => {
+    const folder = e.target.value || null;
+    loadCollectionDetailStats(folder);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".collection-filter-combobox")) {
+      closeCollectionFilterComboboxes();
+    }
   });
 
   $("#modal-close").addEventListener("click", closeCardModalOverlay);
@@ -7184,7 +7568,9 @@ function wireEvents() {
       closeFolderAllocationPopover();
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
     else if (document.querySelector(".deck-tile-menu:not([hidden])")) closeAllDeckTileMenus();
-    else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
+    else if (document.querySelector("#collection-manage-menu:not([hidden]), #collection-trade-menu:not([hidden])")) {
+      closeCollectionToolbarMenus();
+    } else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
     else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
     else if (isModalVisible("#import-mode-modal")) closeImportModeModal(null);
@@ -7197,10 +7583,11 @@ function wireEvents() {
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
+    else if (isModalVisible("#card-modal")) closeCardModalOverlay();
+    else if (isModalVisible("#collection-stats-modal")) closeCollectionStatsModal();
     else if (isSearchHelpOpen()) closeSearchHelp();
     else if (isDeckZoneInfoOpen()) closeDeckZoneInfo();
     else if (isModalVisible("#formats-info-modal")) closeFormatsInfoModal();
-    else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });
 
   $("#modal-favorite").addEventListener("click", async () => {
@@ -7814,7 +8201,6 @@ function openTradeSettingsModal() {
   renderTradeSettingsModal();
   $("#trade-settings-error")?.classList.add("hidden");
   modal.hidden = false;
-  trigger?.setAttribute("aria-expanded", "true");
   syncModalOpenClass();
   $("#trade-settings-display-name")?.focus();
 }
@@ -7824,7 +8210,6 @@ function closeTradeSettingsModal() {
   if (!modal || modal.hidden) return;
   modal.hidden = true;
   syncModalOpenClass();
-  $("#trade-settings-btn")?.setAttribute("aria-expanded", "false");
   (tradeSettingsTrigger ?? $("#trade-settings-btn"))?.focus();
   tradeSettingsTrigger = null;
 }

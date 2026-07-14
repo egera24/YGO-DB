@@ -186,6 +186,32 @@ class CollectionStatsOut(BaseModel):
     folders: list[CollectionFolderStats]
 
 
+class CollectionDetailStatsOut(BaseModel):
+    folder: str | None = None
+    folder_label: str
+    unique_printings: int
+    total_quantity: int
+    sum_low_price: float | None = None
+    sum_avg_price: float | None = None
+    sum_trend_price: float | None = None
+    max_value_item: CollectionItemOut | None = None
+
+
+class CollectionFilterRarityOut(BaseModel):
+    rarity_code: str
+    rarity_name: str | None = None
+
+
+class CollectionFiltersOut(BaseModel):
+    rarities: list[CollectionFilterRarityOut]
+    editions: list[str]
+    conditions: list[str]
+
+
+class CollectionSuggestionsOut(BaseModel):
+    values: list[str]
+
+
 class CollectionFolderOut(BaseModel):
     id: int
     name: str

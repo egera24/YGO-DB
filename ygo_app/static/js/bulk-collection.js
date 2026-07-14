@@ -793,9 +793,8 @@ export function closeBulkCollectionModal(force = false) {
 export function initBulkCollection(options) {
   deps = options;
 
-  $("#bulk-collection-btn")?.classList.toggle("hidden", !deps.isLoggedIn?.());
-
   $("#bulk-collection-btn")?.addEventListener("click", () => {
+    deps.closeCollectionToolbarMenus?.();
     openBulkCollectionModal();
   });
 
@@ -849,6 +848,6 @@ export function initBulkCollection(options) {
   });
 }
 
-export function refreshBulkCollectionAuthVisibility(loggedIn) {
-  $("#bulk-collection-btn")?.classList.toggle("hidden", !loggedIn);
+export function refreshBulkCollectionAuthVisibility(_loggedIn) {
+  /* Collection toolbar visibility is handled in updateAuthUI(). */
 }

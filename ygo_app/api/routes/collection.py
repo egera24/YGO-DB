@@ -26,6 +26,8 @@ from ygo_app.schemas import (
     BulkGridMetaOut,
     BulkGridSaveIn,
     BulkGridSaveResult,
+    CollectionDetailStatsOut,
+    CollectionFiltersOut,
     CollectionFolderCreate,
     CollectionFolderDeleteResult,
     CollectionFolderOut,
@@ -35,6 +37,7 @@ from ygo_app.schemas import (
     CollectionItemUpdate,
     CollectionListOut,
     CollectionStatsOut,
+    CollectionSuggestionsOut,
     TradeSettingsOut,
     TradeSettingsUpdateIn,
 )
@@ -43,7 +46,10 @@ from ygo_app.services import (
     _collection_item_row,
     add_collection_item,
     bulk_collection_grid_meta,
+    collection_detail_stats,
+    collection_filter_options,
     collection_stats,
+    collection_suggestions,
     create_collection_folder,
     delete_collection_folder,
     get_trade_settings,
@@ -95,6 +101,81 @@ def get_collection_stats(
     user: User = Depends(get_current_user),
 ):
     return collection_stats(db, user_id=user.id)
+
+
+@router.get("/stats/detail", response_model=CollectionDetailStatsOut)
+def get_collection_detail_stats(
+    folder: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    payload = collection_detail_stats(db, user_id=user.id, folder=folder)
+    max_item = payload.pop("max_value_item")
+    return CollectionDetailStatsOut(
+        **payload,
+        max_value_item=CollectionItemOut(**max_item) if max_item else None,
+    )
+
+
+@router.get("/filters", response_model=CollectionFiltersOut)
+def get_collection_filters(
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return CollectionFiltersOut(
+        **collection_filter_options(
+            db,
+            user_id=user.id,
+            q=q,
+            card_name=card_name,
+            set_code=set_code,
+            set_name=set_name,
+            rarity=rarity,
+            edition=edition,
+            condition=condition,
+            folder=folder,
+        )
+    )
+
+
+@router.get("/suggestions", response_model=CollectionSuggestionsOut)
+def get_collection_suggestions(
+    field: str = Query(..., pattern="^(card_name|set_code|set_name)$"),
+    q: str | None = None,
+    limit: int = Query(20, le=50),
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    values = collection_suggestions(
+        db,
+        user_id=user.id,
+        field=field,
+        q=q,
+        limit=limit,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=rarity,
+        edition=edition,
+        condition=condition,
+        folder=folder,
+    )
+    return CollectionSuggestionsOut(values=values)
 
 
 def _trade_settings_out(settings: dict) -> TradeSettingsOut:
@@ -223,8 +304,13 @@ def remove_folder(
 @router.get("", response_model=CollectionListOut)
 def get_collection(
     q: str | None = None,
+    card_name: str | None = None,
     folder: str | None = None,
     set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
     sort: str = Query(
         "set_code",
         pattern=(
@@ -241,8 +327,13 @@ def get_collection(
         db,
         user_id=user.id,
         q=q,
+        card_name=card_name,
         folder=folder,
         set_code=set_code,
+        set_name=set_name,
+        rarity=rarity,
+        edition=edition,
+        condition=condition,
         sort=sort,
         sort_dir=sort_dir,
         limit=limit,

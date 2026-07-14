@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
   <link rel="stylesheet" href="/static/css/style.css?v=125" />
-  <link rel="stylesheet" href="/static/css/bulk-collection.css?v=5" />
+  <link rel="stylesheet" href="/static/css/bulk-collection.css?v=6" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
 <body>
@@ -1139,6 +1139,12 @@
 
   <div id="bulk-collection-modal" class="modal-overlay bulk-collection-overlay" role="dialog" aria-modal="true" aria-labelledby="bulk-collection-title" hidden>
     <article class="modal-card bulk-collection-card">
+      <button type="button" id="bulk-collection-close" class="modal-close" aria-label="Close bulk collection">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
       <header class="bulk-collection-header">
         <div class="bulk-collection-header-main">
           <h2 id="bulk-collection-title">Bulk Collection</h2>
@@ -1146,12 +1152,6 @@
         </div>
         <div class="bulk-collection-header-actions">
           <button type="button" id="bulk-collection-save" class="primary" disabled>Save</button>
-          <button type="button" id="bulk-collection-close" class="modal-close" aria-label="Close bulk collection">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
-          </button>
         </div>
       </header>
       <div class="bulk-collection-toolbar">
@@ -1160,12 +1160,12 @@
           <input type="text" id="bulk-collection-set-code" placeholder="RA03" autocomplete="off" />
         </label>
         <button type="button" id="bulk-collection-load" class="secondary">Load</button>
-        <span class="bulk-collection-toolbar-spacer" aria-hidden="true"></span>
         <button type="button" id="bulk-collection-duplicate-row" class="secondary" disabled title="Duplicate selected row">Duplicate row</button>
         <div class="bulk-collection-column-menu-wrap">
-          <button type="button" id="bulk-collection-columns-btn" class="secondary" disabled aria-haspopup="true" aria-expanded="false">Columns</button>
+          <button type="button" id="bulk-collection-columns-btn" class="secondary" disabled aria-haspopup="true" aria-expanded="false">Hide Columns</button>
           <div id="bulk-collection-columns-menu" class="bulk-collection-columns-menu hidden" role="menu"></div>
         </div>
+        <span class="bulk-collection-toolbar-spacer" aria-hidden="true"></span>
         <span id="bulk-collection-dirty" class="bulk-collection-dirty hidden" aria-live="polite">Unsaved changes</span>
       </div>
       <div id="bulk-collection-grid" class="bulk-collection-grid" aria-label="Bulk collection spreadsheet"></div>

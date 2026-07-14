@@ -151,23 +151,39 @@ body.modal-open {
   align-items: center;
   gap: 0.5rem;
 }
-.app-currency {
-  padding: 0.35rem 0.5rem;
-  font-size: 0.85rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
+.app-currency-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
-.app-rate-note {
-  margin: 0.2rem 0 0;
+.app-currency-control select {
+  min-width: 5.5rem;
+  padding-right: 2rem;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.1rem) calc(50% + 0.1rem),
+    calc(100% - 0.85rem) calc(50% + 0.1rem);
+  background-size: 0.35rem 0.35rem, 0.35rem 0.35rem;
+  background-repeat: no-repeat;
+}
+.app-currency-rate {
   color: var(--muted);
   font-size: 0.75rem;
-  max-width: min(420px, 100%);
+  white-space: nowrap;
 }
-.app-rate-note.hidden {
+.app-currency-rate.hidden {
   display: none;
+}
+.auth-panel-divider {
+  width: 1px;
+  height: 1.5rem;
+  background: var(--border);
+  flex-shrink: 0;
 }
 .auth-form {
   display: flex;

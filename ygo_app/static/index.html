@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=113" />
+  <link rel="stylesheet" href="/static/css/style.css?v=114" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -20,7 +20,6 @@
       <div>
         <h1>Collection & Deck Builder</h1>
         <p id="status-line" class="app-shell hidden" aria-hidden="true">Loading…</p>
-        <p id="app-rate-note" class="app-rate-note app-shell hidden" aria-hidden="true"></p>
         <progress id="import-progress" class="import-progress app-shell hidden" value="0" max="100" hidden aria-hidden="true"></progress>
       </div>
     </div>
@@ -30,10 +29,20 @@
       <button type="button" class="tab" role="tab" id="tab-decks" data-view="decks" aria-selected="false" aria-controls="view-decks" tabindex="-1">Decks</button>
     </nav>
     <div id="auth-panel" class="auth-panel app-shell hidden" aria-hidden="true">
-      <select id="app-currency" class="app-currency" aria-label="Currency">
-        <option value="EUR">EUR</option>
-        <option value="HUF">HUF</option>
-      </select>
+      <div class="app-currency-group">
+        <div class="sort-controls sort-controls--field-only app-currency-control">
+          <span class="sort-controls-label" id="app-currency-label">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+            Currency
+          </span>
+          <select id="app-currency" aria-labelledby="app-currency-label">
+            <option value="EUR">EUR (€)</option>
+            <option value="HUF">HUF (Ft)</option>
+          </select>
+        </div>
+        <span id="app-currency-rate" class="app-currency-rate hidden" aria-live="polite"></span>
+      </div>
+      <span class="auth-panel-divider" aria-hidden="true"></span>
       <span id="auth-user" class="auth-user hidden"></span>
       <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
@@ -1159,6 +1168,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=175" type="module"></script>
+  <script src="/static/js/app.js?v=176" type="module"></script>
 </body>
 </html>

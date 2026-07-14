@@ -4147,35 +4147,30 @@ function parsePriceInput(raw, currency = getSelectedCurrency()) {
   return num;
 }
 
-function updateCurrencyNote() {
-  const note = $("#app-rate-note");
-  if (!note) return;
+function updateCurrencyRateHint() {
+  const hint = $("#app-currency-rate");
+  if (!hint) return;
   if (getSelectedCurrency() !== "HUF") {
-    note.textContent = "";
-    note.classList.add("hidden");
-    note.setAttribute("aria-hidden", "true");
+    hint.textContent = "";
+    hint.classList.add("hidden");
+    hint.setAttribute("aria-hidden", "true");
     return;
   }
-  const asOf = state.publicConfig?.eur_huf_rate_as_of;
   const source = state.publicConfig?.eur_huf_rate_source;
   const rateText = getEurHufRate().toFixed(2);
-  let message = `Prices shown in HUF (1 EUR = ${rateText} HUF`;
-  if (asOf) {
-    message += `, rate as of ${asOf}`;
-  }
+  let message = `1 EUR = ${rateText} HUF`;
   if (source === "fallback") {
-    message += ", fallback rate";
+    message += " · fallback";
   }
-  message += "). Values are stored in EUR.";
-  note.textContent = message;
-  note.classList.remove("hidden");
-  note.removeAttribute("aria-hidden");
+  hint.textContent = message;
+  hint.classList.remove("hidden");
+  hint.removeAttribute("aria-hidden");
 }
 
 function syncCurrencySelect() {
   const select = $("#app-currency");
   if (select) select.value = getSelectedCurrency();
-  updateCurrencyNote();
+  updateCurrencyRateHint();
 }
 
 function syncPriceInputFields() {

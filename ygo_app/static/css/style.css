@@ -1647,6 +1647,11 @@ tr:hover td { background: var(--surface); }
   gap: 1rem;
   min-height: 400px;
 }
+.collection-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .collection-sidebar-header {
   display: flex;
   align-items: center;
@@ -1689,6 +1694,71 @@ tr:hover td { background: var(--surface); }
 .collection-new-folder-icon {
   font-size: 1.05rem;
   font-weight: 700;
+}
+.collection-sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.65rem 0;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+.collection-sidebar-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.collection-sidebar-action-btn:hover,
+.collection-sidebar-action-btn:focus-visible {
+  color: var(--accent);
+  background: var(--surface2);
+  border-color: var(--accent-dim);
+}
+.collection-sidebar-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.collection-sidebar-action-btn svg {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--muted);
+}
+.collection-sidebar-action-btn:hover svg,
+.collection-sidebar-action-btn:focus-visible svg {
+  color: var(--accent);
+}
+.collection-sidebar-action-btn > span:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+.collection-sidebar-action-chevron {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1;
+}
+.collection-sidebar-menu-wrap {
+  position: relative;
+  width: 100%;
+}
+.collection-sidebar-menu-wrap .preset-menu {
+  width: 100%;
+  min-width: 100%;
+}
+.collection-sidebar-menu-wrap .preset-menu [role="menuitem"] {
+  white-space: nowrap;
 }
 .collection-folder-actions {
   display: flex;
@@ -1858,7 +1928,7 @@ tr:hover td { background: var(--surface); }
 .collection-folder-list {
   list-style: none;
   padding: 0;
-  margin: 0.75rem 0 0;
+  margin: 0.35rem 0 0;
 }
 .collection-folder-list li {
   display: flex;
@@ -1952,34 +2022,6 @@ tr:hover td { background: var(--surface); }
   padding: 0.45rem 0.65rem;
   color: var(--muted);
   font-size: 0.9rem;
-}
-.collection-toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-.collection-toolbar-actions .supplement-icon-btn {
-  width: 2.5rem;
-  height: 2.5rem;
-}
-.collection-action-menu-wrap {
-  display: flex;
-  align-items: center;
-}
-@media (max-width: 640px) {
-  .collection-toolbar-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-}
-.collection-action-menu-wrap .preset-menu {
-  width: max-content;
-  min-width: max(100%, 12rem);
-}
-.collection-action-menu-wrap .preset-menu [role="menuitem"] {
-  white-space: nowrap;
 }
 .collection-panel {
   background: var(--surface);

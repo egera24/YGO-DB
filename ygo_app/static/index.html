@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=108" />
+  <link rel="stylesheet" href="/static/css/style.css?v=109" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=4" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -390,6 +390,52 @@
             <span class="collection-new-folder-icon" aria-hidden="true">+</span>
             New folder
           </button>
+          <div id="collection-toolbar-actions" class="collection-sidebar-actions hidden" aria-label="Collection actions">
+            <button type="button" id="collection-stats-btn" class="collection-sidebar-action-btn" aria-label="Collection statistics" aria-haspopup="dialog" aria-controls="collection-stats-modal" aria-expanded="false">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 3v18h18" />
+                <path d="M7 16V9" />
+                <path d="M12 16V5" />
+                <path d="M17 16v-3" />
+              </svg>
+              <span>Statistics</span>
+            </button>
+            <div class="preset-menu-wrap collection-sidebar-menu-wrap">
+              <button type="button" id="collection-manage-menu-btn" class="collection-sidebar-action-btn"
+                aria-label="Manage collection"
+                aria-haspopup="menu" aria-expanded="false" aria-controls="collection-manage-menu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>Manage</span>
+                <span class="collection-sidebar-action-chevron" aria-hidden="true">▾</span>
+              </button>
+              <div id="collection-manage-menu" class="preset-menu" hidden role="menu">
+                <button type="button" role="menuitem" id="import-collection-btn">Import</button>
+                <button type="button" role="menuitem" id="export-collection-btn">Export</button>
+                <button type="button" role="menuitem" id="bulk-collection-btn">Bulk Collection</button>
+              </div>
+            </div>
+            <div class="preset-menu-wrap collection-sidebar-menu-wrap">
+              <button type="button" id="collection-trade-menu-btn" class="collection-sidebar-action-btn"
+                aria-label="Trade options"
+                aria-haspopup="menu" aria-expanded="false" aria-controls="collection-trade-menu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m16 3 4 4-4 4" />
+                  <path d="M20 7H4" />
+                  <path d="m8 21-4-4 4-4" />
+                  <path d="M4 17h16" />
+                </svg>
+                <span>Trade</span>
+                <span class="collection-sidebar-action-chevron" aria-hidden="true">▾</span>
+              </button>
+              <div id="collection-trade-menu" class="preset-menu" hidden role="menu">
+                <button type="button" role="menuitem" id="copy-trade-link-btn">Copy trade link</button>
+                <button type="button" role="menuitem" id="trade-settings-btn">Trade settings</button>
+              </div>
+            </div>
+          </div>
           <ul id="collection-folder-list" class="collection-folder-list"></ul>
         </aside>
         <div class="collection-panel">
@@ -436,47 +482,6 @@
                   <button type="button" id="collection-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
                 </div>
                 <button type="submit">Apply</button>
-                <div id="collection-toolbar-actions" class="collection-toolbar-actions hidden" aria-label="Collection actions">
-                  <button type="button" id="collection-stats-btn" class="icon-btn supplement-icon-btn collection-stats-btn" aria-label="Collection statistics" data-tooltip="Statistics" aria-haspopup="dialog" aria-controls="collection-stats-modal" aria-expanded="false">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M3 3v18h18" />
-                      <path d="M7 16V9" />
-                      <path d="M12 16V5" />
-                      <path d="M17 16v-3" />
-                    </svg>
-                  </button>
-                  <div class="preset-menu-wrap collection-action-menu-wrap">
-                    <button type="button" id="collection-manage-menu-btn" class="icon-btn supplement-icon-btn collection-action-btn"
-                      aria-label="Manage" data-tooltip="Manage"
-                      aria-haspopup="menu" aria-expanded="false" aria-controls="collection-manage-menu">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    </button>
-                    <div id="collection-manage-menu" class="preset-menu" hidden role="menu">
-                      <button type="button" role="menuitem" id="import-collection-btn">Import</button>
-                      <button type="button" role="menuitem" id="export-collection-btn">Export</button>
-                      <button type="button" role="menuitem" id="bulk-collection-btn">Bulk Collection</button>
-                    </div>
-                  </div>
-                  <div class="preset-menu-wrap collection-action-menu-wrap">
-                    <button type="button" id="collection-trade-menu-btn" class="icon-btn supplement-icon-btn collection-action-btn"
-                      aria-label="Trade" data-tooltip="Trade"
-                      aria-haspopup="menu" aria-expanded="false" aria-controls="collection-trade-menu">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="m16 3 4 4-4 4" />
-                        <path d="M20 7H4" />
-                        <path d="m8 21-4-4 4-4" />
-                        <path d="M4 17h16" />
-                      </svg>
-                    </button>
-                    <div id="collection-trade-menu" class="preset-menu" hidden role="menu">
-                      <button type="button" role="menuitem" id="copy-trade-link-btn">Copy trade link</button>
-                      <button type="button" role="menuitem" id="trade-settings-btn">Trade settings</button>
-                    </div>
-                  </div>
-                </div>
               </div>
             </form>
           </div>

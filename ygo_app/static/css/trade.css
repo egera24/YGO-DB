@@ -457,7 +457,7 @@
 
 .trade-cart-line-fields {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.65rem;
   margin-top: 0.5rem;
 }
 
@@ -655,6 +655,10 @@
 
 .trade-add-card {
   width: min(24rem, calc(100vw - 2rem));
+}
+
+.trade-add-card > .trade-field + .trade-field {
+  margin-top: 0.65rem;
 }
 
 .trade-add-header h2 {

@@ -536,7 +536,7 @@
 
 .trade-offer-info-popover {
   position: fixed;
-  z-index: 300;
+  z-index: 1100;
   max-width: min(20rem, calc(100vw - 1rem));
   padding: 0.75rem 0.85rem;
   background: var(--surface);

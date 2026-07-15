@@ -1,7 +1,7 @@
 import { conditionBadgeHtml, editionBadgeHtml } from "./condition-edition-badges.js";
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
-import { bindSortDirToggle, readSortDir } from "./sort-controls.js";
+import { bindDetailsPanelToggle, bindSortDirToggle, readSortDir, syncSortToggleLabel } from "./sort-controls.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -1363,11 +1363,31 @@ const $ = (sel) => document.querySelector(sel);
     }
   }
 
+  function syncTradeSortToggleLabel() {
+    syncSortToggleLabel({
+      select: $("#trade-sort"),
+      dirBtn: $("#trade-sort-dir"),
+      labelEl: $("#trade-sort-toggle-label"),
+      dirIconEl: $("#trade-sort-toggle-dir"),
+      toggle: $("#trade-sort-toggle"),
+      subject: "trade list",
+    });
+  }
+
+  function reloadTradeItemsFromSort() {
+    syncTradeSortToggleLabel();
+    state.offset = 0;
+    loadItems().catch((err) => showLoadError(err.message));
+  }
+
   function bindEvents() {
     setCombobox.bindEvents();
     rarityCombobox.bindEvents();
 
-    bindSortDirToggle($("#trade-sort-dir"));
+    $("#trade-sort")?.addEventListener("change", () => reloadTradeItemsFromSort());
+    bindSortDirToggle($("#trade-sort-dir"), () => reloadTradeItemsFromSort());
+    bindDetailsPanelToggle($("#trade-sort-toggle"), $("#trade-sort-panel"));
+    syncTradeSortToggleLabel();
 
     $("#trade-filter-form")?.addEventListener("submit", (event) => {
       event.preventDefault();

@@ -16,10 +16,11 @@ import {
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
 import {
+  bindDetailsPanelToggle,
   bindSortDirToggle,
-  getSortDirIconHtml,
   readSortDir,
   setSortDir,
+  syncSortToggleLabel,
 } from "./sort-controls.js";
 
 const API = "/api";
@@ -2052,49 +2053,34 @@ function closeSearchToolPanels(exceptDetailsId = null) {
 }
 
 function bindSearchToolPanel(toggleSelector, detailsId, { onUserToggle } = {}) {
-  const toggle = $(toggleSelector);
-  const details = $(detailsId);
-  if (!toggle || !details) return;
-  const sync = () => toggle.setAttribute("aria-expanded", details.open ? "true" : "false");
-  toggle.addEventListener("click", () => {
-    const willOpen = !details.open;
-    if (willOpen) closeSearchToolPanels(detailsId);
-    details.open = willOpen;
-    onUserToggle?.(willOpen);
+  bindDetailsPanelToggle($(toggleSelector), $(detailsId), {
+    beforeToggle: (willOpen) => {
+      if (willOpen) closeSearchToolPanels(detailsId);
+    },
+    onUserToggle,
   });
-  details.addEventListener("toggle", sync);
-  sync();
 }
 
 function syncSearchSortToggleLabel() {
-  const select = $("#search-sort");
-  const label = $("#search-sort-toggle-label");
-  const dirIcon = $("#search-sort-toggle-dir");
-  const toggle = $("#search-sort-toggle");
-  if (!select || !label) return;
-  const sortValue = select.value;
-  const hasSort = Boolean(sortValue);
-  const option = select.options[select.selectedIndex];
-  const sortLabel = hasSort ? option?.textContent?.trim() || "Sort" : "Sort";
-  label.textContent = sortLabel;
-  if (dirIcon) {
-    if (hasSort) {
-      dirIcon.innerHTML = getSortDirIconHtml(readSortDir($("#search-sort-dir")));
-      dirIcon.classList.remove("hidden");
-    } else {
-      dirIcon.innerHTML = "";
-      dirIcon.classList.add("hidden");
-    }
-  }
-  if (toggle) {
-    const dir = readSortDir($("#search-sort-dir"));
-    const tooltip = hasSort ? `Sort by ${sortLabel} (${dir === "desc" ? "descending" : "ascending"})` : "Sort";
-    toggle.setAttribute("data-tooltip", tooltip);
-    toggle.setAttribute(
-      "aria-label",
-      hasSort ? `Sort results by ${sortLabel}, ${dir === "desc" ? "descending" : "ascending"}` : "Sort results"
-    );
-  }
+  syncSortToggleLabel({
+    select: $("#search-sort"),
+    dirBtn: $("#search-sort-dir"),
+    labelEl: $("#search-sort-toggle-label"),
+    dirIconEl: $("#search-sort-toggle-dir"),
+    toggle: $("#search-sort-toggle"),
+    subject: "results",
+  });
+}
+
+function syncCollectionSortToggleLabel() {
+  syncSortToggleLabel({
+    select: $("#collection-sort"),
+    dirBtn: $("#collection-sort-dir"),
+    labelEl: $("#collection-sort-toggle-label"),
+    dirIconEl: $("#collection-sort-toggle-dir"),
+    toggle: $("#collection-sort-toggle"),
+    subject: "collection",
+  });
 }
 
 function syncSearchPresetToggleLabel() {
@@ -7978,13 +7964,17 @@ function wireEvents() {
     await loadCollectionPage(0);
   });
   $("#collection-sort")?.addEventListener("change", async () => {
+    syncCollectionSortToggleLabel();
     state.collectionPage = 0;
     await loadCollectionPage(0);
   });
   bindSortDirToggle($("#collection-sort-dir"), async () => {
+    syncCollectionSortToggleLabel();
     state.collectionPage = 0;
     await loadCollectionPage(0);
   });
+  bindDetailsPanelToggle($("#collection-sort-toggle"), $("#collection-sort-panel"));
+  syncCollectionSortToggleLabel();
 
   initCollectionFilterComboboxes();
 

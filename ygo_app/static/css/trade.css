@@ -71,6 +71,10 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+#trade-sort-panel {
   margin-bottom: 0.75rem;
 }
 

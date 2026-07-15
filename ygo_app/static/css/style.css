@@ -782,7 +782,9 @@ main { padding: 1rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
   padding-top: 0.35rem;
   border-top: 1px solid var(--border);
 }
-#search-sort-panel {
+#search-sort-panel,
+#collection-sort-panel,
+#trade-sort-panel {
   width: fit-content;
   max-width: 100%;
 }

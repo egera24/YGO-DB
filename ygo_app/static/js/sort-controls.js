@@ -47,3 +47,68 @@ export function bindSortDirToggle(btn, onToggle) {
     onToggle?.(next);
   });
 }
+
+/**
+ * Wire a button to open/close a <details> panel and sync aria-expanded.
+ * @param {HTMLElement|null} toggle
+ * @param {HTMLDetailsElement|null} details
+ * @param {{ beforeToggle?: (willOpen: boolean) => void, onUserToggle?: (willOpen: boolean) => void }} [options]
+ */
+export function bindDetailsPanelToggle(toggle, details, { beforeToggle, onUserToggle } = {}) {
+  if (!toggle || !details) return;
+  const sync = () => toggle.setAttribute("aria-expanded", details.open ? "true" : "false");
+  toggle.addEventListener("click", () => {
+    const willOpen = !details.open;
+    beforeToggle?.(willOpen);
+    details.open = willOpen;
+    onUserToggle?.(willOpen);
+  });
+  details.addEventListener("toggle", sync);
+  sync();
+}
+
+/**
+ * Sync Sort toggle button label, direction icon, tooltip, and aria-label.
+ * @param {{
+ *   select: HTMLSelectElement|null,
+ *   dirBtn: HTMLElement|null,
+ *   labelEl: HTMLElement|null,
+ *   dirIconEl: HTMLElement|null,
+ *   toggle: HTMLElement|null,
+ *   subject?: string,
+ * }} opts
+ */
+export function syncSortToggleLabel({
+  select,
+  dirBtn,
+  labelEl,
+  dirIconEl,
+  toggle,
+  subject = "results",
+} = {}) {
+  if (!select || !labelEl) return;
+  const sortValue = select.value;
+  const hasSort = Boolean(sortValue);
+  const option = select.options[select.selectedIndex];
+  const sortLabel = hasSort ? option?.textContent?.trim() || "Sort" : "Sort";
+  labelEl.textContent = sortLabel;
+  if (dirIconEl) {
+    if (hasSort) {
+      dirIconEl.innerHTML = getSortDirIconHtml(readSortDir(dirBtn));
+      dirIconEl.classList.remove("hidden");
+    } else {
+      dirIconEl.innerHTML = "";
+      dirIconEl.classList.add("hidden");
+    }
+  }
+  if (toggle) {
+    const dir = readSortDir(dirBtn);
+    const dirWord = dir === SORT_DIR_DESC ? "descending" : "ascending";
+    const tooltip = hasSort ? `Sort by ${sortLabel} (${dirWord})` : "Sort";
+    toggle.setAttribute("data-tooltip", tooltip);
+    toggle.setAttribute(
+      "aria-label",
+      hasSort ? `Sort ${subject} by ${sortLabel}, ${dirWord}` : `Sort ${subject}`
+    );
+  }
+}

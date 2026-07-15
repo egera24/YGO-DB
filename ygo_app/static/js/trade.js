@@ -344,6 +344,29 @@ const $ = (sel) => document.querySelector(sel);
     return state.items.find((item) => item.item_id === itemId);
   }
 
+  function resolveTradeItem(itemId) {
+    const fromList = itemById(itemId);
+    if (fromList) return fromList;
+
+    const line = readCart()[itemId];
+    if (!line) return null;
+
+    return {
+      item_id: Number(itemId),
+      card_name: line.card_name || "Card",
+      set_code: line.set_code ?? "",
+      rarity_code: line.rarity_code ?? "",
+      rarity_display: line.rarity_display || line.rarity_code || "",
+      rarity_name: line.rarity_name || "",
+      edition: line.edition ?? null,
+      condition: line.condition ?? null,
+      sell_price: line.sell_price,
+      image_url_small: line.image_url_small,
+      trade_quantity: line.trade_quantity ?? line.quantity ?? 1,
+      card: line.card || null,
+    };
+  }
+
   function cartLineDisplay(line) {
     const item = itemById(line.item_id) || {};
     return {
@@ -372,6 +395,7 @@ const $ = (sel) => document.querySelector(sel);
       sell_price: item.sell_price,
       image_url_small: item.image_url_small,
       trade_quantity: item.trade_quantity,
+      card: item.card || null,
     };
   }
 
@@ -517,7 +541,11 @@ const $ = (sel) => document.querySelector(sel);
         return `
           <article class="trade-cart-line" data-item-id="${line.item_id}">
             <div class="trade-cart-line-main">
-              <div class="trade-cart-line-thumb">${cardImgTag(display.image_url_small, display.card_name)}</div>
+              <div class="trade-cart-line-thumb">${cardDetailsButtonHtml({
+                item_id: line.item_id,
+                card_name: display.card_name,
+                image_url_small: display.image_url_small,
+              })}</div>
               <div class="trade-cart-line-info">
                 <p class="trade-cart-line-title">${escapeHtml(display.card_name)}</p>
                 <p class="trade-cart-line-meta">${escapeHtml(display.set_code)} · ${rarityBadgeHtml(display)} · ${editionBadgeHtml(display.edition)} · ${conditionBadgeHtml(display.condition)} · List ${formatDisplayPrice(display.sell_price)}</p>
@@ -733,7 +761,7 @@ const $ = (sel) => document.querySelector(sel);
   }
 
   function openTradeCardModal(itemId, trigger) {
-    const item = itemById(itemId);
+    const item = resolveTradeItem(itemId);
     if (!item) return;
 
     const modal = $("#trade-card-modal");

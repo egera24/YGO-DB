@@ -425,6 +425,11 @@
   flex: 0 0 auto;
 }
 
+.trade-cart-line-thumb .trade-card-thumb-btn {
+  display: block;
+  padding: 0;
+}
+
 .trade-cart-line-thumb img {
   display: block;
   width: 40px;

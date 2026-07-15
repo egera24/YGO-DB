@@ -219,6 +219,105 @@ class TestPublicTrade(unittest.TestCase):
         row = next(item for item in payload["items"] if item["item_id"] == trade_item_id)
         self.assertEqual(row["sell_price"], 0.2)
 
+    def test_public_trade_sort_by_sell_price_uses_resolved_list_price(self):
+        """Sort by sell_price must use COALESCE(override, market trend), not raw NULLs."""
+        session = self.Session()
+        expensive_trend = Card(id=48206762, name="Fallen of Albaz")
+        cheap_trend = Card(id=68468403, name="Incredible Ecclesia")
+        override_card = Card(id=91070115, name="Aluber the Jester")
+        session.add_all([expensive_trend, cheap_trend, override_card])
+        session.flush()
+
+        # Insert higher-trend card first so id order is opposite of price order.
+        high_item = CollectionItem(
+            user_id=self.owner.id,
+            set_code="CH01-EN001",
+            rarity_code="(UR)",
+            card_name=expensive_trend.name,
+            quantity=1,
+            trade_quantity=1,
+            condition="NearMint",
+        )
+        low_item = CollectionItem(
+            user_id=self.owner.id,
+            set_code="CH01-EN002",
+            rarity_code="(UR)",
+            card_name=cheap_trend.name,
+            quantity=1,
+            trade_quantity=1,
+            condition="NearMint",
+        )
+        override_item = CollectionItem(
+            user_id=self.owner.id,
+            set_code="CH01-EN003",
+            rarity_code="(SR)",
+            card_name=override_card.name,
+            quantity=1,
+            trade_quantity=1,
+            sell_price=0.05,
+            condition="NearMint",
+        )
+        session.add_all([high_item, low_item, override_item])
+        session.add_all(
+            [
+                PrintingMarketPrice(
+                    set_code="CH01-EN001",
+                    rarity_code="(UR)",
+                    trend_price=0.4,
+                    currency="EUR",
+                    valid_from=datetime.utcnow(),
+                    is_current=True,
+                ),
+                PrintingMarketPrice(
+                    set_code="CH01-EN002",
+                    rarity_code="(UR)",
+                    trend_price=0.1,
+                    currency="EUR",
+                    valid_from=datetime.utcnow(),
+                    is_current=True,
+                ),
+                PrintingMarketPrice(
+                    set_code="CH01-EN003",
+                    rarity_code="(SR)",
+                    trend_price=9.0,
+                    currency="EUR",
+                    valid_from=datetime.utcnow(),
+                    is_current=True,
+                ),
+            ]
+        )
+        session.commit()
+        high_id = high_item.id
+        low_id = low_item.id
+        override_id = override_item.id
+        session.close()
+
+        # Existing setUp row is LOB-001 at 12.5; resolved order asc:
+        # override 0.05, trend 0.1, trend 0.4, LOB 12.5
+        asc = self.client.get(
+            "/api/public/trade/owner-trade-list",
+            params={"sort": "sell_price", "sort_dir": "asc"},
+        )
+        self.assertEqual(asc.status_code, 200)
+        asc_ids = [item["item_id"] for item in asc.json()["items"]]
+        self.assertEqual(
+            asc_ids,
+            [override_id, low_id, high_id, self.trade_item_id],
+        )
+        asc_prices = [item["sell_price"] for item in asc.json()["items"]]
+        self.assertEqual(asc_prices, [0.05, 0.1, 0.4, 12.5])
+
+        desc = self.client.get(
+            "/api/public/trade/owner-trade-list",
+            params={"sort": "sell_price", "sort_dir": "desc"},
+        )
+        self.assertEqual(desc.status_code, 200)
+        desc_ids = [item["item_id"] for item in desc.json()["items"]]
+        self.assertEqual(
+            desc_ids,
+            [self.trade_item_id, high_id, low_id, override_id],
+        )
+
     def test_public_trade_resolves_full_rarity_name_from_code_not_printing_label(self):
         session = self.Session()
         card = Card(id=83994646, name="4-Starred Ladybug of Doom")

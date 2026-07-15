@@ -2472,6 +2472,11 @@ def _apply_public_trade_rarity_filter(stmt, rarity: str):
     return stmt.where(CollectionItem.rarity_code.in_(variants))
 
 
+def _public_trade_resolved_sell_price_expr():
+    """List price used for display: owner override, else current market trend."""
+    return func.coalesce(CollectionItem.sell_price, PrintingMarketPrice.trend_price)
+
+
 def _build_public_trade_order_by(sort: str, sort_dir: str) -> list:
     field = sort if sort in PUBLIC_TRADE_SORT_FIELDS else "set_code"
     direction = sort_dir if sort_dir in ("asc", "desc") else "asc"
@@ -2480,7 +2485,7 @@ def _build_public_trade_order_by(sort: str, sort_dir: str) -> list:
         "set_code": CollectionItem.set_code,
         "card_name": CollectionItem.card_name,
         "trade_quantity": CollectionItem.trade_quantity,
-        "sell_price": CollectionItem.sell_price,
+        "sell_price": _public_trade_resolved_sell_price_expr(),
         "condition": CollectionItem.condition,
     }
     order_col = columns.get(field, CollectionItem.set_code)
@@ -2641,6 +2646,13 @@ def list_public_trade_items(
     if sort in {"passcode", "release_date", "folder_name"}:
         sort = "set_code"
     stmt = apply_collection_sort_joins(stmt, sort, dialect=dialect)
+    if sort == "sell_price":
+        stmt = stmt.outerjoin(
+            PrintingMarketPrice,
+            (PrintingMarketPrice.set_code == CollectionItem.set_code)
+            & (PrintingMarketPrice.rarity_code == CollectionItem.rarity_code)
+            & PrintingMarketPrice.is_current.is_(True),
+        )
     order_by = _build_public_trade_order_by(sort, sort_dir)
 
     items = (

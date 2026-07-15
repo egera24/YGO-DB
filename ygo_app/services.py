@@ -1037,10 +1037,15 @@ def delete_collection_folder(
     user_id: int,
     folder_id: int,
     target_folder_id: int | None = None,
-) -> tuple[int, int]:
+    remove_cards: bool = False,
+) -> tuple[int, int, int, int]:
     folder = session.get(CollectionFolder, folder_id)
     if not folder or folder.user_id != user_id:
         raise ValueError("Folder not found")
+    if remove_cards and target_folder_id is not None:
+        raise ValueError(
+            "Provide either remove_cards or target_folder_id, not both"
+        )
     allocations = (
         session.execute(
             select(CollectionItemFolder)
@@ -1062,12 +1067,11 @@ def delete_collection_folder(
         .scalars()
         .all()
     )
-    if allocations and target_folder_id is None:
+    if allocations and not remove_cards and target_folder_id is None:
         raise ValueError(
             "target_folder_id is required when the folder still has cards"
         )
-    target = None
-    if target_folder_id is not None:
+    if not remove_cards and target_folder_id is not None:
         if target_folder_id == folder_id:
             raise ValueError("target_folder_id must be a different folder")
         target = session.get(CollectionFolder, target_folder_id)
@@ -1076,29 +1080,52 @@ def delete_collection_folder(
 
     moved_allocations = 0
     moved_quantity = 0
-    for allocation in allocations:
-        item = allocation.collection_item
-        moved_allocations += 1
-        moved_quantity += int(allocation.quantity)
-        existing_target = next(
-            (
-                row
-                for row in item.folder_allocations
-                if row.folder_id == target_folder_id and row is not allocation
-            ),
-            None,
-        )
-        if existing_target:
-            existing_target.quantity += allocation.quantity
-            session.delete(allocation)
-        else:
-            allocation.folder_id = target_folder_id
+    removed_allocations = 0
+    removed_quantity = 0
+
+    if remove_cards:
+        items_to_delete: list[CollectionItem] = []
+        for allocation in allocations:
+            item = allocation.collection_item
+            qty = int(allocation.quantity)
+            removed_allocations += 1
+            removed_quantity += qty
+            if int(item.quantity or 0) > 0:
+                item.quantity = max(0, int(item.quantity) - qty)
+            else:
+                item.trade_quantity = max(0, int(item.trade_quantity or 0) - qty)
+            # Remove from the relationship so delete-orphan handles the row once;
+            # avoids a double DELETE when the parent item is removed next.
+            item.folder_allocations.remove(allocation)
+            if int(item.quantity or 0) == 0 and int(item.trade_quantity or 0) == 0:
+                items_to_delete.append(item)
+        session.flush()
+        for item in items_to_delete:
+            session.delete(item)
+    else:
+        for allocation in allocations:
+            item = allocation.collection_item
+            moved_allocations += 1
+            moved_quantity += int(allocation.quantity)
+            existing_target = next(
+                (
+                    row
+                    for row in item.folder_allocations
+                    if row.folder_id == target_folder_id and row is not allocation
+                ),
+                None,
+            )
+            if existing_target:
+                existing_target.quantity += allocation.quantity
+                session.delete(allocation)
+            else:
+                allocation.folder_id = target_folder_id
     # Flush reassignments before deleting the folder so ON DELETE SET NULL
     # does not wipe the new folder_id.
     session.flush()
     session.delete(folder)
     session.commit()
-    return moved_allocations, moved_quantity
+    return moved_allocations, moved_quantity, removed_allocations, removed_quantity
 
 
 def _folder_allocation_target(item: CollectionItem) -> int:

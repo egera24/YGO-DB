@@ -2188,11 +2188,25 @@ function closeAllCollectionRowMenus() {
   });
 }
 
+function closeAllCollectionFolderMenus() {
+  document.querySelectorAll(".collection-folder-menu").forEach((menu) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    menu.classList.remove("collection-folder-menu--fixed");
+    menu.style.top = "";
+    menu.style.left = "";
+  });
+  document.querySelectorAll(".collection-folder-menu-btn").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
 function openCollectionRowMenu(btn) {
   const wrap = btn.closest(".collection-row-menu-wrap");
   const menu = wrap?.querySelector(".collection-row-menu");
   if (!menu) return;
   closeAllCollectionRowMenus();
+  closeAllCollectionFolderMenus();
   closeCollectionToolbarMenus();
   closeSearchToolPanels();
   menu.hidden = false;
@@ -2214,6 +2228,35 @@ function toggleCollectionRowMenu(btn) {
     return;
   }
   openCollectionRowMenu(btn);
+}
+
+function openCollectionFolderMenu(btn) {
+  const wrap = btn.closest(".collection-folder-menu-wrap");
+  const menu = wrap?.querySelector(".collection-folder-menu");
+  if (!menu) return;
+  closeAllCollectionFolderMenus();
+  closeAllCollectionRowMenus();
+  closeCollectionToolbarMenus();
+  closeDeleteFolderPopover();
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  menu.classList.add("collection-folder-menu--fixed");
+  const rect = btn.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth;
+  const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, left)}px`;
+}
+
+function toggleCollectionFolderMenu(btn) {
+  const wrap = btn.closest(".collection-folder-menu-wrap");
+  const menu = wrap?.querySelector(".collection-folder-menu");
+  if (!menu) return;
+  if (!menu.hidden) {
+    closeAllCollectionFolderMenus();
+    return;
+  }
+  openCollectionFolderMenu(btn);
 }
 
 function buildSearchParams() {
@@ -5293,27 +5336,35 @@ function closeDeleteFolderPopover() {
 
 function openDeleteFolderPopover(folderId, folderName, count, qty, anchor) {
   closeDeleteFolderPopover();
+  closeAllCollectionFolderMenus();
   closeFolderAllocationPopover();
   closeMoveCopyPopover();
 
   const destinations = (state.collectionStats?.folders || []).filter(
     (folder) => folder.id !== folderId
   );
-  if (!destinations.length) {
-    alert(
-      `Cannot delete "${folderName}" while it has cards. Create another folder first to move them into.`
-    );
-    return;
-  }
+  const canMove = destinations.length > 0;
+  const defaultMode = canMove ? "move" : "remove";
 
   const popover = document.createElement("div");
   popover.className = "folder-allocation-popover delete-folder-popover";
   popover.innerHTML = `
     <p class="folder-allocation-title">Delete "${escapeHtml(folderName)}"</p>
-    <p class="muted">${count} card row(s) (${qty} copies) will move to the folder you choose.</p>
-    <label class="move-copy-field">
+    <p class="muted">${count} card row(s) (${qty} copies) are in this folder.</p>
+    <fieldset class="delete-folder-mode-fieldset">
+      <legend class="sr-only">What should happen to the cards?</legend>
+      <label class="delete-folder-mode${canMove ? "" : " delete-folder-mode--disabled"}">
+        <input type="radio" name="delete-folder-mode" value="move" ${defaultMode === "move" ? "checked" : ""} ${canMove ? "" : "disabled"} />
+        <span>Move cards to another folder</span>
+      </label>
+      <label class="delete-folder-mode">
+        <input type="radio" name="delete-folder-mode" value="remove" ${defaultMode === "remove" ? "checked" : ""} />
+        <span>Remove cards from collection</span>
+      </label>
+    </fieldset>
+    <label class="move-copy-field delete-folder-move-field${canMove && defaultMode === "move" ? "" : " hidden"}">
       <span>Move cards to</span>
-      <select class="delete-folder-target">
+      <select class="delete-folder-target" ${canMove ? "" : "disabled"}>
         <option value="" disabled selected>Select a folder…</option>
         ${destinations
           .map(
@@ -5323,6 +5374,9 @@ function openDeleteFolderPopover(folderId, folderName, count, qty, anchor) {
           .join("")}
       </select>
     </label>
+    <p class="delete-folder-remove-warning muted${defaultMode === "remove" ? "" : " hidden"}">
+      All copies in this folder will be removed from your collection. Cards in other folders are not affected.
+    </p>
     <p class="move-copy-error hidden"></p>
     <div class="folder-allocation-actions">
       <button type="button" class="secondary delete-folder-cancel">Cancel</button>
@@ -5337,21 +5391,41 @@ function openDeleteFolderPopover(folderId, folderName, count, qty, anchor) {
   }
 
   const errorEl = popover.querySelector(".move-copy-error");
+  const moveField = popover.querySelector(".delete-folder-move-field");
+  const removeWarning = popover.querySelector(".delete-folder-remove-warning");
+
+  function selectedMode() {
+    return popover.querySelector('input[name="delete-folder-mode"]:checked')?.value || "remove";
+  }
+
+  function syncModeUi() {
+    const mode = selectedMode();
+    moveField?.classList.toggle("hidden", mode !== "move");
+    removeWarning?.classList.toggle("hidden", mode !== "remove");
+    errorEl.classList.add("hidden");
+  }
+
+  popover.querySelectorAll('input[name="delete-folder-mode"]').forEach((input) => {
+    input.addEventListener("change", syncModeUi);
+  });
   popover.querySelector(".delete-folder-cancel")?.addEventListener("click", closeDeleteFolderPopover);
   popover.querySelector(".delete-folder-confirm")?.addEventListener("click", async () => {
     errorEl.classList.add("hidden");
-    const targetRaw = popover.querySelector(".delete-folder-target")?.value ?? "";
-    if (!targetRaw) {
-      errorEl.textContent = "Folder is required.";
-      errorEl.classList.remove("hidden");
-      return;
+    const mode = selectedMode();
+    let url = `/collection/folders/${folderId}`;
+    if (mode === "remove") {
+      url += "?remove_cards=true";
+    } else {
+      const targetRaw = popover.querySelector(".delete-folder-target")?.value ?? "";
+      if (!targetRaw) {
+        errorEl.textContent = "Folder is required.";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+      url += `?target_folder_id=${Number(targetRaw)}`;
     }
-    const targetFolderId = Number(targetRaw);
     try {
-      await api(
-        `/collection/folders/${folderId}?target_folder_id=${targetFolderId}`,
-        { method: "DELETE" }
-      );
+      await api(url, { method: "DELETE" });
       if (state.collectionFolder === String(folderId)) {
         state.collectionFolder = null;
       }
@@ -5370,7 +5444,10 @@ function openDeleteFolderPopover(folderId, folderName, count, qty, anchor) {
     document.addEventListener(
       "click",
       (e) => {
-        if (!popover.contains(e.target) && !e.target.closest(".collection-folder-delete")) {
+        if (
+          !popover.contains(e.target) &&
+          !e.target.closest(".collection-folder-menu-wrap")
+        ) {
           closeDeleteFolderPopover();
         }
       },
@@ -5413,7 +5490,17 @@ function renderCollectionSidebar() {
       <span class="collection-folder-label">${escapeHtml(e.label)}</span>
       <span class="collection-folder-actions">
         <span class="collection-folder-count muted">${e.count}</span>
-        ${e.deletable ? '<button type="button" class="collection-folder-delete" title="Delete folder">×</button>' : ""}
+        ${
+          e.deletable
+            ? `<div class="collection-folder-menu-wrap preset-menu-wrap">
+          <button type="button" class="icon-btn secondary collection-folder-menu-btn preset-menu-btn" aria-label="Folder actions" title="Folder actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
+          <div class="collection-folder-menu preset-menu" hidden role="menu">
+            <button type="button" role="menuitem" class="collection-folder-rename-btn">Rename</button>
+            <button type="button" role="menuitem" class="collection-folder-delete-btn preset-menu-danger">Delete</button>
+          </div>
+        </div>`
+            : ""
+        }
       </span>
     </li>`
     )
@@ -5421,7 +5508,7 @@ function renderCollectionSidebar() {
 
   list.querySelectorAll("li").forEach((li) => {
     li.addEventListener("click", async (e) => {
-      if (e.target.closest(".collection-folder-delete")) return;
+      if (e.target.closest(".collection-folder-menu-wrap")) return;
       const raw = li.dataset.folder;
       state.collectionFolder = raw === "" ? null : decodeURIComponent(raw);
       state.collectionPage = 0;
@@ -5432,15 +5519,37 @@ function renderCollectionSidebar() {
       await loadCollectionPage(0);
     });
 
-    li.querySelector(".collection-folder-delete")?.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const folderId = Number(li.dataset.folderId);
-      const folderName = li.querySelector(".collection-folder-label")?.textContent || "folder";
+    const folderId = li.dataset.folderId ? Number(li.dataset.folderId) : null;
+    const folderName = () =>
+      li.querySelector(".collection-folder-label")?.textContent || "folder";
+
+    async function renameFolder() {
+      if (!folderId) return;
+      const fromName = folderName();
+      const toName = prompt("Rename folder:", fromName);
+      if (!toName?.trim() || toName.trim() === fromName) return;
+      try {
+        await api(`/collection/folders/${folderId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: toName.trim() }),
+        });
+        await loadCollectionStats();
+        renderCollectionSidebar();
+        await loadCollectionPage(state.collectionPage);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function deleteFolder(anchor) {
+      if (!folderId) return;
+      const name = folderName();
       const folderStats = s.folders.find((row) => row.id === folderId);
       const qty = folderStats?.quantity ?? 0;
       const count = folderStats?.item_count ?? 0;
       if (count === 0 && qty === 0) {
-        if (!confirm(`Delete empty folder "${folderName}"?`)) return;
+        if (!confirm(`Delete empty folder "${name}"?`)) return;
         try {
           await api(`/collection/folders/${folderId}`, { method: "DELETE" });
           if (state.collectionFolder === String(folderId)) {
@@ -5455,29 +5564,30 @@ function renderCollectionSidebar() {
         }
         return;
       }
-      openDeleteFolderPopover(folderId, folderName, count, qty, li.querySelector(".collection-folder-delete"));
+      openDeleteFolderPopover(folderId, name, count, qty, anchor);
+    }
+
+    li.querySelector(".collection-folder-menu-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleCollectionFolderMenu(e.currentTarget);
+    });
+    li.querySelector(".collection-folder-rename-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      closeAllCollectionFolderMenus();
+      await renameFolder();
+    });
+    li.querySelector(".collection-folder-delete-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const menuBtn = li.querySelector(".collection-folder-menu-btn");
+      closeAllCollectionFolderMenus();
+      await deleteFolder(menuBtn);
     });
 
-    if (li.dataset.folderId) {
+    if (folderId) {
       li.addEventListener("dblclick", async (e) => {
-        if (e.target.closest(".collection-folder-delete")) return;
+        if (e.target.closest(".collection-folder-menu-wrap")) return;
         e.preventDefault();
-        const folderId = Number(li.dataset.folderId);
-        const fromName = li.querySelector(".collection-folder-label")?.textContent || "";
-        const toName = prompt("Rename folder:", fromName);
-        if (!toName?.trim() || toName.trim() === fromName) return;
-        try {
-          await api(`/collection/folders/${folderId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: toName.trim() }),
-          });
-          await loadCollectionStats();
-          renderCollectionSidebar();
-          await loadCollectionPage(state.collectionPage);
-        } catch (err) {
-          alert(err.message);
-        }
+        await renameFolder();
       });
     }
   });
@@ -7585,6 +7695,7 @@ function wireEvents() {
       closeCollectionToolbarMenus();
     }
     if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
+    if (!e.target.closest(".collection-folder-menu-wrap")) closeAllCollectionFolderMenus();
     if (!e.target.closest(".deck-tile-menu-wrap")) closeAllDeckTileMenus();
   });
   $("#auth-tab-login")?.addEventListener("click", () => {
@@ -7932,6 +8043,7 @@ function wireEvents() {
     if (document.querySelector(".folder-allocation-popover:not(.move-copy-popover)")) {
       closeFolderAllocationPopover();
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
+    else if (document.querySelector(".collection-folder-menu:not([hidden])")) closeAllCollectionFolderMenus();
     else if (document.querySelector(".deck-tile-menu:not([hidden])")) closeAllDeckTileMenus();
     else if (document.querySelector("#collection-manage-menu:not([hidden]), #collection-trade-menu:not([hidden])")) {
       closeCollectionToolbarMenus();

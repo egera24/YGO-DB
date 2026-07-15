@@ -2159,16 +2159,73 @@ tr:hover td { background: var(--surface); }
   gap: 0.35rem;
   flex-shrink: 0;
 }
-.collection-folder-delete {
-  border: none;
-  background: transparent;
+.collection-folder-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.collection-folder-menu-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  min-width: 1.75rem;
+  padding: 0;
+  border-radius: 50%;
   color: var(--muted);
-  cursor: pointer;
-  padding: 0 0.2rem;
-  font-size: 1rem;
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.7;
+  font-size: 1.05rem;
   line-height: 1;
 }
-.collection-folder-delete:hover { color: #f87171; }
+.collection-folder-list li:hover .collection-folder-menu-btn,
+.collection-folder-list li.active .collection-folder-menu-btn {
+  opacity: 1;
+}
+.collection-folder-menu-btn:hover,
+.collection-folder-menu-btn:focus-visible {
+  opacity: 1;
+  color: var(--text);
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.collection-folder-menu {
+  width: max-content;
+  min-width: 7rem;
+  max-width: 11rem;
+  z-index: 210;
+}
+.collection-folder-menu [role="menuitem"] {
+  width: auto;
+  white-space: nowrap;
+}
+.collection-folder-menu.collection-folder-menu--fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+.delete-folder-mode-fieldset {
+  border: none;
+  margin: 0 0 0.65rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.delete-folder-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.delete-folder-mode--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.delete-folder-remove-warning {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
 .collection-folder-icon-btn {
   width: 2rem;
   height: 2rem;

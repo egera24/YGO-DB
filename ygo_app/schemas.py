@@ -280,8 +280,10 @@ class FolderAllocation(BaseModel):
 
 
 class CollectionFolderDeleteResult(BaseModel):
-    moved_allocations: int
-    moved_quantity: int
+    moved_allocations: int = 0
+    moved_quantity: int = 0
+    removed_allocations: int = 0
+    removed_quantity: int = 0
 
 
 class CollectionItemCreate(BaseModel):

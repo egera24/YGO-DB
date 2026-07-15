@@ -290,15 +290,25 @@ def remove_folder(
         None,
         description="Destination folder for cards when the deleted folder is not empty",
     ),
+    remove_cards: bool = Query(
+        False,
+        description="When true, remove this folder's copies from the collection instead of moving them",
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     try:
-        moved_allocations, moved_quantity = delete_collection_folder(
+        (
+            moved_allocations,
+            moved_quantity,
+            removed_allocations,
+            removed_quantity,
+        ) = delete_collection_folder(
             db,
             user_id=user.id,
             folder_id=folder_id,
             target_folder_id=target_folder_id,
+            remove_cards=remove_cards,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -307,6 +317,8 @@ def remove_folder(
     return CollectionFolderDeleteResult(
         moved_allocations=moved_allocations,
         moved_quantity=moved_quantity,
+        removed_allocations=removed_allocations,
+        removed_quantity=removed_quantity,
     )
 
 

@@ -1,3 +1,4 @@
+import { conditionBadgeHtml, editionBadgeHtml } from "./condition-edition-badges.js";
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
 import { bindSortDirToggle, readSortDir } from "./sort-controls.js";
@@ -158,10 +159,6 @@ const $ = (sel) => document.querySelector(sel);
 
   function getCurrencyCode() {
     return getSelectedCurrency();
-  }
-
-  function formatItemRarity(item) {
-    return item.rarity_name || item.rarity_display || item.rarity_code || "—";
   }
 
   function formatDisplayPrice(eurValue) {
@@ -345,6 +342,8 @@ const $ = (sel) => document.querySelector(sel);
       rarity_code: line.rarity_code ?? item.rarity_code ?? "",
       rarity_display: line.rarity_display || item.rarity_display || item.rarity_code || "",
       rarity_name: line.rarity_name || item.rarity_name || "",
+      edition: line.edition ?? item.edition ?? null,
+      condition: line.condition ?? item.condition ?? null,
       sell_price: line.sell_price ?? item.sell_price,
       image_url_small: line.image_url_small ?? item.image_url_small,
       trade_quantity: line.trade_quantity ?? item.trade_quantity ?? line.quantity ?? 1,
@@ -358,6 +357,8 @@ const $ = (sel) => document.querySelector(sel);
       rarity_code: item.rarity_code,
       rarity_display: item.rarity_display || item.rarity_code || "",
       rarity_name: item.rarity_name || "",
+      edition: item.edition ?? null,
+      condition: item.condition ?? null,
       sell_price: item.sell_price,
       image_url_small: item.image_url_small,
       trade_quantity: item.trade_quantity,
@@ -397,7 +398,7 @@ const $ = (sel) => document.querySelector(sel);
       <div class="trade-add-preview-thumb">${cardImgTag(item.image_url_small, item.card_name)}</div>
       <div class="trade-add-preview-info">
         <p class="trade-add-preview-name">${escapeHtml(item.card_name)}</p>
-        <p class="trade-add-preview-meta">${escapeHtml(item.set_code)} · ${escapeHtml(formatItemRarity(item))} · List ${formatDisplayPrice(item.sell_price)}</p>
+        <p class="trade-add-preview-meta">${escapeHtml(item.set_code)} · ${rarityBadgeHtml(item)} · ${editionBadgeHtml(item.edition)} · ${conditionBadgeHtml(item.condition)} · List ${formatDisplayPrice(item.sell_price)}</p>
       </div>
     `;
 
@@ -509,7 +510,7 @@ const $ = (sel) => document.querySelector(sel);
               <div class="trade-cart-line-thumb">${cardImgTag(display.image_url_small, display.card_name)}</div>
               <div class="trade-cart-line-info">
                 <p class="trade-cart-line-title">${escapeHtml(display.card_name)}</p>
-                <p class="trade-cart-line-meta">${escapeHtml(display.set_code)} · ${escapeHtml(formatItemRarity(display))} · List ${formatDisplayPrice(display.sell_price)}</p>
+                <p class="trade-cart-line-meta">${escapeHtml(display.set_code)} · ${rarityBadgeHtml(display)} · ${editionBadgeHtml(display.edition)} · ${conditionBadgeHtml(display.condition)} · List ${formatDisplayPrice(display.sell_price)}</p>
               </div>
             </div>
             <div class="trade-cart-line-fields">
@@ -669,7 +670,8 @@ const $ = (sel) => document.querySelector(sel);
           <td>${escapeHtml(item.card_name)}</td>
           <td>${escapeHtml(item.set_code)}</td>
           <td>${rarityBadgeHtml(item)}</td>
-          <td>${escapeHtml(item.condition || "—")}</td>
+          <td>${editionBadgeHtml(item.edition)}</td>
+          <td>${conditionBadgeHtml(item.condition)}</td>
           <td>${item.trade_quantity}</td>
           <td>${formatDisplayPrice(item.sell_price)}</td>
           <td><button type="button" class="secondary" data-add-cart="${item.item_id}">Add</button></td>
@@ -685,7 +687,7 @@ const $ = (sel) => document.querySelector(sel);
           <div class="card-tile-image-wrap">${cardImgTag(item.image_url_small, item.card_name)}</div>
           <div class="info">
             <div class="name" title="${escapeHtml(item.card_name)}">${escapeHtml(item.card_name)}</div>
-            <div>${escapeHtml(item.set_code)} · ${rarityBadgeHtml(item)} · Qty ${item.trade_quantity}</div>
+            <div>${escapeHtml(item.set_code)} · ${rarityBadgeHtml(item)} · ${editionBadgeHtml(item.edition)} · ${conditionBadgeHtml(item.condition)} · Qty ${item.trade_quantity}</div>
             <div>Price ${formatDisplayPrice(item.sell_price)}</div>
             <button type="button" class="secondary" data-add-cart="${item.item_id}">Add to cart</button>
           </div>

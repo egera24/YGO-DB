@@ -2472,6 +2472,7 @@ def _public_trade_item_row(
         "rarity_code": item.rarity_code,
         "rarity_display": rarity_display(item.rarity_code),
         "rarity_name": rarity_name,
+        "edition": normalize_collection_edition(item.edition),
         "condition": normalize_collection_condition(item.condition),
         "trade_quantity": item.trade_quantity,
         "sell_price": _public_trade_sell_price(item, market_row),

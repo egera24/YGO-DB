@@ -80,6 +80,7 @@ class TestPublicTrade(unittest.TestCase):
             trade_quantity=2,
             sell_price=12.5,
             condition="NearMint",
+            edition="1st Edition",
         )
         self.private_item = CollectionItem(
             user_id=self.owner.id,
@@ -137,6 +138,8 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(item["rarity_code"], "(UR)")
         self.assertEqual(item["rarity_display"], "UR")
         self.assertEqual(item["rarity_name"], "Ultra Rare")
+        self.assertEqual(item["edition"], "1st Edition")
+        self.assertEqual(item["condition"], "NearMint")
         self.assertNotIn("email", payload)
         self.assertNotIn("notes", item)
 

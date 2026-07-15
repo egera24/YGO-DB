@@ -5,6 +5,14 @@ import {
   refreshBulkCollectionAuthVisibility,
   refreshBulkCollectionCurrency,
 } from "./bulk-collection.js";
+import {
+  COLLECTION_CONDITIONS,
+  COLLECTION_EDITIONS,
+  conditionBadgeHtml,
+  editionBadgeHtml,
+  normalizeConditionValue,
+  normalizeEditionValue,
+} from "./condition-edition-badges.js";
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
 import {
@@ -83,81 +91,6 @@ const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
 const COLLECTION_FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 const INFO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>`;
-const COLLECTION_CONDITIONS = [
-  { value: "Mint", label: "Mint (MT)", full: "Mint", short: "MT", tone: "mint" },
-  { value: "NearMint", label: "Near Mint (NM)", full: "Near Mint", short: "NM", tone: "nearmint" },
-  { value: "Excellent", label: "Excellent (EX)", full: "Excellent", short: "EX", tone: "excellent" },
-  { value: "Good", label: "Good (GD)", full: "Good", short: "GD", tone: "good" },
-  { value: "LightPlayed", label: "Light Played (LP)", full: "Light Played", short: "LP", tone: "lightplayed" },
-  { value: "Played", label: "Played (PL)", full: "Played", short: "PL", tone: "played" },
-  { value: "Poor", label: "Poor (PO)", full: "Poor", short: "PO", tone: "poor" },
-];
-const COLLECTION_EDITIONS = ["Unlimited", "1st Edition", "Limited Edition"];
-const EDITION_SHORT_LABELS = {
-  Unlimited: "UE",
-  "1st Edition": "1st",
-  "Limited Edition": "LE",
-};
-
-const CONDITION_ALIAS_MAP = {
-  mint: "Mint",
-  mt: "Mint",
-  nearmint: "NearMint",
-  "near mint": "NearMint",
-  "near-mint": "NearMint",
-  nm: "NearMint",
-  excellent: "Excellent",
-  ex: "Excellent",
-  good: "Good",
-  gd: "Good",
-  lightplayed: "LightPlayed",
-  "light played": "LightPlayed",
-  "light-played": "LightPlayed",
-  lp: "LightPlayed",
-  played: "Played",
-  pl: "Played",
-  poor: "Poor",
-  po: "Poor",
-};
-
-const EDITION_ALIAS_MAP = {
-  unlimited: "Unlimited",
-  ue: "Unlimited",
-  "1st edition": "1st Edition",
-  "1st ed": "1st Edition",
-  "1st ed.": "1st Edition",
-  "first edition": "1st Edition",
-  "first ed": "1st Edition",
-  "first ed.": "1st Edition",
-  "1st": "1st Edition",
-  "1stedition": "1st Edition",
-  "limited edition": "Limited Edition",
-  "limited ed": "Limited Edition",
-  "limited ed.": "Limited Edition",
-  limited: "Limited Edition",
-  le: "Limited Edition",
-};
-
-function aliasKey(value) {
-  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function normalizeConditionValue(value) {
-  if (value == null || value === "") return null;
-  const stripped = String(value).trim();
-  if (!stripped) return null;
-  if (COLLECTION_CONDITIONS.some((c) => c.value === stripped)) return stripped;
-  return CONDITION_ALIAS_MAP[aliasKey(stripped)] || stripped;
-}
-
-function normalizeEditionValue(value) {
-  if (value == null || value === "") return "Unlimited";
-  const stripped = String(value).trim();
-  if (!stripped) return "Unlimited";
-  if (COLLECTION_EDITIONS.includes(stripped)) return stripped;
-  return EDITION_ALIAS_MAP[aliasKey(stripped)] || stripped;
-}
-
 const COLLECTION_LANGUAGES = [
   "English",
   "French",
@@ -431,13 +364,6 @@ async function applyRouteFromHash({ initial = false } = {}) {
   lastAppliedRouteHash = window.location.hash;
 }
 
-function conditionLabel(value) {
-  if (!value) return "—";
-  const canonical = normalizeConditionValue(value);
-  const match = COLLECTION_CONDITIONS.find((c) => c.value === canonical);
-  return match ? match.label : canonical;
-}
-
 function collectionReleaseDateCell(item) {
   const text = formatNumericDate(item.release_date) || "—";
   const titleAttr = item.release_date ? ` title="${escapeHtml(text)}"` : "";
@@ -455,16 +381,6 @@ function collectionNotesCell(item) {
 function collectionFolderCell(item) {
   const label = formatFolderAllocationsLabel(item.folders);
   return `<td class="collection-col-folder">${escapeHtml(label)}</td>`;
-}
-
-function conditionBadgeHtml(value) {
-  if (!value) return "—";
-  const canonical = normalizeConditionValue(value);
-  const match = COLLECTION_CONDITIONS.find((c) => c.value === canonical);
-  const short = match ? match.short : canonical;
-  const full = match ? match.full : canonical;
-  const tone = match ? match.tone : "unknown";
-  return `<span class="condition-badge condition-badge--${tone}" title="${escapeHtml(full)}" aria-label="${escapeHtml(full)}">${escapeHtml(short)}</span>`;
 }
 
 async function api(path, options = {}) {
@@ -5863,17 +5779,6 @@ function populateCollectionEditRarity(printings, setCode, item) {
   }
   raritySel.innerHTML = parts.join("");
   if (setCode === item.set_code) raritySel.value = item.rarity_code;
-}
-
-function editionLabel(value) {
-  if (!value) return "Unlimited";
-  return normalizeEditionValue(value);
-}
-
-function editionBadgeHtml(value) {
-  const full = editionLabel(value);
-  const short = EDITION_SHORT_LABELS[full] || full;
-  return `<span class="edition-badge" title="${escapeHtml(full)}" aria-label="${escapeHtml(full)}">${escapeHtml(short)}</span>`;
 }
 
 async function openCollectionEditModal(item, itemId) {

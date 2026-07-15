@@ -916,10 +916,6 @@ def _folder_allocations_for_row(item: CollectionItem) -> list[dict]:
     ]
 
 
-def _default_folder_allocations(quantity: int) -> list[dict]:
-    return [{"folder_id": None, "quantity": quantity}]
-
-
 def get_or_create_folder(
     session: Session, user_id: int, name: str
 ) -> CollectionFolder | None:
@@ -1036,7 +1032,11 @@ def update_collection_folder(
 
 
 def delete_collection_folder(
-    session: Session, *, user_id: int, folder_id: int
+    session: Session,
+    *,
+    user_id: int,
+    folder_id: int,
+    target_folder_id: int | None = None,
 ) -> tuple[int, int]:
     folder = session.get(CollectionFolder, folder_id)
     if not folder or folder.user_id != user_id:
@@ -1062,21 +1062,40 @@ def delete_collection_folder(
         .scalars()
         .all()
     )
+    if allocations and target_folder_id is None:
+        raise ValueError(
+            "target_folder_id is required when the folder still has cards"
+        )
+    target = None
+    if target_folder_id is not None:
+        if target_folder_id == folder_id:
+            raise ValueError("target_folder_id must be a different folder")
+        target = session.get(CollectionFolder, target_folder_id)
+        if not target or target.user_id != user_id:
+            raise ValueError("Folder not found")
+
     moved_allocations = 0
     moved_quantity = 0
     for allocation in allocations:
         item = allocation.collection_item
         moved_allocations += 1
         moved_quantity += int(allocation.quantity)
-        no_folder = next(
-            (row for row in item.folder_allocations if row.folder_id is None),
+        existing_target = next(
+            (
+                row
+                for row in item.folder_allocations
+                if row.folder_id == target_folder_id and row is not allocation
+            ),
             None,
         )
-        if no_folder:
-            no_folder.quantity += allocation.quantity
+        if existing_target:
+            existing_target.quantity += allocation.quantity
             session.delete(allocation)
         else:
-            allocation.folder_id = None
+            allocation.folder_id = target_folder_id
+    # Flush reassignments before deleting the folder so ON DELETE SET NULL
+    # does not wipe the new folder_id.
+    session.flush()
     session.delete(folder)
     session.commit()
     return moved_allocations, moved_quantity
@@ -1098,16 +1117,17 @@ def _validate_folder_allocations(
 ) -> list[dict]:
     if not allocations:
         raise ValueError("At least one folder allocation is required")
-    merged: dict[int | None, int] = {}
+    merged: dict[int, int] = {}
     for row in allocations:
         folder_id = row.get("folder_id")
         qty = int(row["quantity"])
         if qty < 1:
             raise ValueError("Allocation quantity must be at least 1")
-        if folder_id is not None:
-            folder = session.get(CollectionFolder, folder_id)
-            if not folder or folder.user_id != user_id:
-                raise ValueError("Folder not found")
+        if folder_id is None:
+            raise ValueError("Folder is required")
+        folder = session.get(CollectionFolder, folder_id)
+        if not folder or folder.user_id != user_id:
+            raise ValueError("Folder not found")
         merged[folder_id] = merged.get(folder_id, 0) + qty
     total = sum(merged.values())
     target = _folder_allocation_target(item)
@@ -1142,36 +1162,34 @@ def set_item_folder_allocations(
 
 def _reconcile_allocations_after_quantity_change(item: CollectionItem) -> None:
     allocations = list(item.folder_allocations)
+    target = int(item.quantity or 0)
     if not allocations:
-        item.folder_allocations.append(
-            CollectionItemFolder(folder_id=None, quantity=item.quantity)
-        )
+        if target > 0:
+            raise ValueError("Folder is required")
         return
     if len(allocations) == 1:
-        allocations[0].quantity = item.quantity
+        allocations[0].quantity = target
         return
     current_total = sum(int(row.quantity) for row in allocations)
-    diff = item.quantity - current_total
+    diff = target - current_total
     if diff == 0:
         return
-    no_folder = next((row for row in allocations if row.folder_id is None), None)
-    if no_folder:
-        no_folder.quantity = max(1, no_folder.quantity + diff)
-    elif diff > 0:
-        item.folder_allocations.append(
-            CollectionItemFolder(folder_id=None, quantity=diff)
-        )
-    else:
+    named = [row for row in allocations if row.folder_id is not None]
+    if diff > 0 and named:
+        named[0].quantity = int(named[0].quantity) + diff
+        return
+    if diff < 0:
         raise ValueError(
             "Reduce folder allocations before lowering total quantity"
         )
+    raise ValueError("Folder is required")
 
 
 def _ensure_default_allocations(item: CollectionItem) -> None:
-    if not item.folder_allocations:
-        item.folder_allocations.append(
-            CollectionItemFolder(folder_id=None, quantity=item.quantity)
-        )
+    if item.folder_allocations:
+        return
+    if int(item.quantity or 0) > 0 or int(item.trade_quantity or 0) > 0:
+        raise ValueError("Folder is required")
 
 
 
@@ -2101,6 +2119,12 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         float(data["sell_price"]) if data.get("sell_price") is not None else None
     )
     notes = normalize_collection_notes(data.get("notes"))
+    folder_allocations = data.get("folder_allocations")
+    folder_id = data.get("folder_id")
+
+    needs_folder = int(quantity or 0) > 0 or int(trade_quantity or 0) > 0
+    if needs_folder and not folder_allocations and folder_id is None:
+        raise ValueError("Folder is required")
 
     existing = find_collection_item_by_identity(
         session,
@@ -2115,7 +2139,50 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         existing.trade_quantity += trade_quantity
         if sell_price is not None:
             existing.sell_price = sell_price
-        _reconcile_allocations_after_quantity_change(existing)
+        if folder_allocations:
+            # Rebuild allocations from request, scaled to total item quantity.
+            set_item_folder_allocations(
+                session,
+                user_id=user_id,
+                item=existing,
+                allocations=folder_allocations,
+            )
+        elif folder_id is not None:
+            folder = session.get(CollectionFolder, folder_id)
+            if not folder or folder.user_id != user_id:
+                raise ValueError("Folder not found")
+            no_folder_qty = sum(
+                int(row.quantity)
+                for row in existing.folder_allocations
+                if row.folder_id is None
+            )
+            allocs = [
+                {"folder_id": row.folder_id, "quantity": int(row.quantity)}
+                for row in existing.folder_allocations
+                if row.folder_id is not None
+            ]
+            add_qty = quantity + no_folder_qty
+            if add_qty > 0:
+                matched = next(
+                    (row for row in allocs if row["folder_id"] == folder_id),
+                    None,
+                )
+                if matched is not None:
+                    matched["quantity"] += add_qty
+                else:
+                    allocs.append({"folder_id": folder_id, "quantity": add_qty})
+                set_item_folder_allocations(
+                    session,
+                    user_id=user_id,
+                    item=existing,
+                    allocations=allocs,
+                )
+            else:
+                _reconcile_allocations_after_quantity_change(existing)
+        elif quantity > 0:
+            raise ValueError("Folder is required")
+        else:
+            _reconcile_allocations_after_quantity_change(existing)
         session.commit()
         session.refresh(existing)
         return existing
@@ -2156,32 +2223,26 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
                 if card is not None:
                     item.card_name = card.name
 
-    if data.get("folder_allocations"):
+    if folder_allocations:
         set_item_folder_allocations(
             session,
             user_id=user_id,
             item=item,
-            allocations=data["folder_allocations"],
+            allocations=folder_allocations,
         )
-    elif data.get("folder_id") is not None:
-        folder_id = data["folder_id"]
-        if folder_id is not None:
-            folder = session.get(CollectionFolder, folder_id)
-            if not folder or folder.user_id != user_id:
-                raise ValueError("Folder not found")
+    elif folder_id is not None:
+        folder = session.get(CollectionFolder, folder_id)
+        if not folder or folder.user_id != user_id:
+            raise ValueError("Folder not found")
+        alloc_qty = quantity if quantity > 0 else trade_quantity
         set_item_folder_allocations(
             session,
             user_id=user_id,
             item=item,
-            allocations=[{"folder_id": folder_id, "quantity": quantity}],
+            allocations=[{"folder_id": folder_id, "quantity": alloc_qty}],
         )
-    else:
-        set_item_folder_allocations(
-            session,
-            user_id=user_id,
-            item=item,
-            allocations=_default_folder_allocations(quantity),
-        )
+    elif needs_folder:
+        raise ValueError("Folder is required")
 
     session.commit()
     session.refresh(item)
@@ -3073,14 +3134,14 @@ def save_bulk_collection_grid(
             for row in folder_rows:
                 if not (row.get("folder_name") or "").strip():
                     raise ValueError(
-                        f"Folder name is required for {set_code_key} "
+                        f"Folder is required for {set_code_key} "
                         f"({rarity_display(rarity_code)})"
                     )
         elif trade_q > 0 and folder_rows:
             for row in folder_rows:
                 if not (row.get("folder_name") or "").strip():
                     raise ValueError(
-                        f"Folder name is required for {set_code_key} "
+                        f"Folder is required for {set_code_key} "
                         f"({rarity_display(rarity_code)})"
                     )
 

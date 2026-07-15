@@ -82,7 +82,14 @@ class TestCollectionVariantNormalization(unittest.TestCase):
 
     def test_import_merges_condition_aliases_in_same_file(self):
         csv_path = Path(self._tmp.name).with_suffix(".alias-merge.csv")
-        fieldnames = ["Card Number", "Rarity", "Quantity", "Condition", "Printing"]
+        fieldnames = [
+            "Card Number",
+            "Rarity",
+            "Quantity",
+            "Condition",
+            "Printing",
+            "Folder Name",
+        ]
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -93,6 +100,7 @@ class TestCollectionVariantNormalization(unittest.TestCase):
                     "Quantity": "1",
                     "Condition": "Light Played",
                     "Printing": "Unlimited",
+                    "Folder Name": "Import Folder",
                 }
             )
             writer.writerow(
@@ -102,6 +110,7 @@ class TestCollectionVariantNormalization(unittest.TestCase):
                     "Quantity": "2",
                     "Condition": "LightPlayed",
                     "Printing": "Unlimited",
+                    "Folder Name": "Import Folder",
                 }
             )
 

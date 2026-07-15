@@ -476,7 +476,7 @@ class TestBulkCollectionGrid(unittest.TestCase):
                     "printing_id": printing_id,
                     "set_code": "RA03-EN016",
                     "rarity_code": "(UR)",
-                    "folder_name": None,
+                    "folder_name": "BIN2",
                     "quantity": 0,
                     "trade_quantity": 2,
                     "condition": "NearMint",
@@ -497,11 +497,49 @@ class TestBulkCollectionGrid(unittest.TestCase):
                 CollectionItem.set_code == "RA03-EN016",
             )
         ).scalar_one()
+        folders = [
+            (alloc.folder.name if alloc.folder else None, alloc.quantity)
+            for alloc in item.folder_allocations
+        ]
         session.close()
         self.assertEqual(result["items_created"], 1)
         self.assertEqual(result["trade_quantities_added"], 2)
         self.assertEqual(item.quantity, 0)
         self.assertEqual(item.trade_quantity, 2)
+        self.assertEqual(folders, [("BIN2", 2)])
+
+    def test_save_requires_folder_when_quantity_positive(self):
+        session = self.Session()
+        printing_id = session.execute(
+            select(Printing.id).where(Printing.set_code == "RA03-EN016")
+        ).scalar_one()
+        with self.assertRaisesRegex(ValueError, "Folder is required"):
+            save_bulk_collection_grid(
+                session,
+                user_id=self.owner_id,
+                set_code="RA03",
+                changes=[
+                    {
+                        "row_id": "p-new",
+                        "printing_id": printing_id,
+                        "set_code": "RA03-EN016",
+                        "rarity_code": "(UR)",
+                        "folder_name": None,
+                        "quantity": 1,
+                        "trade_quantity": 0,
+                        "condition": "NearMint",
+                        "edition": "1st Edition",
+                        "language": "English",
+                        "baseline": {
+                            "quantity": 0,
+                            "trade_quantity": 0,
+                            "folder_name": None,
+                            "collection_item_id": None,
+                        },
+                    }
+                ],
+            )
+        session.close()
 
     def test_save_emits_monotonic_progress(self):
         session = self.Session()

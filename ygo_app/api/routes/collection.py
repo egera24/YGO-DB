@@ -286,15 +286,24 @@ def patch_folder(
 @router.delete("/folders/{folder_id}", response_model=CollectionFolderDeleteResult)
 def remove_folder(
     folder_id: int,
+    target_folder_id: int | None = Query(
+        None,
+        description="Destination folder for cards when the deleted folder is not empty",
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     try:
         moved_allocations, moved_quantity = delete_collection_folder(
-            db, user_id=user.id, folder_id=folder_id
+            db,
+            user_id=user.id,
+            folder_id=folder_id,
+            target_folder_id=target_folder_id,
         )
     except ValueError as exc:
-        raise HTTPException(404, str(exc)) from exc
+        detail = str(exc)
+        status = 404 if detail == "Folder not found" else 400
+        raise HTTPException(status, detail) from exc
     return CollectionFolderDeleteResult(
         moved_allocations=moved_allocations,
         moved_quantity=moved_quantity,

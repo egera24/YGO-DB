@@ -5034,30 +5034,37 @@ function openFolderAllocationEditor(item, itemId) {
   const totalQty = itemTotalQuantity(item);
   const folders = state.collectionStats?.folders || [];
   const current = new Map(
-    (item.folders || []).map((row) => [row.folder_id ?? "none", row.quantity])
+    (item.folders || [])
+      .filter((row) => row.folder_id != null)
+      .map((row) => [row.folder_id, row.quantity])
   );
+  const hasLegacyNoFolder = (item.folders || []).some((row) => row.folder_id == null);
 
   const popover = document.createElement("div");
   popover.className = "folder-allocation-popover";
   popover.dataset.itemId = String(itemId);
   popover.innerHTML = `
     <p class="folder-allocation-title">Assign folders (total: ${totalQty})</p>
+    ${
+      hasLegacyNoFolder
+        ? '<p class="folder-allocation-hint muted">Assign all copies to a folder.</p>'
+        : ""
+    }
     <div class="folder-allocation-options">
-      <label class="folder-allocation-option">
-        <input type="checkbox" data-folder-id="" ${current.has("none") ? "checked" : ""} />
-        <span>No Folder</span>
-        <input type="number" class="folder-allocation-qty" min="1" max="${totalQty}" value="${current.get("none") || 1}" ${current.has("none") ? "" : "disabled"} />
-      </label>
-      ${folders
-        .map(
-          (folder) => `
+      ${
+        folders.length
+          ? folders
+              .map(
+                (folder) => `
         <label class="folder-allocation-option">
           <input type="checkbox" data-folder-id="${folder.id}" ${current.has(folder.id) ? "checked" : ""} />
           <span>${escapeHtml(folder.name)}</span>
           <input type="number" class="folder-allocation-qty" min="1" max="${totalQty}" value="${current.get(folder.id) || 1}" ${current.has(folder.id) ? "" : "disabled"} />
         </label>`
-        )
-        .join("")}
+              )
+              .join("")
+          : '<p class="muted">Create a folder first.</p>'
+      }
     </div>
     <div class="folder-allocation-actions">
       <button type="button" class="secondary folder-allocation-cancel">Cancel</button>
@@ -5088,13 +5095,18 @@ function openFolderAllocationEditor(item, itemId) {
       if (!checkbox?.checked) return;
       const qty = Math.max(1, Number(row.querySelector(".folder-allocation-qty")?.value) || 1);
       const rawId = checkbox.dataset.folderId;
+      if (!rawId) return;
       selected.push({
-        folder_id: rawId === "" ? null : Number(rawId),
+        folder_id: Number(rawId),
         quantity: qty,
       });
     });
     if (!selected.length) {
-      alert("Select at least one folder.");
+      alert("Folder is required. Select at least one folder.");
+      return;
+    }
+    if (selected.some((row) => row.folder_id == null || Number.isNaN(row.folder_id))) {
+      alert("Folder is required.");
       return;
     }
     const sum = selected.reduce((acc, row) => acc + row.quantity, 0);
@@ -5147,9 +5159,6 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
   const available = item.quantity;
 
   const targets = [];
-  if (state.collectionFolder !== NO_FOLDER) {
-    targets.push({ id: null, name: "No Folder" });
-  }
   for (const folder of state.collectionStats?.folders || []) {
     if (folder.id === currentFolderId) continue;
     targets.push({ id: folder.id, name: folder.name });
@@ -5211,7 +5220,11 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
       return;
     }
     const targetRaw = popover.querySelector(".move-copy-target")?.value ?? "";
-    const targetFolderId = targetRaw === "" ? null : Number(targetRaw);
+    if (!targetRaw) {
+      showError("Folder is required.");
+      return;
+    }
+    const targetFolderId = Number(targetRaw);
 
     const allocs = (item.folders || []).map((row) => ({
       folder_id: row.folder_id ?? null,
@@ -5233,6 +5246,10 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
       allocs.push({ folder_id: targetFolderId, quantity: qty });
     }
     const updated = allocs.filter((row) => row.quantity > 0);
+    if (updated.some((row) => row.folder_id == null)) {
+      showError("Folder is required. Move all unfiled copies to a folder.");
+      return;
+    }
     const body = { folder_allocations: updated };
     if (!isMove) {
       body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
@@ -5268,6 +5285,98 @@ async function createCollectionFolder() {
   } catch (err) {
     alert(err.message);
   }
+}
+
+function closeDeleteFolderPopover() {
+  document.querySelector(".delete-folder-popover")?.remove();
+}
+
+function openDeleteFolderPopover(folderId, folderName, count, qty, anchor) {
+  closeDeleteFolderPopover();
+  closeFolderAllocationPopover();
+  closeMoveCopyPopover();
+
+  const destinations = (state.collectionStats?.folders || []).filter(
+    (folder) => folder.id !== folderId
+  );
+  if (!destinations.length) {
+    alert(
+      `Cannot delete "${folderName}" while it has cards. Create another folder first to move them into.`
+    );
+    return;
+  }
+
+  const popover = document.createElement("div");
+  popover.className = "folder-allocation-popover delete-folder-popover";
+  popover.innerHTML = `
+    <p class="folder-allocation-title">Delete "${escapeHtml(folderName)}"</p>
+    <p class="muted">${count} card row(s) (${qty} copies) will move to the folder you choose.</p>
+    <label class="move-copy-field">
+      <span>Move cards to</span>
+      <select class="delete-folder-target">
+        <option value="" disabled selected>Select a folder…</option>
+        ${destinations
+          .map(
+            (folder) =>
+              `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`
+          )
+          .join("")}
+      </select>
+    </label>
+    <p class="move-copy-error hidden"></p>
+    <div class="folder-allocation-actions">
+      <button type="button" class="secondary delete-folder-cancel">Cancel</button>
+      <button type="button" class="delete-folder-confirm">Delete</button>
+    </div>`;
+
+  document.body.appendChild(popover);
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    popover.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - popover.offsetWidth - 8)}px`;
+  }
+
+  const errorEl = popover.querySelector(".move-copy-error");
+  popover.querySelector(".delete-folder-cancel")?.addEventListener("click", closeDeleteFolderPopover);
+  popover.querySelector(".delete-folder-confirm")?.addEventListener("click", async () => {
+    errorEl.classList.add("hidden");
+    const targetRaw = popover.querySelector(".delete-folder-target")?.value ?? "";
+    if (!targetRaw) {
+      errorEl.textContent = "Folder is required.";
+      errorEl.classList.remove("hidden");
+      return;
+    }
+    const targetFolderId = Number(targetRaw);
+    try {
+      await api(
+        `/collection/folders/${folderId}?target_folder_id=${targetFolderId}`,
+        { method: "DELETE" }
+      );
+      if (state.collectionFolder === String(folderId)) {
+        state.collectionFolder = null;
+      }
+      closeDeleteFolderPopover();
+      await loadCollectionStats();
+      renderCollectionStatsLine();
+      renderCollectionSidebar();
+      await loadCollectionPage(state.collectionPage);
+    } catch (err) {
+      errorEl.textContent = err.message || "Could not delete folder.";
+      errorEl.classList.remove("hidden");
+    }
+  });
+
+  setTimeout(() => {
+    document.addEventListener(
+      "click",
+      (e) => {
+        if (!popover.contains(e.target) && !e.target.closest(".collection-folder-delete")) {
+          closeDeleteFolderPopover();
+        }
+      },
+      { once: true }
+    );
+  }, 0);
 }
 
 function renderCollectionSidebar() {
@@ -5330,25 +5439,23 @@ function renderCollectionSidebar() {
       const folderStats = s.folders.find((row) => row.id === folderId);
       const qty = folderStats?.quantity ?? 0;
       const count = folderStats?.item_count ?? 0;
-      if (
-        !confirm(
-          `Delete "${folderName}"? ${count} card row(s) (${qty} copies) will move to No Folder.`
-        )
-      ) {
+      if (count === 0 && qty === 0) {
+        if (!confirm(`Delete empty folder "${folderName}"?`)) return;
+        try {
+          await api(`/collection/folders/${folderId}`, { method: "DELETE" });
+          if (state.collectionFolder === String(folderId)) {
+            state.collectionFolder = null;
+          }
+          await loadCollectionStats();
+          renderCollectionStatsLine();
+          renderCollectionSidebar();
+          await loadCollectionPage(state.collectionPage);
+        } catch (err) {
+          alert(err.message);
+        }
         return;
       }
-      try {
-        await api(`/collection/folders/${folderId}`, { method: "DELETE" });
-        if (state.collectionFolder === String(folderId)) {
-          state.collectionFolder = null;
-        }
-        await loadCollectionStats();
-        renderCollectionStatsLine();
-        renderCollectionSidebar();
-        await loadCollectionPage(state.collectionPage);
-      } catch (err) {
-        alert(err.message);
-      }
+      openDeleteFolderPopover(folderId, folderName, count, qty, li.querySelector(".collection-folder-delete"));
     });
 
     if (li.dataset.folderId) {
@@ -5451,13 +5558,15 @@ function populateAddCollectionFolderSelect() {
   const folders = state.collectionStats?.folders || [];
   const current = sel.value;
   sel.innerHTML = [
-    '<option value="">No Folder</option>',
+    '<option value="" disabled>Select a folder…</option>',
     ...folders.map(
       (f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`
     ),
   ].join("");
   if (current && [...sel.options].some((o) => o.value === current)) {
     sel.value = current;
+  } else {
+    sel.value = "";
   }
 }
 
@@ -5660,7 +5769,11 @@ async function submitAddCollection() {
   }
 
   const folderVal = $("#collection-add-folder").value;
-  const folderId = folderVal ? Number(folderVal) : null;
+  if (!folderVal) {
+    showToast("Folder is required.", { variant: "error" });
+    return;
+  }
+  const folderId = Number(folderVal);
   const card = addCollectionContext.card;
 
   const body = {
@@ -5916,19 +6029,25 @@ async function saveCollectionEdit() {
 
   if (qty !== item.quantity) {
     const folderFilter = state.collectionFolder;
-    if (!folderFilter) {
+    // All / No Folder views: total quantity only (legacy No Folder rows keep
+    // their null allocation until reassigned via the folder picker).
+    if (!folderFilter || folderFilter === NO_FOLDER) {
       body.quantity = qty;
     } else {
-      const folderId = folderFilter === NO_FOLDER ? null : Number(folderFilter);
+      const folderId = Number(folderFilter);
       const allocs = (item.folders || []).map((row) => ({
         folder_id: row.folder_id,
         quantity: row.quantity,
       }));
-      const updated = allocs.map((row) =>
-        (row.folder_id === folderId || (row.folder_id == null && folderId == null))
-          ? { ...row, quantity: qty }
-          : row
-      );
+      const updated = allocs
+        .map((row) =>
+          row.folder_id === folderId ? { ...row, quantity: qty } : row
+        )
+        .filter((row) => row.quantity > 0);
+      if (updated.some((row) => row.folder_id == null)) {
+        alert("Folder is required. Assign all unfiled copies to a folder first.");
+        return;
+      }
       body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
       body.folder_allocations = updated;
     }

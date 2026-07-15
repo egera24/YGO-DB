@@ -1535,6 +1535,10 @@ body.search-help-resizing {
   overflow-y: auto;
   padding-right: 0.25rem;
 }
+.required-mark {
+  color: var(--danger, #e57373);
+  font-weight: 600;
+}
 .collection-add-folder-row {
   display: flex;
   gap: 0.5rem;
@@ -2211,6 +2215,10 @@ tr:hover td { background: var(--surface); }
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
   color: var(--muted);
+}
+.folder-allocation-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
 }
 .folder-allocation-options {
   display: flex;

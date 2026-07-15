@@ -90,12 +90,20 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.engine.dispose()
 
     def _write_csv(self, path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
+        normalized = []
+        for row in rows:
+            copy = dict(row)
+            if "Folder Name" not in copy:
+                copy["Folder Name"] = "Import Folder"
+            normalized.append(copy)
         if fieldnames is None:
-            fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity"]
+            fieldnames = ["Card Number", "Rarity", "Card Name", "Quantity", "Folder Name"]
+        elif "Folder Name" not in fieldnames:
+            fieldnames = [*fieldnames, "Folder Name"]
         with path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            for row in rows:
+            for row in normalized:
                 writer.writerow(row)
 
     def _seed_collection_item(
@@ -641,6 +649,7 @@ class TestImportCollectionCsv(unittest.TestCase):
             "Rarity",
             "Card Name",
             "Quantity",
+            "Folder Name",
             "Price Bought",
             "AVG",
             "LOW",
@@ -656,6 +665,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Rarity": "(UR)",
                     "Card Name": "A",
                     "Quantity": "1",
+                    "Folder Name": "Import Folder",
                     "Price Bought": "1.25",
                     "AVG": "9.99",
                     "LOW": "8.88",
@@ -940,6 +950,7 @@ class TestImportCollectionCsv(unittest.TestCase):
             "Quantity",
             "Condition",
             "Printing",
+            "Folder Name",
         ]
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -951,6 +962,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Quantity": "1",
                     "Condition": "NearMint",
                     "Printing": "1st Edition",
+                    "Folder Name": "Import Folder",
                 }
             )
             writer.writerow(
@@ -960,6 +972,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Quantity": "1",
                     "Condition": "NearMint",
                     "Printing": "Unlimited",
+                    "Folder Name": "Import Folder",
                 }
             )
 
@@ -986,6 +999,7 @@ class TestImportCollectionCsv(unittest.TestCase):
             "Quantity",
             "Condition",
             "Printing",
+            "Folder Name",
         ]
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -997,6 +1011,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Quantity": "1",
                     "Condition": "NearMint",
                     "Printing": "Unlimited",
+                    "Folder Name": "Import Folder",
                 }
             )
             writer.writerow(
@@ -1006,6 +1021,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Quantity": "1",
                     "Condition": "LightPlayed",
                     "Printing": "Unlimited",
+                    "Folder Name": "Import Folder",
                 }
             )
 
@@ -1030,6 +1046,7 @@ class TestImportCollectionCsv(unittest.TestCase):
             "Quantity",
             "Condition",
             "Printing",
+            "Folder Name",
         ]
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -1041,6 +1058,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Quantity": "2",
                     "Condition": "NearMint",
                     "Printing": "1st Edition",
+                    "Folder Name": "Import Folder",
                 }
             )
             writer.writerow(
@@ -1050,6 +1068,7 @@ class TestImportCollectionCsv(unittest.TestCase):
                     "Quantity": "3",
                     "Condition": "NearMint",
                     "Printing": "1st Edition",
+                    "Folder Name": "Import Folder",
                 }
             )
 
@@ -1065,6 +1084,25 @@ class TestImportCollectionCsv(unittest.TestCase):
         self.assertEqual(item.quantity, 5)
         self.assertEqual(item.condition, "NearMint")
         self.assertEqual(item.edition, "1st Edition")
+
+    def test_import_rejects_blank_folder_when_quantity_positive(self):
+        csv_path = Path(self._tmp.name).with_suffix(".blank-folder.csv")
+        self._write_csv(
+            csv_path,
+            [
+                {
+                    "Card Number": "LOB-001",
+                    "Rarity": "(UR)",
+                    "Card Name": "A",
+                    "Quantity": "1",
+                    "Folder Name": "",
+                }
+            ],
+        )
+        result = import_collection_csv(csv_path, user_id=self.user_id, replace=True)
+        self.assertEqual(result.imported, 0)
+        self.assertEqual(len(result.rejected), 1)
+        self.assertEqual(result.rejected[0][IMPORT_ERROR_COLUMN], "Folder is required")
 
 
 if __name__ == "__main__":

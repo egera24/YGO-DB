@@ -1156,8 +1156,15 @@ def import_collection_csv(
 
         stored_set_code = matched_set_code or set_code
         quantity = int(row.get("Quantity") or 1)
+        trade_quantity = int(row.get("Trade Quantity") or 0)
         folder_raw = (row.get("Folder Name") or "").strip()
+        if (quantity > 0 or trade_quantity > 0) and not folder_raw:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: "Folder is required"})
+            return
         folder = _folder_for(folder_raw) if folder_raw else None
+        if (quantity > 0 or trade_quantity > 0) and folder is None:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: "Folder is required"})
+            return
         key = collection_item_key(
             stored_set_code,
             rarity_code,
@@ -1205,8 +1212,8 @@ def import_collection_csv(
         )
         item.folder_allocations.append(
             CollectionItemFolder(
-                folder_id=folder.id if folder else None,
-                quantity=quantity,
+                folder_id=folder.id,
+                quantity=quantity if quantity > 0 else max(trade_quantity, 1),
             )
         )
         session.add(item)

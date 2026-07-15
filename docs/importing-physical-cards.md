@@ -47,7 +47,7 @@ AAA_COLLECTION,2,LOB-EN005,UR
 | `Card Number` | Yes        | Printed set code. Part of the match key.                        |
 | `Rarity`      | Yes        | Plain rarity code (no parentheses). Part of the match key.      |
 | `Quantity`    | Recommended| Defaults to 1 if blank. Use this to collapse duplicates.        |
-| `Folder Name` | Optional   | Assigns the card to a collection folder. Blank = no folder.     |
+| `Folder Name` | Yes        | Assigns the card to a collection folder. Required for every row. |
 
 > You do **not** need a card-name column. If you want an extra `Card Name` column
 > as a personal sanity-check while typing, you can add one - but it's optional and

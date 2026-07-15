@@ -271,6 +271,13 @@ class FolderAllocation(BaseModel):
     folder_id: int | None
     quantity: int = Field(ge=1)
 
+    @field_validator("folder_id")
+    @classmethod
+    def _require_folder_id(cls, value: int | None) -> int:
+        if value is None:
+            raise ValueError("Folder is required")
+        return value
+
 
 class CollectionFolderDeleteResult(BaseModel):
     moved_allocations: int
@@ -305,6 +312,17 @@ class CollectionItemCreate(BaseModel):
         if "printing" in data:
             data["printing"] = normalize_collection_edition(data.get("printing"))
         return data
+
+    @model_validator(mode="after")
+    def _require_folder(self):
+        needs_folder = self.quantity >= 1 or self.trade_quantity >= 1
+        if not needs_folder:
+            return self
+        if self.folder_allocations:
+            return self
+        if self.folder_id is None:
+            raise ValueError("Folder is required")
+        return self
 
     @field_validator("notes")
     @classmethod

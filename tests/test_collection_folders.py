@@ -79,9 +79,10 @@ class TestCollectionFolders(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertEqual(first.id, second.id)
 
-    def test_delete_folder_moves_allocations_to_no_folder(self):
+    def test_delete_folder_moves_allocations_to_target(self):
         session = self.Session()
         folder = create_collection_folder(session, user_id=self.user_id, name="Box 1")
+        target = create_collection_folder(session, user_id=self.user_id, name="Box 2")
         item = CollectionItem(
             user_id=self.user_id,
             set_code="X-001",
@@ -100,7 +101,10 @@ class TestCollectionFolders(unittest.TestCase):
         session.commit()
 
         moved_allocations, moved_quantity = delete_collection_folder(
-            session, user_id=self.user_id, folder_id=folder.id
+            session,
+            user_id=self.user_id,
+            folder_id=folder.id,
+            target_folder_id=target.id,
         )
         folders_left = session.execute(select(CollectionFolder)).scalars().all()
         allocation = session.execute(
@@ -112,9 +116,36 @@ class TestCollectionFolders(unittest.TestCase):
 
         self.assertEqual(moved_allocations, 1)
         self.assertEqual(moved_quantity, 2)
-        self.assertEqual(folders_left, [])
-        self.assertIsNone(allocation.folder_id)
+        self.assertEqual(len(folders_left), 1)
+        self.assertEqual(folders_left[0].id, target.id)
+        self.assertEqual(allocation.folder_id, target.id)
         self.assertEqual(allocation.quantity, 2)
+
+    def test_delete_nonempty_folder_requires_target(self):
+        session = self.Session()
+        folder = create_collection_folder(session, user_id=self.user_id, name="Box 1")
+        item = CollectionItem(
+            user_id=self.user_id,
+            set_code="X-001",
+            rarity_code="(C)",
+            quantity=1,
+        )
+        session.add(item)
+        session.flush()
+        session.add(
+            CollectionItemFolder(
+                collection_item_id=item.id,
+                folder_id=folder.id,
+                quantity=1,
+            )
+        )
+        session.commit()
+
+        with self.assertRaisesRegex(ValueError, "target_folder_id is required"):
+            delete_collection_folder(
+                session, user_id=self.user_id, folder_id=folder.id
+            )
+        session.close()
 
 
 if __name__ == "__main__":

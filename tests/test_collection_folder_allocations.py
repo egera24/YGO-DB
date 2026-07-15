@@ -133,27 +133,22 @@ class TestCollectionFolderAllocations(unittest.TestCase):
         self.assertEqual(by_folder[self.folder_a_id], 3)
         self.assertEqual(by_folder[self.folder_b_id], 10)
 
-    def test_update_item_with_folder_allocations(self):
+    def test_update_item_rejects_null_folder_allocation(self):
         session = self.Session()
         item = session.get(CollectionItem, self.item_id)
-        update_collection_item(
-            session,
-            user_id=self.user_id,
-            item=item,
-            data={
-                "folder_allocations": [
-                    {"folder_id": None, "quantity": 1},
-                    {"folder_id": self.folder_b_id, "quantity": 2},
-                ]
-            },
-        )
-        session.refresh(item)
-        by_folder = {
-            row.folder_id: row.quantity for row in item.folder_allocations
-        }
+        with self.assertRaisesRegex(ValueError, "Folder is required"):
+            update_collection_item(
+                session,
+                user_id=self.user_id,
+                item=item,
+                data={
+                    "folder_allocations": [
+                        {"folder_id": None, "quantity": 1},
+                        {"folder_id": self.folder_b_id, "quantity": 2},
+                    ]
+                },
+            )
         session.close()
-        self.assertEqual(by_folder[None], 1)
-        self.assertEqual(by_folder[self.folder_b_id], 2)
 
 
 if __name__ == "__main__":

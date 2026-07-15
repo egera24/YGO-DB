@@ -964,8 +964,8 @@ async function saveGrid() {
     const qty = change.quantity;
     const trade = change.trade_quantity;
     const folder = (change.folder_name || "").trim();
-    if (qty > 0 && !folder) {
-      deps.showToast?.(`Folder name is required for ${change.set_code}.`, { variant: "error" });
+    if ((qty > 0 || trade > 0) && !folder) {
+      deps.showToast?.(`Folder is required for ${change.set_code}.`, { variant: "error" });
       return;
     }
     if (folder && qty <= 0 && trade <= 0) {

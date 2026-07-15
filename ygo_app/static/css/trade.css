@@ -191,6 +191,79 @@
   vertical-align: middle;
 }
 
+/* Containment lives on the overlay, not the frame — inline-size on the
+   frame collapses intrinsic width (list thumbs have no explicit width). */
+#trade-card-modal-image-slot {
+  container-type: inline-size;
+  container-name: trade-card-image;
+}
+
+.trade-image-frame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.trade-image-frame img {
+  display: block;
+  vertical-align: middle;
+}
+
+.trade-image-watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  container-type: inline-size;
+  container-name: trade-card-image;
+}
+
+.trade-image-watermark-badge {
+  width: 90%;
+  max-width: 90%;
+  padding: 0.4em 0.5em;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  color: #f8fafc;
+  font-size: 8.5cqw;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
+}
+
+#trade-card-modal-image-slot > .trade-image-watermark {
+  container-type: normal;
+}
+
+#trade-card-modal-image-slot > .trade-image-watermark .trade-image-watermark-badge {
+  font-size: 8.5cqw;
+}
+
+.trade-card-thumb-btn {
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 0;
+  vertical-align: middle;
+}
+
+.trade-card-thumb-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .trade-tile-view.hidden,
 .trade-list-view.hidden {
   display: none;
@@ -200,9 +273,80 @@
   cursor: default;
 }
 
-.trade-tile-view .card-tile button {
+.trade-tile-view .trade-card-thumb-btn {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+}
+
+.trade-tile-view .trade-image-frame {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+}
+
+.trade-tile-view .card-tile .info > button {
   width: 100%;
   margin-top: 0.35rem;
+}
+
+#trade-card-modal {
+  z-index: 1010;
+}
+
+#trade-card-modal .modal-close {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+#trade-card-modal .modal-close:hover,
+#trade-card-modal .modal-close:focus-visible {
+  color: var(--accent);
+  background: var(--surface2);
+  border-color: var(--border);
+}
+
+#trade-card-modal .modal-info :is(h2, p) {
+  color: #e8eef7;
+}
+
+#trade-card-modal .modal-info .muted,
+#trade-card-modal-meta {
+  color: #94a3b8;
+}
+
+#trade-card-modal-meta {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+#trade-card-modal-desc {
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+#trade-card-modal-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 8px;
+  transition: opacity 0.12s ease;
+}
+
+#trade-card-modal-image-slot.is-loading #trade-card-modal-image,
+#trade-card-modal-image-slot.is-loading .trade-image-watermark {
+  opacity: 0;
+}
+
+#trade-card-modal-image-slot:not(.is-loading) #trade-card-modal-image,
+#trade-card-modal-image-slot:not(.is-loading) .trade-image-watermark {
+  opacity: 1;
+}
+
+#trade-card-modal-image-slot .trade-image-watermark {
+  transition: opacity 0.12s ease;
 }
 
 .trade-error {

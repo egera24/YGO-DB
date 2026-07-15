@@ -23,6 +23,7 @@ from ygo_app.models import (
     UserFavorite,
 )
 from ygo_app.card_filters import (
+    card_response_extras,
     link_markers_contain_all,
     mechanic_filter,
     parse_multi_param,
@@ -54,6 +55,7 @@ from ygo_app.search_query import (
 from ygo_app.utils import normalize_rarity_code, rarity_display
 from ygo_app.rarity_registry import rarity_match_variants, resolve_rarity
 from ygo_app.trade_share import assign_unique_trade_slug, ensure_user_trade_slug
+from ygo_app.yugipedia.images import resolve_display_image_url_small
 from ygo_app.yugipedia.set_chronology import set_abbr_from_code
 
 
@@ -2539,6 +2541,35 @@ def _public_trade_sell_price(
     return None
 
 
+def _public_trade_card_out(card: Card | None) -> dict | None:
+    if card is None:
+        return None
+    extras = card_response_extras(card)
+    return {
+        "id": card.id,
+        "passcode": card.passcode,
+        "name": card.name,
+        "type": card.type,
+        "category": card.category,
+        "types": extras["types"],
+        "mechanic": card.mechanic,
+        "attribute": card.attribute,
+        "level": card.level,
+        "rank": card.rank,
+        "link_rating": extras["link_rating"],
+        "pendulum_scale": extras["pendulum_scale"],
+        "link_markers": extras["link_markers"],
+        "archetype": card.archetype,
+        "atk": card.atk,
+        "def_": card.def_,
+        "desc": card.desc,
+        "image_url": card.image_url,
+        "image_url_small": resolve_display_image_url_small(
+            card.image_url_small, card.image_url
+        ),
+    }
+
+
 def _public_trade_item_row(
     item: CollectionItem,
     *,
@@ -2552,6 +2583,7 @@ def _public_trade_item_row(
         rarity_name = resolved.name
     else:
         rarity_name = linked.set_rarity if linked is not None else None
+    card_out = _public_trade_card_out(card)
     return {
         "item_id": item.id,
         "card_name": item.card_name or (card.name if card else None),
@@ -2564,7 +2596,10 @@ def _public_trade_item_row(
         "condition": normalize_collection_condition(item.condition),
         "trade_quantity": item.trade_quantity,
         "sell_price": _public_trade_sell_price(item, market_row),
-        "image_url_small": card.image_url_small if card else None,
+        "image_url_small": (
+            card_out["image_url_small"] if card_out else None
+        ),
+        "card": card_out,
     }
 
 

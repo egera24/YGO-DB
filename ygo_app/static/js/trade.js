@@ -5,6 +5,12 @@ import { bindSortDirToggle, readSortDir } from "./sort-controls.js";
 
 const $ = (sel) => document.querySelector(sel);
 
+  const IMG_PLACEHOLDER =
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="174" viewBox="0 0 120 174"><rect fill="#1e293b" width="120" height="174"/><text x="60" y="87" text-anchor="middle" fill="#64748b" font-size="12" font-family="sans-serif">No image</text></svg>'
+    );
+
   const slug = (() => {
     const parts = window.location.pathname.split("/").filter(Boolean);
     if (parts[0] === "trade" && parts[1]) return decodeURIComponent(parts[1]);
@@ -31,6 +37,9 @@ const $ = (sel) => document.querySelector(sel);
     turnstileWidgetId: null,
     addModalItemId: null,
     addModalTrigger: null,
+    cardModalTrigger: null,
+    cardModalPasscode: null,
+    cardModalItemId: null,
   };
 
   const cartStorageKey = () => `trade-cart:${slug}`;
@@ -43,6 +52,7 @@ const $ = (sel) => document.querySelector(sel);
   let offerInfoTrigger = null;
   let initStarted = false;
   let turnstileInitPromise = null;
+  let tradeModalImageToken = 0;
 
   const TRADE_TABLE_SKELETON_ROWS = 10;
   const TRADE_TILE_SKELETON_COUNT = 12;
@@ -574,7 +584,231 @@ const $ = (sel) => document.querySelector(sel);
     if (!url) {
       return `<div class="card-img-placeholder" aria-hidden="true"></div>`;
     }
-    return `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt || "Card")}" loading="lazy" />`;
+    const img = `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt || "Card")}" loading="lazy" />`;
+    return `<span class="trade-image-frame">${img}<span class="trade-image-watermark" aria-hidden="true"><span class="trade-image-watermark-badge">Artwork may vary</span></span></span>`;
+  }
+
+  function cardDetailsButtonHtml(item) {
+    const name = item.card_name || "Card";
+    return `<button type="button" class="trade-card-thumb-btn" data-card-details="${item.item_id}" aria-label="View details for ${escapeHtml(name)}">${cardImgTag(item.image_url_small, name)}</button>`;
+  }
+
+  function cardTypesList(card) {
+    return Array.isArray(card?.types) ? card.types : [];
+  }
+
+  function formatCardTypeline(card) {
+    const types = cardTypesList(card);
+    const category = card?.category || null;
+    const typesLabel = types.length ? types.join(" / ") : null;
+    const categoryRedundant = category && types.length === 1 && types[0] === category;
+    const parts = [];
+    if (category && !categoryRedundant) parts.push(category);
+    if (typesLabel && !(categoryRedundant && typesLabel === category)) parts.push(typesLabel);
+    if (!parts.length && card?.type) parts.push(card.type);
+    return parts.join(" · ");
+  }
+
+  function formatMechanicLabel(mechanic, types) {
+    if (!mechanic) return null;
+    const remaining = mechanic
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((part) => !types.includes(part));
+    return remaining.length ? remaining.join(", ") : null;
+  }
+
+  function formatModalStats(card) {
+    if (!card) return "";
+    const types = cardTypesList(card);
+    const typeline = formatCardTypeline(card);
+    const defValue = card.def ?? card.def_;
+    return [
+      typeline || null,
+      card.attribute,
+      card.level != null ? `Level ${card.level}` : null,
+      card.rank != null ? `Rank ${card.rank}` : null,
+      card.link_rating != null ? `Link-${card.link_rating}` : null,
+      card.pendulum_scale != null ? `Scale ${card.pendulum_scale}` : null,
+      formatMechanicLabel(card.mechanic, types),
+      card.archetype,
+      card.atk != null ? `ATK ${card.atk}` : null,
+      defValue != null ? `DEF ${defValue}` : null,
+      (card.link_markers || []).length ? `Markers: ${card.link_markers.join(", ")}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function formatPasscode(passcode) {
+    if (passcode == null) return "";
+    return String(passcode).padStart(8, "0");
+  }
+
+  function isCardModalOpen() {
+    const modal = $("#trade-card-modal");
+    return modal && !modal.hidden;
+  }
+
+  function renderTradeCardPasscode(passcode) {
+    const wrap = $("#trade-card-modal-passcode");
+    const text = $("#trade-card-modal-passcode-text");
+    const copyBtn = $("#trade-card-modal-passcode-copy");
+    state.cardModalPasscode = passcode ?? null;
+    if (!wrap || !text) return;
+    if (passcode == null) {
+      wrap.hidden = true;
+      wrap.removeAttribute("aria-label");
+      text.textContent = "";
+      if (copyBtn) copyBtn.hidden = true;
+      return;
+    }
+    const code = formatPasscode(passcode);
+    text.textContent = code;
+    wrap.setAttribute("aria-label", `Passcode ${code}`);
+    wrap.hidden = false;
+    if (copyBtn) copyBtn.hidden = false;
+  }
+
+  function beginTradeModalImagePending() {
+    tradeModalImageToken += 1;
+    const token = tradeModalImageToken;
+    const slot = $("#trade-card-modal-image-slot");
+    const loading = $("#trade-card-modal-image-loading");
+    const img = $("#trade-card-modal-image");
+    if (!slot || !loading || !img) return token;
+
+    img.removeAttribute("src");
+    img.alt = "";
+    img.onload = null;
+    img.onerror = null;
+    slot.classList.add("is-loading");
+    loading.hidden = false;
+    slot.setAttribute("aria-busy", "true");
+    return token;
+  }
+
+  function finishTradeModalImage(token) {
+    if (token !== tradeModalImageToken) return;
+    const slot = $("#trade-card-modal-image-slot");
+    const loading = $("#trade-card-modal-image-loading");
+    if (!slot || !loading) return;
+    slot.classList.remove("is-loading");
+    loading.hidden = true;
+    slot.setAttribute("aria-busy", "false");
+  }
+
+  function setTradeModalImage(url, alt, token) {
+    const img = $("#trade-card-modal-image");
+    if (!img || token !== tradeModalImageToken) return;
+
+    const src = url || IMG_PLACEHOLDER;
+    img.alt = alt || "";
+    img.onload = () => {
+      img.onload = null;
+      finishTradeModalImage(token);
+    };
+    img.onerror = () => {
+      img.onerror = null;
+      img.src = IMG_PLACEHOLDER;
+      finishTradeModalImage(token);
+    };
+    img.src = src;
+
+    if (img.complete && img.naturalWidth > 0) {
+      img.onload = null;
+      finishTradeModalImage(token);
+    }
+  }
+
+  function renderTradeCardDescSkeleton() {
+    const descEl = $("#trade-card-modal-desc");
+    if (!descEl) return;
+    descEl.hidden = false;
+    descEl.innerHTML = `
+      <div class="skeleton skeleton-line"></div>
+      <div class="skeleton skeleton-line"></div>
+      <div class="skeleton skeleton-line skeleton-line--short"></div>`;
+  }
+
+  function openTradeCardModal(itemId, trigger) {
+    const item = itemById(itemId);
+    if (!item) return;
+
+    const modal = $("#trade-card-modal");
+    const nameEl = $("#trade-card-modal-name");
+    const metaEl = $("#trade-card-modal-meta");
+    const descEl = $("#trade-card-modal-desc");
+    const closeBtn = $("#trade-card-modal-close");
+    if (!modal || !nameEl || !metaEl || !descEl) return;
+
+    const card = item.card || null;
+    const name = card?.name || item.card_name || "Card";
+    const imageToken = beginTradeModalImagePending();
+
+    nameEl.textContent = name;
+    renderTradeCardPasscode(card?.passcode ?? null);
+    metaEl.textContent = formatModalStats(card);
+    metaEl.hidden = !metaEl.textContent;
+    renderTradeCardDescSkeleton();
+
+    const smallUrl = card?.image_url_small || item.image_url_small || null;
+    if (smallUrl) {
+      setTradeModalImage(smallUrl, name, imageToken);
+    }
+
+    state.cardModalItemId = itemId;
+    state.cardModalTrigger = trigger || null;
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+    closeBtn?.focus();
+
+    requestAnimationFrame(() => {
+      if (state.cardModalItemId !== itemId || !isCardModalOpen()) return;
+
+      const desc = card?.desc || "";
+      if (desc) {
+        descEl.textContent = desc;
+        descEl.hidden = false;
+      } else {
+        descEl.textContent = "";
+        descEl.hidden = true;
+      }
+
+      const largeUrl =
+        card?.image_url || card?.image_url_small || item.image_url_small || null;
+      setTradeModalImage(largeUrl, name, imageToken);
+    });
+  }
+
+  function closeTradeCardModal() {
+    const modal = $("#trade-card-modal");
+    if (!modal || modal.hidden) return;
+
+    tradeModalImageToken += 1;
+    const slot = $("#trade-card-modal-image-slot");
+    const loading = $("#trade-card-modal-image-loading");
+    const img = $("#trade-card-modal-image");
+    if (img) {
+      img.onload = null;
+      img.onerror = null;
+      img.removeAttribute("src");
+      img.alt = "";
+    }
+    if (slot) {
+      slot.classList.remove("is-loading");
+      slot.setAttribute("aria-busy", "false");
+    }
+    if (loading) loading.hidden = true;
+
+    modal.hidden = true;
+    state.cardModalPasscode = null;
+    state.cardModalItemId = null;
+    document.body.classList.remove("modal-open");
+    const trigger = state.cardModalTrigger;
+    state.cardModalTrigger = null;
+    trigger?.focus();
   }
 
   function renderTradeTableSkeletonRow() {
@@ -666,7 +900,7 @@ const $ = (sel) => document.querySelector(sel);
       .map(
         (item) => `
         <tr>
-          <td>${cardImgTag(item.image_url_small, item.card_name)}</td>
+          <td>${cardDetailsButtonHtml(item)}</td>
           <td>${escapeHtml(item.card_name)}</td>
           <td>${escapeHtml(item.set_code)}</td>
           <td>${rarityBadgeHtml(item)}</td>
@@ -684,7 +918,7 @@ const $ = (sel) => document.querySelector(sel);
       .map(
         (item) => `
         <article class="card-tile">
-          <div class="card-tile-image-wrap">${cardImgTag(item.image_url_small, item.card_name)}</div>
+          <div class="card-tile-image-wrap">${cardDetailsButtonHtml(item)}</div>
           <div class="info">
             <div class="name" title="${escapeHtml(item.card_name)}">${escapeHtml(item.card_name)}</div>
             <div>${escapeHtml(item.set_code)} · ${rarityBadgeHtml(item)} · ${editionBadgeHtml(item.edition)} · ${conditionBadgeHtml(item.condition)} · Qty ${item.trade_quantity}</div>
@@ -1171,6 +1405,12 @@ const $ = (sel) => document.querySelector(sel);
         }
       }
 
+      const detailsBtn = event.target.closest("[data-card-details]");
+      if (detailsBtn) {
+        openTradeCardModal(Number(detailsBtn.dataset.cardDetails), detailsBtn);
+        return;
+      }
+
       const addBtn = event.target.closest("[data-add-cart]");
       if (addBtn) {
         openAddModal(Number(addBtn.dataset.addCart), addBtn);
@@ -1233,6 +1473,21 @@ const $ = (sel) => document.querySelector(sel);
     $("#trade-cart-backdrop")?.addEventListener("click", () => setCartOpen(false));
     $("#trade-order-form")?.addEventListener("submit", submitOrder);
 
+    $("#trade-card-modal-close")?.addEventListener("click", closeTradeCardModal);
+    $("#trade-card-modal")?.addEventListener("click", (event) => {
+      if (event.target.id === "trade-card-modal") closeTradeCardModal();
+    });
+    $("#trade-card-modal-passcode-copy")?.addEventListener("click", async () => {
+      if (state.cardModalPasscode == null) return;
+      const code = formatPasscode(state.cardModalPasscode);
+      try {
+        await navigator.clipboard.writeText(code);
+        showToast("Passcode copied");
+      } catch {
+        showToast("Could not copy passcode", "error");
+      }
+    });
+
     $("#trade-add-close")?.addEventListener("click", closeAddModal);
     $("#trade-add-cancel")?.addEventListener("click", closeAddModal);
     $("#trade-add-confirm")?.addEventListener("click", confirmAddToCart);
@@ -1252,6 +1507,10 @@ const $ = (sel) => document.querySelector(sel);
       }
       if (isOfferInfoPopoverOpen()) {
         closeOfferInfoPopover(true);
+        return;
+      }
+      if (isCardModalOpen()) {
+        closeTradeCardModal();
         return;
       }
       if (isAddModalOpen()) {

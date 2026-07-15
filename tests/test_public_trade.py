@@ -59,7 +59,21 @@ class TestPublicTrade(unittest.TestCase):
         session.add_all([self.owner, self.other])
         session.flush()
 
-        card = Card(id=89631139, name="Blue-Eyes White Dragon")
+        card = Card(
+            id=89631139,
+            passcode=89631139,
+            name="Blue-Eyes White Dragon",
+            type="Normal Monster",
+            category="Monster",
+            types='["Dragon", "Normal"]',
+            attribute="LIGHT",
+            level=8,
+            atk=3000,
+            def_=2500,
+            desc="This legendary dragon is a powerful engine of destruction.",
+            image_url="https://example.com/bevd.jpg",
+            image_url_small="https://example.com/bevd-small.jpg",
+        )
         session.add(card)
         session.add(
             Printing(
@@ -140,6 +154,25 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(item["rarity_name"], "Ultra Rare")
         self.assertEqual(item["edition"], "1st Edition")
         self.assertEqual(item["condition"], "NearMint")
+        self.assertEqual(item["image_url_small"], "https://example.com/bevd-small.jpg")
+        card = item["card"]
+        self.assertIsNotNone(card)
+        self.assertEqual(card["id"], 89631139)
+        self.assertEqual(card["passcode"], 89631139)
+        self.assertEqual(card["name"], "Blue-Eyes White Dragon")
+        self.assertEqual(card["type"], "Normal Monster")
+        self.assertEqual(card["category"], "Monster")
+        self.assertEqual(card["types"], ["Dragon", "Normal"])
+        self.assertEqual(card["attribute"], "LIGHT")
+        self.assertEqual(card["level"], 8)
+        self.assertEqual(card["atk"], 3000)
+        self.assertEqual(card["def"], 2500)
+        self.assertEqual(
+            card["desc"],
+            "This legendary dragon is a powerful engine of destruction.",
+        )
+        self.assertEqual(card["image_url"], "https://example.com/bevd.jpg")
+        self.assertEqual(card["image_url_small"], "https://example.com/bevd-small.jpg")
         self.assertNotIn("email", payload)
         self.assertNotIn("notes", item)
 

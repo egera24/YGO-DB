@@ -622,6 +622,30 @@ class PublicTradeSellerOut(BaseModel):
     display_name: str | None = None
 
 
+class PublicTradeCardOut(BaseModel):
+    id: int
+    passcode: int | None = None
+    name: str
+    type: str | None = None
+    category: str | None = None
+    types: list[str] = Field(default_factory=list)
+    mechanic: str | None = None
+    attribute: str | None = None
+    level: int | None = None
+    rank: int | None = None
+    link_rating: int | None = None
+    pendulum_scale: int | None = None
+    link_markers: list[str] = Field(default_factory=list)
+    archetype: str | None = None
+    atk: int | None = None
+    def_: int | None = Field(None, serialization_alias="def")
+    desc: str | None = None
+    image_url: str | None = None
+    image_url_small: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
 class PublicTradeItemOut(BaseModel):
     item_id: int
     card_name: str | None
@@ -635,6 +659,7 @@ class PublicTradeItemOut(BaseModel):
     trade_quantity: int
     sell_price: float | None = None
     image_url_small: str | None = None
+    card: PublicTradeCardOut | None = None
 
 
 class PublicTradeListOut(BaseModel):

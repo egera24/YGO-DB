@@ -1041,7 +1041,7 @@ const $ = (sel) => document.querySelector(sel);
           <td>${conditionBadgeHtml(item.condition)}</td>
           <td>${item.trade_quantity}</td>
           <td>${formatDisplayPrice(item.sell_price)}</td>
-          <td><button type="button" class="secondary" data-add-cart="${item.item_id}">Add</button></td>
+          <td><button type="button" class="secondary" data-add-cart="${item.item_id}">Add to cart</button></td>
         </tr>
       `
       )

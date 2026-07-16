@@ -1,7 +1,13 @@
 import { conditionBadgeHtml, editionBadgeHtml } from "./condition-edition-badges.js";
 import { createFilterCombobox } from "./filter-combobox.js";
 import { rarityBadgeHtml } from "./rarity-badges.js";
-import { bindDetailsPanelToggle, bindSortDirToggle, readSortDir, syncSortToggleLabel } from "./sort-controls.js";
+import {
+  bindSortDirToggle,
+  bindTableHeaderSort,
+  readSortDir,
+  setSortDir,
+  syncTableHeaderSort,
+} from "./sort-controls.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -694,6 +700,19 @@ const $ = (sel) => document.querySelector(sel);
     }
   }
 
+  function applyTradeSortState(sort, dir) {
+    const select = $("#trade-sort");
+    if (select) select.value = sort;
+    setSortDir($("#trade-sort-dir"), dir);
+    syncTableHeaderSort($("#trade-table"), sort, dir);
+  }
+
+  function syncTradeSortUi() {
+    const sort = $("#trade-sort")?.value || "set_code";
+    const dir = readSortDir($("#trade-sort-dir"));
+    syncTableHeaderSort($("#trade-table"), sort, dir);
+  }
+
   function cardImgTag(url, alt) {
     if (!url) {
       return `<div class="card-img-placeholder" aria-hidden="true"></div>`;
@@ -1319,6 +1338,8 @@ const $ = (sel) => document.querySelector(sel);
     state.offset = data.offset || 0;
     state.sellerName = data.seller?.display_name || null;
 
+    syncTradeSortUi();
+
     enrichSetsFromItems();
 
     const title = $("#trade-title");
@@ -1477,19 +1498,8 @@ const $ = (sel) => document.querySelector(sel);
     }
   }
 
-  function syncTradeSortToggleLabel() {
-    syncSortToggleLabel({
-      select: $("#trade-sort"),
-      dirBtn: $("#trade-sort-dir"),
-      labelEl: $("#trade-sort-toggle-label"),
-      dirIconEl: $("#trade-sort-toggle-dir"),
-      toggle: $("#trade-sort-toggle"),
-      subject: "trade list",
-    });
-  }
-
   function reloadTradeItemsFromSort() {
-    syncTradeSortToggleLabel();
+    syncTradeSortUi();
     state.offset = 0;
     loadItems().catch((err) => showLoadError(err.message));
   }
@@ -1498,10 +1508,18 @@ const $ = (sel) => document.querySelector(sel);
     setCombobox.bindEvents();
     rarityCombobox.bindEvents();
 
+    setSortDir($("#trade-sort-dir"), readSortDir($("#trade-sort-dir")));
     $("#trade-sort")?.addEventListener("change", () => reloadTradeItemsFromSort());
     bindSortDirToggle($("#trade-sort-dir"), () => reloadTradeItemsFromSort());
-    bindDetailsPanelToggle($("#trade-sort-toggle"), $("#trade-sort-panel"));
-    syncTradeSortToggleLabel();
+    bindTableHeaderSort($("#trade-table"), {
+      getSort: () => $("#trade-sort")?.value || "set_code",
+      getDir: () => readSortDir($("#trade-sort-dir")),
+      onSort: (sort, dir) => {
+        applyTradeSortState(sort, dir);
+        reloadTradeItemsFromSort();
+      },
+    });
+    syncTradeSortUi();
 
     $("#trade-filter-form")?.addEventListener("submit", (event) => {
       event.preventDefault();

@@ -74,8 +74,14 @@
   margin-bottom: 0.5rem;
 }
 
-#trade-sort-panel {
-  margin-bottom: 0.75rem;
+.trade-sort-controls {
+  display: inline-flex;
+  align-items: center;
+}
+
+.trade-sort-controls .sort-controls select {
+  min-height: 2.5rem;
+  appearance: auto;
 }
 
 .trade-toolbar input[type="search"],

@@ -112,3 +112,91 @@ export function syncSortToggleLabel({
     );
   }
 }
+
+/**
+ * @param {string|null|undefined} value Combined value like "set_code:asc"
+ * @returns {{ sort: string, dir: "asc"|"desc" }|null}
+ */
+export function parseCombinedSortValue(value) {
+  if (!value || typeof value !== "string") return null;
+  const sep = value.lastIndexOf(":");
+  if (sep <= 0) return null;
+  const sort = value.slice(0, sep).trim();
+  const dir = normalizeSortDir(value.slice(sep + 1).trim());
+  if (!sort) return null;
+  return { sort, dir };
+}
+
+/**
+ * @param {string} sort
+ * @param {string|null|undefined} dir
+ * @returns {string}
+ */
+export function formatCombinedSortValue(sort, dir) {
+  return `${sort}:${normalizeSortDir(dir)}`;
+}
+
+/**
+ * Sync aria-sort and active class on sortable table headers.
+ * @param {HTMLElement|null} table
+ * @param {string} sort
+ * @param {string|null|undefined} dir
+ */
+export function syncTableHeaderSort(table, sort, dir) {
+  if (!table) return;
+  const normalizedDir = normalizeSortDir(dir);
+  const ariaValue = normalizedDir === SORT_DIR_DESC ? "descending" : "ascending";
+  table.querySelectorAll("th[data-sort]").forEach((th) => {
+    const key = th.getAttribute("data-sort");
+    const active = key === sort;
+    th.setAttribute("aria-sort", active ? ariaValue : "none");
+    th.classList.toggle("th-sort-active", active);
+    const btn = th.querySelector(".th-sort-btn");
+    if (btn) {
+      const label = btn.dataset.sortLabel || btn.textContent?.trim() || key;
+      btn.setAttribute(
+        "aria-label",
+        active
+          ? `Sort by ${label}, currently ${ariaValue}. Activate to reverse.`
+          : `Sort by ${label}`
+      );
+    }
+  });
+}
+
+/**
+ * Wire clickable column headers (th[data-sort] > .th-sort-btn).
+ * Same field flips direction; a new field starts ascending.
+ * @param {HTMLElement|null} table
+ * @param {{
+ *   getSort: () => string,
+ *   getDir: () => string,
+ *   onSort: (sort: string, dir: "asc"|"desc") => void,
+ * }} opts
+ */
+export function bindTableHeaderSort(table, { getSort, getDir, onSort } = {}) {
+  if (!table || typeof getSort !== "function" || typeof getDir !== "function" || typeof onSort !== "function") {
+    return;
+  }
+  if (table.dataset.headerSortBound === "true") return;
+  table.dataset.headerSortBound = "true";
+
+  table.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.(".th-sort-btn");
+    if (!btn || !table.contains(btn)) return;
+    const th = btn.closest("th[data-sort]");
+    if (!th) return;
+    const field = th.getAttribute("data-sort");
+    if (!field) return;
+    e.preventDefault();
+    const currentSort = getSort();
+    const currentDir = normalizeSortDir(getDir());
+    const nextDir =
+      field === currentSort
+        ? currentDir === SORT_DIR_ASC
+          ? SORT_DIR_DESC
+          : SORT_DIR_ASC
+        : SORT_DIR_ASC;
+    onSort(field, nextDir);
+  });
+}

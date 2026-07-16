@@ -18,9 +18,11 @@ import { rarityBadgeHtml } from "./rarity-badges.js";
 import {
   bindDetailsPanelToggle,
   bindSortDirToggle,
+  bindTableHeaderSort,
   readSortDir,
   setSortDir,
   syncSortToggleLabel,
+  syncTableHeaderSort,
 } from "./sort-controls.js";
 
 const API = "/api";
@@ -2072,15 +2074,12 @@ function syncSearchSortToggleLabel() {
   });
 }
 
-function syncCollectionSortToggleLabel() {
-  syncSortToggleLabel({
-    select: $("#collection-sort"),
-    dirBtn: $("#collection-sort-dir"),
-    labelEl: $("#collection-sort-toggle-label"),
-    dirIconEl: $("#collection-sort-toggle-dir"),
-    toggle: $("#collection-sort-toggle"),
-    subject: "collection",
-  });
+function syncCollectionTableHeaderSort() {
+  syncTableHeaderSort(
+    $("#collection-table"),
+    $("#collection-sort")?.value || "set_code",
+    readSortDir($("#collection-sort-dir"))
+  );
 }
 
 function syncSearchPresetToggleLabel() {
@@ -6323,6 +6322,7 @@ async function loadCollectionPage(pageIndex) {
     const page = await api(`/collection?${buildCollectionParams(offset)}`);
     if (seq !== collectionRequestSeq) return;
     state.collectionTotal = page.total;
+    syncCollectionTableHeaderSort();
     renderCollectionTable(page.items);
     renderCollectionPagination();
     state.collectionViewCache = {
@@ -6348,6 +6348,7 @@ function applyCollectionViewCache(cache) {
   state.collectionPage = cache.page;
   renderCollectionStatsLine();
   renderCollectionSidebar();
+  syncCollectionTableHeaderSort();
   renderCollectionTable(cache.items);
   renderCollectionPagination();
   return true;
@@ -7963,18 +7964,20 @@ function wireEvents() {
     await loadCollectionFilterOptions();
     await loadCollectionPage(0);
   });
-  $("#collection-sort")?.addEventListener("change", async () => {
-    syncCollectionSortToggleLabel();
-    state.collectionPage = 0;
-    await loadCollectionPage(0);
+  setSortDir($("#collection-sort-dir"), readSortDir($("#collection-sort-dir")));
+  bindTableHeaderSort($("#collection-table"), {
+    getSort: () => $("#collection-sort")?.value || "set_code",
+    getDir: () => readSortDir($("#collection-sort-dir")),
+    onSort: async (sort, dir) => {
+      const select = $("#collection-sort");
+      if (select) select.value = sort;
+      setSortDir($("#collection-sort-dir"), dir);
+      syncCollectionTableHeaderSort();
+      state.collectionPage = 0;
+      await loadCollectionPage(0);
+    },
   });
-  bindSortDirToggle($("#collection-sort-dir"), async () => {
-    syncCollectionSortToggleLabel();
-    state.collectionPage = 0;
-    await loadCollectionPage(0);
-  });
-  bindDetailsPanelToggle($("#collection-sort-toggle"), $("#collection-sort-panel"));
-  syncCollectionSortToggleLabel();
+  syncCollectionTableHeaderSort();
 
   initCollectionFilterComboboxes();
 

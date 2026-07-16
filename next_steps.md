@@ -91,35 +91,33 @@ python -m unittest tests.test_yugipedia_errata tests.test_yugipedia_tips tests.t
 
 ## 6. GDPR & legal (main app + trade subsite)
 
-**Goal:** Basic compliance artifacts on both the authenticated app and the public trade page.
+**Goal:** Compliance artifacts on the authenticated app and public trade page: accurate legal HTML (operator placeholders until filled), footers, essential-storage notice, account deletion, and a full personal-data export (not only collection CSV).
 
-**Current state:** Placeholder privacy/imprint pages exist at `/legal/privacy` and `/legal/imprint` (with `{{PLACEHOLDER}}` tokens). Trade subsite footer + order-form consent checkbox are shipped. Main app footer and account deletion API still pending.
+**Current state:** Privacy, imprint, and terms at `/legal/*` (operator `{{PLACEHOLDER_*}}` tokens). Trade + main-app footers; dismissible storage notice; trade GDPR consent; `GET /api/auth/data-export`; `DELETE /api/auth/account`. Collection CSV export unchanged. No marketing cookies.
 
 ### 6.1 Static legal pages
 
-Fill in real operator details (pages already serve at `/legal/*`):
-
 | Page | Purpose |
 |------|---------|
-| **Privacy Policy** | Data collected, legal basis, retention, Brevo as processor, user rights |
-| **Imprint / Legal notice** | Operator name, address, contact (EU / DE Telemediengesetz) |
-| **Terms of use** (optional) | Account rules, trade list disclaimer, liability |
+| **Privacy Policy** | Full data inventory, legal bases, retention, processors (Brevo, Turnstile, OAuth, host/DB), rights, CSV vs JSON export |
+| **Imprint / Legal notice** | Operator name, address, contact (placeholders until filled) |
+| **Terms of use** | Account rules, no Konami affiliation, trade list = request relay only, liability |
 
-**Details needed from you before final text:**
+**Operator details still needed before final text (replace `{{PLACEHOLDER_*}}`):**
 
-- Legal entity name, postal address, privacy contact email
-- Country of operation (jurisdiction wording)
+- Legal entity name, postal address, privacy contact email, country
 - Optional: VAT ID, trade register number
-- Language: English, Hungarian, or bilingual
 
 ### 6.2 UI integration
 
-- [ ] Footer on main app (auth landing + logged-in shell).
-- [ ] Lightweight storage notice (localStorage JWT on main app; sessionStorage cart on trade — essential only, no marketing cookies).
+- [x] Footer on main app (auth landing + logged-in shell): Privacy · Imprint · Terms.
+- [x] Terms link on trade + legal page footers.
+- [x] Dismissible essential-storage notice (JWT / prefs / trade cart — no marketing cookies).
 
 ### 6.3 Account-holder rights (main app)
 
-- [ ] Document in privacy policy: collection CSV export = data export.
-- [ ] `DELETE /api/auth/account` (confirm password) — cascade delete per existing FK `ondelete=CASCADE`.
+- [x] Privacy policy documents: collection CSV (format export) + `GET /api/auth/data-export` (full JSON).
+- [x] `GET /api/auth/data-export` — profile, OAuth links, collection, folders, decks, favorites, tags, presets (no password hashes).
+- [x] `DELETE /api/auth/account` — password confirm, or email confirm for OAuth-only; cascade FKs; cleanup pending OTP + email-keyed rate limits.
 
-**Verify:** Footer links work on `/` and `/trade/{slug}`; account deletion removes user + collection; order submit blocked without consent checkbox.
+**Verify:** Footers on `/`, `/trade/{slug}`, `/legal/*`; export includes decks/presets; delete removes user + cascades; OAuth-only delete works; order submit blocked without consent checkbox.

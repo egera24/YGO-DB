@@ -4002,3 +4002,53 @@ th[aria-sort="descending"] .th-sort-btn::after {
 .filter-banlist-status-dot--unlimited {
   background: color-mix(in srgb, #3ecf6e 70%, transparent);
 }
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.site-footer a {
+  color: var(--accent);
+}
+
+.storage-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.storage-notice[hidden] {
+  display: none;
+}
+.storage-notice p {
+  margin: 0;
+  flex: 1 1 16rem;
+  line-height: 1.4;
+}
+.storage-notice a {
+  color: var(--accent);
+}
+
+.delete-account-card {
+  max-width: 28rem;
+}
+.btn-danger {
+  background: color-mix(in srgb, var(--danger) 85%, #000);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover {
+  background: var(--danger);
+}

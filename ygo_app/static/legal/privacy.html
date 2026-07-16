@@ -6,31 +6,92 @@
   <meta name="color-scheme" content="dark" />
   <title>Privacy Policy</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
-  <link rel="stylesheet" href="/static/css/style.css?v=101" />
-  <link rel="stylesheet" href="/static/css/trade.css?v=1" />
+  <link rel="stylesheet" href="/static/css/style.css?v=131" />
+  <link rel="stylesheet" href="/static/css/trade.css?v=30" />
 </head>
 <body class="trade-page">
-  <main class="trade-main">
+  <main class="trade-main legal-doc">
     <h1>Privacy Policy</h1>
-    <p><em>Placeholder — replace with final legal text (see next_steps.md section 12).</em></p>
-    <p>Operator: {{PLACEHOLDER_LEGAL_ENTITY_NAME}}</p>
-    <p>Address: {{PLACEHOLDER_POSTAL_ADDRESS}}</p>
-    <p>Privacy contact: {{PLACEHOLDER_CONTACT_EMAIL}}</p>
+    <p class="muted"><em>Operator identity fields below are placeholders until filled. Technical descriptions reflect how the app works today.</em></p>
+
+    <h2>Controller</h2>
+    <p><strong>{{PLACEHOLDER_LEGAL_ENTITY_NAME}}</strong></p>
+    <p>{{PLACEHOLDER_POSTAL_ADDRESS}}</p>
+    <p>Privacy contact: <a href="mailto:{{PLACEHOLDER_CONTACT_EMAIL}}">{{PLACEHOLDER_CONTACT_EMAIL}}</a></p>
+    <p>Country: {{PLACEHOLDER_COUNTRY}}</p>
+
+    <h2>What this service is</h2>
+    <p>This service lets registered users manage a Yu-Gi-Oh! card collection and decks, and optionally publish a public trade list. It is not affiliated with Konami.</p>
+
     <h2>Data we process</h2>
+    <h3>Account holders</h3>
     <ul>
-      <li>Account data (email, hashed password) for registered users.</li>
-      <li>Collection and deck data you store in the app.</li>
-      <li>Trade order requests: contact details you choose to submit are emailed to the seller via Brevo and are not stored on our servers.</li>
-      <li>Technical logs without buyer PII for abuse prevention (rate limits).</li>
+      <li><strong>Account:</strong> email address; bcrypt password hash (email/password accounts) or linked OAuth identity (provider, provider user id, provider email when available); account creation and email-verification timestamps; optional trade share slug and public display name.</li>
+      <li><strong>User content:</strong> collection items (including notes), folders, decks and deck cards, favorites, card tags, and saved search presets.</li>
+      <li><strong>Authentication token:</strong> a JWT is stored in your browser <code>localStorage</code> so you stay signed in. It contains your user id and expiry only.</li>
     </ul>
+    <h3>Public trade order requests (buyers)</h3>
+    <ul>
+      <li>If you submit an order request on a trade page, the contact details you choose to provide (name, email, phone, address) and line comments/offers are emailed to the seller via Brevo.</li>
+      <li>Those buyer contact fields are <strong>not stored</strong> in our application database. The seller’s account email is the message recipient (visible to Brevo as processor).</li>
+      <li>Submitting an order requires an explicit consent checkbox. Consent is a gate for that request only and is not stored as a separate audit log.</li>
+    </ul>
+    <h3>Security and abuse prevention</h3>
+    <ul>
+      <li>Rate-limit counters keyed by IP and/or email (for login, registration, verification, trade orders, and similar).</li>
+      <li>Pending email verification records (email, password hash, OTP hash, expiry) until you verify or the record expires and is cleaned up.</li>
+      <li>Cloudflare Turnstile may process a captcha token (and related technical data such as IP) on signup and trade order forms when enabled.</li>
+    </ul>
+
+    <h2>Processors and recipients</h2>
+    <ul>
+      <li><strong>Brevo</strong> — transactional email (verification codes; trade order requests to sellers).</li>
+      <li><strong>Cloudflare Turnstile</strong> — bot protection when enabled.</li>
+      <li><strong>OAuth providers</strong> (Google, Discord, GitHub, and/or Microsoft when enabled) — social sign-in.</li>
+      <li><strong>Hosting and database</strong> — application host and PostgreSQL (e.g. Render / Neon as configured for the deployment).</li>
+    </ul>
+
+    <h2>Client storage (no marketing cookies)</h2>
+    <p>We do not use marketing or analytics cookies. The browser may store:</p>
+    <ul>
+      <li>JWT session token and currency preference in <code>localStorage</code> (main app).</li>
+      <li>Trade cart contents in <code>sessionStorage</code> (trade page).</li>
+    </ul>
+    <p>These are essential for the service to function.</p>
+
+    <h2>Legal bases (summary)</h2>
+    <ul>
+      <li><strong>Account and user content:</strong> performance of the service you request (contract / pre-contractual steps) and related legitimate interests (security, abuse prevention).</li>
+      <li><strong>Trade order contact fields:</strong> your consent for that request.</li>
+      <li><strong>Rate limits and captcha:</strong> legitimate interests in protecting the service.</li>
+    </ul>
+
+    <h2>Retention</h2>
+    <ul>
+      <li>Account and user content: until you delete your account (or we remove it if required).</li>
+      <li>Pending verification: until successful verification or expiry/cleanup.</li>
+      <li>Rate-limit rows: sliding windows only; email-keyed rows are removed when you delete your account.</li>
+      <li>Email copies held by Brevo: according to Brevo’s processing terms / DPA with the operator.</li>
+      <li>Server logs (if any): short operational retention; we do not intentionally log buyer trade PII in application logs.</li>
+    </ul>
+
     <h2>Your rights</h2>
-    <p>Registered users may export collection data via CSV and may request account deletion (see main app settings when available).</p>
+    <p>Depending on applicable law (including GDPR where it applies), you may have rights to access, rectification, erasure, restriction, objection, and data portability.</p>
+    <ul>
+      <li><strong>Export (portability):</strong> signed-in users can download a JSON package of their account data (profile, OAuth links, collection, folders, decks, favorites, tags, search presets) via the app. Collection CSV export remains available as a format-specific collection download (not a full personal-data package).</li>
+      <li><strong>Erasure:</strong> signed-in users can delete their account in the app (password confirmation, or email confirmation for social-sign-in-only accounts). Related user content is removed via database cascades; pending verification and email-keyed rate limits for that address are cleaned up.</li>
+      <li><strong>Trade consent:</strong> do not submit an order request if you do not agree; there is nothing further to “withdraw” for that one-off email after it is sent.</li>
+    </ul>
+    <p>To exercise rights or ask questions, contact <a href="mailto:{{PLACEHOLDER_CONTACT_EMAIL}}">{{PLACEHOLDER_CONTACT_EMAIL}}</a>.</p>
+
     <p><a href="/">Back to app</a></p>
   </main>
   <footer class="trade-footer">
     <a href="/legal/privacy">Privacy</a>
     <span aria-hidden="true">·</span>
     <a href="/legal/imprint">Imprint</a>
+    <span aria-hidden="true">·</span>
+    <a href="/legal/terms">Terms</a>
     <span aria-hidden="true">·</span>
     <a href="mailto:{{PLACEHOLDER_CONTACT_EMAIL}}">Contact</a>
   </footer>

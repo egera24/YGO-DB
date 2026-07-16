@@ -756,6 +756,21 @@
   color: var(--accent);
 }
 
+.legal-doc h2 {
+  margin-top: 1.5rem;
+  font-size: 1.15rem;
+}
+.legal-doc h3 {
+  margin-top: 1rem;
+  font-size: 1rem;
+}
+.legal-doc ul {
+  padding-left: 1.25rem;
+}
+.legal-doc code {
+  font-size: 0.9em;
+}
+
 .trade-toast {
   position: fixed;
   bottom: 1rem;

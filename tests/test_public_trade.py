@@ -628,12 +628,19 @@ class TestPublicTrade(unittest.TestCase):
         trade = self.client.get("/trade/owner-trade-list")
         self.assertEqual(trade.status_code, 200)
         self.assertIn("text/html", trade.headers.get("content-type", ""))
+        self.assertIn("/legal/terms", trade.text)
 
         privacy = self.client.get("/legal/privacy")
         self.assertEqual(privacy.status_code, 200)
+        self.assertIn("Brevo", privacy.text)
+        self.assertIn("/legal/terms", privacy.text)
 
-        missing = self.client.get("/legal/terms")
-        self.assertEqual(missing.status_code, 404)
+        imprint = self.client.get("/legal/imprint")
+        self.assertEqual(imprint.status_code, 200)
+
+        terms = self.client.get("/legal/terms")
+        self.assertEqual(terms.status_code, 200)
+        self.assertIn("request relay", terms.text.lower())
 
     def test_generate_trade_share_slug_is_url_safe(self):
         slug = generate_trade_share_slug()

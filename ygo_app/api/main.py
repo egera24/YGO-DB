@@ -120,7 +120,7 @@ app.include_router(search_presets.router, prefix="/api")
 app.include_router(public_trade.router, prefix="/api")
 
 
-_LEGAL_PAGES = frozenset({"privacy", "imprint"})
+_LEGAL_PAGES = frozenset({"privacy", "imprint", "terms"})
 
 
 @app.get("/favicon.ico", include_in_schema=False)

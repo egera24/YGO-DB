@@ -855,6 +855,8 @@ async function submitAuthForm(form, action, { busyLabel, successToast } = {}) {
 function updateAuthUI() {
   const loggedIn = Boolean(state.token && state.user);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
+  $("#account-export-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#account-delete-btn")?.classList.toggle("hidden", !loggedIn);
   $("#collection-toolbar-actions")?.classList.toggle("hidden", !loggedIn);
   refreshBulkCollectionAuthVisibility(loggedIn);
   $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
@@ -3100,7 +3102,9 @@ function syncModalOpenClass() {
     isModalVisible("#collection-add-modal") ||
     isModalVisible("#collection-edit-modal") ||
     isModalVisible("#bulk-collection-modal") ||
-    isModalVisible("#collection-stats-modal")
+    isModalVisible("#collection-stats-modal") ||
+    isModalVisible("#delete-account-modal") ||
+    isModalVisible("#trade-settings-modal")
   ) {
     document.body.classList.add("modal-open");
   } else {
@@ -7777,6 +7781,20 @@ function wireEvents() {
 
   $("#auth-logout")?.addEventListener("click", logout);
 
+  $("#account-export-btn")?.addEventListener("click", () => {
+    void exportAccountData();
+  });
+  $("#account-delete-btn")?.addEventListener("click", openDeleteAccountModal);
+  $("#delete-account-close")?.addEventListener("click", closeDeleteAccountModal);
+  $("#delete-account-cancel")?.addEventListener("click", closeDeleteAccountModal);
+  $("#delete-account-confirm")?.addEventListener("click", () => {
+    void confirmDeleteAccount();
+  });
+  $("#delete-account-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#delete-account-modal")) closeDeleteAccountModal();
+  });
+  $("#storage-notice-dismiss")?.addEventListener("click", dismissStorageNotice);
+
   $("#import-collection-btn")?.addEventListener("click", () => {
     closeCollectionToolbarMenus();
     if (!state.token) {
@@ -8058,6 +8076,8 @@ function wireEvents() {
       closeBulkCollectionModal();
     }
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
+    else if (isModalVisible("#delete-account-modal")) closeDeleteAccountModal();
+    else if (isModalVisible("#trade-settings-modal")) closeTradeSettingsModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
@@ -8736,8 +8756,132 @@ async function copyTradeLink() {
   }
 }
 
+const STORAGE_NOTICE_KEY = "ygo_storage_notice_dismissed";
+let deleteAccountTrigger = null;
+
+function initStorageNotice() {
+  const banner = $("#storage-notice");
+  if (!banner) return;
+  if (localStorage.getItem(STORAGE_NOTICE_KEY) === "1") {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+}
+
+function dismissStorageNotice() {
+  localStorage.setItem(STORAGE_NOTICE_KEY, "1");
+  const banner = $("#storage-notice");
+  if (banner) banner.hidden = true;
+}
+
+async function exportAccountData() {
+  if (!state.token) {
+    showToast("Log in first.", { variant: "error" });
+    return;
+  }
+  const btn = $("#account-export-btn");
+  setButtonBusy(btn, true, { busyLabel: "Exporting…" });
+  try {
+    const headers = { Accept: "application/json" };
+    if (state.token) headers.Authorization = `Bearer ${state.token}`;
+    const res = await fetch(`${API}/auth/data-export`, { headers });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail;
+      throw new Error(typeof detail === "string" ? detail : "Export failed.");
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") || "";
+    const match = /filename="([^"]+)"/i.exec(disposition);
+    const filename = match?.[1] || "ygo-account-export.json";
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast("Account data downloaded.");
+  } catch (err) {
+    showToast(err.message || "Could not export data.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+  } finally {
+    setButtonBusy(btn, false);
+  }
+}
+
+function openDeleteAccountModal() {
+  if (!state.token || !state.user) {
+    showToast("Log in first.", { variant: "error" });
+    return;
+  }
+  deleteAccountTrigger = $("#account-delete-btn");
+  const modal = $("#delete-account-modal");
+  if (!modal) return;
+  const errorEl = $("#delete-account-error");
+  errorEl?.classList.add("hidden");
+  errorEl.textContent = "";
+  const passwordField = $("#delete-account-password-field");
+  const emailField = $("#delete-account-email-field");
+  const passwordInput = $("#delete-account-password");
+  const emailInput = $("#delete-account-email");
+  if (passwordInput) passwordInput.value = "";
+  if (emailInput) emailInput.value = "";
+  const hasPassword = Boolean(state.user.has_password);
+  passwordField.hidden = !hasPassword;
+  emailField.hidden = hasPassword;
+  modal.hidden = false;
+  syncModalOpenClass();
+  if (hasPassword) passwordInput?.focus();
+  else emailInput?.focus();
+}
+
+function closeDeleteAccountModal() {
+  const modal = $("#delete-account-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (deleteAccountTrigger ?? $("#account-delete-btn"))?.focus();
+  deleteAccountTrigger = null;
+}
+
+async function confirmDeleteAccount() {
+  if (!state.user) return;
+  const errorEl = $("#delete-account-error");
+  errorEl?.classList.add("hidden");
+  const btn = $("#delete-account-confirm");
+  const body = state.user.has_password
+    ? { password: $("#delete-account-password")?.value || "" }
+    : { confirm_email: $("#delete-account-email")?.value || "" };
+  setButtonBusy(btn, true, { busyLabel: "Deleting…" });
+  try {
+    await api("/auth/account", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    closeDeleteAccountModal();
+    logout();
+    showToast("Your account has been deleted.");
+  } catch (err) {
+    errorEl.textContent = err.message || "Could not delete account.";
+    errorEl?.classList.remove("hidden");
+    showToast(err.message || "Could not delete account.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+  } finally {
+    setButtonBusy(btn, false);
+  }
+}
+
 async function init() {
   wireEvents();
+  initStorageNotice();
   await loadAuthConfig();
   updateAuthUI();
   try {

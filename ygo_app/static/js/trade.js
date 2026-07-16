@@ -325,6 +325,90 @@ const $ = (sel) => document.querySelector(sel);
     return Object.values(cart).reduce((sum, line) => sum + (line.quantity || 0), 0);
   }
 
+  function lineHasDistinctOffer(line, sellPrice) {
+    if (line.offer_price === "" || line.offer_price == null) return false;
+    const offer = Number(line.offer_price);
+    if (!Number.isFinite(offer)) return false;
+    const list = Number(sellPrice);
+    if (!Number.isFinite(list)) return true;
+    return offer !== list;
+  }
+
+  function cartSummaryTotals(cart) {
+    let count = 0;
+    let listTotal = 0;
+    let altTotal = 0;
+    let hasAlternate = false;
+    let listKnown = true;
+    let altKnown = true;
+
+    for (const line of Object.values(cart)) {
+      const qty = Number(line.quantity) || 0;
+      count += qty;
+      const display = cartLineDisplay(line);
+      const list = Number(display.sell_price);
+      const listOk = Number.isFinite(list);
+      if (!listOk) listKnown = false;
+      else listTotal += list * qty;
+
+      if (lineHasDistinctOffer(line, display.sell_price)) {
+        hasAlternate = true;
+        const offer = Number(line.offer_price);
+        altTotal += offer * qty;
+      } else if (listOk) {
+        altTotal += list * qty;
+      } else {
+        altKnown = false;
+      }
+    }
+
+    return {
+      count,
+      listTotal: listKnown ? listTotal : null,
+      altTotal: altKnown ? altTotal : null,
+      hasAlternate,
+    };
+  }
+
+  function updateCartSummary(cart) {
+    const summary = $("#trade-cart-summary");
+    const countEl = $("#trade-cart-summary-count");
+    const countLabelEl = $("#trade-cart-summary-count-label");
+    const listTotalEl = $("#trade-cart-summary-list-total");
+    const altRow = $("#trade-cart-summary-alt-row");
+    const altTotalEl = $("#trade-cart-summary-alt-total");
+    if (!summary || !countEl || !listTotalEl) return;
+
+    const entries = Object.values(cart);
+    if (!entries.length) {
+      summary.classList.add("hidden");
+      summary.hidden = true;
+      if (altRow) {
+        altRow.classList.add("hidden");
+        altRow.hidden = true;
+      }
+      return;
+    }
+
+    const { count, listTotal, altTotal, hasAlternate } = cartSummaryTotals(cart);
+    countEl.textContent = String(count);
+    if (countLabelEl) countLabelEl.textContent = count === 1 ? "card" : "cards";
+    listTotalEl.textContent = formatDisplayPrice(listTotal);
+    summary.classList.remove("hidden");
+    summary.hidden = false;
+
+    if (altRow && altTotalEl) {
+      if (hasAlternate) {
+        altTotalEl.textContent = formatDisplayPrice(altTotal);
+        altRow.classList.remove("hidden");
+        altRow.hidden = false;
+      } else {
+        altRow.classList.add("hidden");
+        altRow.hidden = true;
+      }
+    }
+  }
+
   function updateCartCount() {
     const count = cartCount(readCart());
     const badge = $("#trade-cart-count");
@@ -525,6 +609,8 @@ const $ = (sel) => document.querySelector(sel);
     const linesEl = $("#trade-cart-lines");
     const emptyEl = $("#trade-cart-empty");
     if (!linesEl || !emptyEl) return;
+
+    updateCartSummary(cart);
 
     const entries = Object.values(cart);
     if (!entries.length) {

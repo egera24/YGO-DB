@@ -173,6 +173,16 @@
   gap: 0.25rem;
 }
 
+.trade-view-toggle .icon-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.trade-view-toggle .icon-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
 .trade-view-toggle button.active {
   border-color: var(--accent);
   color: var(--accent);

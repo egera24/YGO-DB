@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
@@ -16,6 +18,7 @@ from ygo_app.api.main import app
 from ygo_app.auth import create_access_token
 from ygo_app.database import get_db
 from ygo_app.models import Base, Card, CollectionItem, Printing, PrintingMarketPrice, User
+from ygo_app.trade_export import TRADE_HEADERS
 from ygo_app.trade_share import generate_trade_share_slug
 
 
@@ -670,6 +673,92 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(payload["eur_huf_rate"], 400.0)
         self.assertEqual(payload["eur_huf_rate_source"], "fallback")
         self.assertIsNone(payload["eur_huf_rate_as_of"])
+
+    def test_public_trade_export_xlsx_404_for_unknown_slug(self):
+        response = self.client.get("/api/public/trade/missing-slug/export-xlsx")
+        self.assertEqual(response.status_code, 404)
+
+    def test_public_trade_export_xlsx_only_trade_rows(self):
+        response = self.client.get("/api/public/trade/owner-trade-list/export-xlsx")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(
+            'filename="trade-owner-trade-list.xlsx"',
+            response.headers.get("content-disposition", ""),
+        )
+
+        wb = load_workbook(io.BytesIO(response.content))
+        ws = wb.active
+        self.assertEqual(ws.title, "Trade")
+        headers = [cell.value for cell in ws[1]]
+        self.assertEqual(headers, list(TRADE_HEADERS))
+        rows = list(ws.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row[0], "Blue-Eyes White Dragon")
+        self.assertEqual(row[1], "LOB-001")
+        self.assertEqual(row[3], "UR")
+        self.assertEqual(row[4], "1st Edition")
+        self.assertEqual(row[5], "NearMint")
+        self.assertEqual(row[6], 2)
+        self.assertEqual(row[7], 12.5)
+
+    def test_public_trade_export_xlsx_respects_q_filter(self):
+        session = self.Session()
+        session.add(
+            CollectionItem(
+                user_id=self.owner.id,
+                set_code="SDY-001",
+                rarity_code="(C)",
+                card_name="Dark Magician",
+                quantity=1,
+                trade_quantity=1,
+                sell_price=1.0,
+                condition="NearMint",
+            )
+        )
+        session.commit()
+        session.close()
+
+        response = self.client.get(
+            "/api/public/trade/owner-trade-list/export-xlsx",
+            params={"q": "Blue-Eyes"},
+        )
+        self.assertEqual(response.status_code, 200)
+        wb = load_workbook(io.BytesIO(response.content))
+        rows = list(wb.active.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "Blue-Eyes White Dragon")
+
+    def test_public_trade_export_xlsx_respects_rarity_filter(self):
+        session = self.Session()
+        session.add(
+            CollectionItem(
+                user_id=self.owner.id,
+                set_code="SDY-001",
+                rarity_code="(C)",
+                card_name="Dark Magician",
+                quantity=1,
+                trade_quantity=1,
+                sell_price=1.0,
+                condition="NearMint",
+            )
+        )
+        session.commit()
+        session.close()
+
+        response = self.client.get(
+            "/api/public/trade/owner-trade-list/export-xlsx",
+            params={"rarity": "(UR)"},
+        )
+        self.assertEqual(response.status_code, 200)
+        wb = load_workbook(io.BytesIO(response.content))
+        rows = list(wb.active.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][3], "UR")
 
 
 if __name__ == "__main__":

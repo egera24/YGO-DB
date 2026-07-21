@@ -2589,11 +2589,14 @@ def _public_trade_item_row(
     else:
         rarity_name = linked.set_rarity if linked is not None else None
     card_out = _public_trade_card_out(card)
+    set_name = item.set_name
+    if not (set_name or "").strip() and linked is not None and linked.set_name:
+        set_name = linked.set_name
     return {
         "item_id": item.id,
         "card_name": item.card_name or (card.name if card else None),
         "set_code": item.set_code,
-        "set_name": item.set_name,
+        "set_name": set_name,
         "rarity_code": item.rarity_code,
         "rarity_display": rarity_display(item.rarity_code),
         "rarity_name": rarity_name,

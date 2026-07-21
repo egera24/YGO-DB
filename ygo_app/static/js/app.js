@@ -6407,13 +6407,31 @@ function downloadRejectedCsv(csvText) {
 }
 
 function downloadCsvBlob(csvText, filename) {
-  const blob = new Blob(["\ufeff", csvText], { type: "text/csv;charset=utf-8" });
+  downloadBlob(new Blob(["\ufeff", csvText], { type: "text/csv;charset=utf-8" }), filename);
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function filenameFromContentDisposition(header) {
+  if (!header) return null;
+  const utfMatch = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1].trim());
+    } catch {
+      /* fall through */
+    }
+  }
+  const plainMatch = /filename\s*=\s*"([^"]+)"/i.exec(header)
+    || /filename\s*=\s*([^;]+)/i.exec(header);
+  return plainMatch?.[1]?.trim() || null;
 }
 
 async function loadExportFormats() {
@@ -6557,7 +6575,7 @@ function closeExportCollectionModal() {
 }
 
 async function downloadCollectionExport(formatId, folderIds = null) {
-  const headers = { Accept: "text/csv" };
+  const headers = {};
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
   const params = new URLSearchParams({ format: formatId });
   if (folderIds) {
@@ -6570,10 +6588,12 @@ async function downloadCollectionExport(formatId, folderIds = null) {
   }
   const formats = state.exportFormats || [];
   const fmt = formats.find((f) => f.id === formatId);
-  const filename = fmt?.filename || "collection_export.csv";
-  const csvText = await res.text();
-  const body = csvText.startsWith("\ufeff") ? csvText.slice(1) : csvText;
-  downloadCsvBlob(body, filename);
+  const filename =
+    filenameFromContentDisposition(res.headers.get("Content-Disposition"))
+    || fmt?.filename
+    || "collection_export.bin";
+  const blob = await res.blob();
+  downloadBlob(blob, filename);
 }
 
 function decksListCacheKey() {

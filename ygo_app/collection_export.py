@@ -1,4 +1,4 @@
-"""Export user collection to portal-specific CSV formats."""
+"""Export user collection to portal-specific CSV and Excel formats."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import io
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from openpyxl import Workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -50,6 +51,11 @@ DRAGONSHIELD_HEADERS = [
     "Notes",
 ]
 
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+CSV_MEDIA_TYPE = "text/csv; charset=utf-8"
+
 
 @dataclass(frozen=True)
 class ExportRow:
@@ -79,7 +85,8 @@ class ExportFormat:
     label: str
     filename: str
     description: str
-    write: Callable[[list[ExportRow]], str]
+    media_type: str
+    write: Callable[[list[ExportRow]], bytes]
 
 
 def _format_price(value: float | None) -> str:
@@ -92,6 +99,29 @@ def _format_export_market_price(value: float) -> str:
     if value == int(value):
         return str(int(value))
     return str(value)
+
+
+def _row_cells(row: ExportRow) -> list:
+    return [
+        row.folder_name or "",
+        row.quantity,
+        row.trade_quantity,
+        row.card_name or "",
+        row.expansion_code or "",
+        row.set_name or "",
+        row.set_code,
+        rarity_display(row.rarity_code),
+        row.condition or "",
+        row.edition or "Unlimited",
+        row.language or "",
+        _format_price(row.price_bought),
+        row.date_bought or "",
+        _format_export_market_price(row.avg_price),
+        _format_export_market_price(row.low_price),
+        _format_export_market_price(row.trend_price),
+        _format_export_market_price(row.sell_price),
+        row.notes or "",
+    ]
 
 
 def _item_base_row(
@@ -195,35 +225,27 @@ def _item_to_rows(
     return rows
 
 
-def _write_dragonshield(rows: list[ExportRow]) -> str:
+def _write_dragonshield(rows: list[ExportRow]) -> bytes:
     buf = io.StringIO()
     buf.write('"sep=,"\n')
     writer = csv.DictWriter(buf, fieldnames=DRAGONSHIELD_HEADERS, lineterminator="\n")
     writer.writeheader()
     for row in rows:
-        writer.writerow(
-            {
-                "Folder Name": row.folder_name or "",
-                "Quantity": row.quantity,
-                "Trade Quantity": row.trade_quantity,
-                "Card Name": row.card_name or "",
-                "Set Code": row.expansion_code or "",
-                "Set Name": row.set_name or "",
-                "Card Number": row.set_code,
-                "Rarity": rarity_display(row.rarity_code),
-                "Condition": row.condition or "",
-                "Printing": row.edition or "Unlimited",
-                "Language": row.language or "",
-                "Price Bought": _format_price(row.price_bought),
-                "Date Bought": row.date_bought or "",
-                "AVG": _format_export_market_price(row.avg_price),
-                "LOW": _format_export_market_price(row.low_price),
-                "TREND": _format_export_market_price(row.trend_price),
-                "Sell Price": _format_export_market_price(row.sell_price),
-                "Notes": row.notes or "",
-            }
-        )
-    return buf.getvalue()
+        cells = _row_cells(row)
+        writer.writerow(dict(zip(DRAGONSHIELD_HEADERS, cells, strict=True)))
+    return buf.getvalue().encode("utf-8")
+
+
+def _write_excel(rows: list[ExportRow]) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Collection"
+    ws.append(list(DRAGONSHIELD_HEADERS))
+    for row in rows:
+        ws.append(_row_cells(row))
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 
 def load_collection_for_export(
@@ -263,7 +285,16 @@ FORMATS: dict[str, ExportFormat] = {
         description=(
             "DragonShield folder CSV. Can be re-imported with Import my collection."
         ),
+        media_type=CSV_MEDIA_TYPE,
         write=_write_dragonshield,
+    ),
+    "excel": ExportFormat(
+        id="excel",
+        label="Excel",
+        filename="ygo_collection.xlsx",
+        description="Excel workbook (.xlsx) with the same columns as DragonShield.",
+        media_type=XLSX_MEDIA_TYPE,
+        write=_write_excel,
     ),
 }
 
@@ -280,13 +311,13 @@ def list_export_formats() -> list[dict]:
     ]
 
 
-def export_collection_csv(
+def export_collection(
     session: Session,
     *,
     user_id: int,
     format_id: str,
     folder_ids: list[str] | None = None,
-) -> tuple[str, str, str]:
+) -> tuple[bytes, str, str]:
     fmt = FORMATS.get(format_id)
     if fmt is None:
         raise ValueError(f"Unknown export format: {format_id}")
@@ -296,5 +327,23 @@ def export_collection_csv(
     rows = load_collection_for_export(
         session, user_id, folder_filters=folder_filters
     )
-    csv_text = fmt.write(rows)
-    return csv_text, "text/csv; charset=utf-8", fmt.filename
+    return fmt.write(rows), fmt.media_type, fmt.filename
+
+
+def export_collection_csv(
+    session: Session,
+    *,
+    user_id: int,
+    format_id: str,
+    folder_ids: list[str] | None = None,
+) -> tuple[str, str, str]:
+    """CSV-oriented helper: returns decoded text for CSV formats."""
+    content, media_type, filename = export_collection(
+        session,
+        user_id=user_id,
+        format_id=format_id,
+        folder_ids=folder_ids,
+    )
+    if not media_type.startswith("text/csv"):
+        raise ValueError(f"Format {format_id!r} is not a CSV export")
+    return content.decode("utf-8"), media_type, filename

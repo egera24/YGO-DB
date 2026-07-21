@@ -1139,6 +1139,72 @@ const $ = (sel) => document.querySelector(sel);
     return qs ? `?${qs}` : "";
   }
 
+  function filenameFromContentDisposition(header) {
+    if (!header) return null;
+    const utfMatch = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+    if (utfMatch?.[1]) {
+      try {
+        return decodeURIComponent(utfMatch[1].trim());
+      } catch {
+        /* fall through */
+      }
+    }
+    const plainMatch = /filename\s*=\s*"([^"]+)"/i.exec(header)
+      || /filename\s*=\s*([^;]+)/i.exec(header);
+    return plainMatch?.[1]?.trim() || null;
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportTradeExcel() {
+    const exportSlug = slug;
+    if (!exportSlug) {
+      showToast("Could not export trade list", "error");
+      return;
+    }
+    const btn = $("#trade-export-xlsx");
+    const params = currentQueryParams();
+    delete params.limit;
+    delete params.offset;
+    if (btn) {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+    }
+    try {
+      const response = await fetch(
+        `/api/public/trade/${encodeURIComponent(exportSlug)}/export-xlsx${buildQuery(params)}`
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        const detail = data.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : "Could not export trade list";
+        throw new Error(message);
+      }
+      const filename =
+        filenameFromContentDisposition(response.headers.get("Content-Disposition"))
+        || `trade-${exportSlug}.xlsx`;
+      downloadBlob(await response.blob(), filename);
+      showToast("Excel export downloaded.", "success");
+    } catch (err) {
+      showToast(err.message || "Could not export trade list", "error");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute("aria-busy");
+      }
+    }
+  }
+
   function formatSetOptionLabel(set) {
     const name = (set.set_name || "").trim();
     const code = set.expansion_code;
@@ -1531,6 +1597,9 @@ const $ = (sel) => document.querySelector(sel);
 
     $("#trade-view-list")?.addEventListener("click", () => setViewMode("list"));
     $("#trade-view-tiles")?.addEventListener("click", () => setViewMode("tiles"));
+    $("#trade-export-xlsx")?.addEventListener("click", () => {
+      exportTradeExcel();
+    });
     $("#trade-currency")?.addEventListener("change", (event) => {
       setCurrency(event.target.value);
     });

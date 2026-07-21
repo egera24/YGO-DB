@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ygo_app.config import TURNSTILE_SITE_KEY
@@ -29,12 +30,14 @@ from ygo_app.services import (
     public_trade_filters,
     validate_and_build_trade_order,
 )
+from ygo_app.trade_export import export_public_trade_xlsx
 from ygo_app.turnstile import turnstile_required, verify_turnstile_token
 
 router = APIRouter(prefix="/public", tags=["public"])
 logger = logging.getLogger(__name__)
 
 TRADE_ORDER_IP_LIMIT = RateLimitSpec(max_count=5, window_seconds=3600)
+TRADE_EXPORT_IP_LIMIT = RateLimitSpec(max_count=30, window_seconds=3600)
 
 
 @router.get("/config", response_model=PublicConfigOut)
@@ -95,6 +98,42 @@ def get_public_trade_list(
 def get_public_trade_filters(slug: str, db: Session = Depends(get_db)):
     owner = _owner_or_404(db, slug)
     return PublicTradeFiltersOut(**public_trade_filters(db, user_id=owner.id))
+
+
+@router.get("/trade/{slug}/export-xlsx")
+def export_public_trade_list_xlsx(
+    slug: str,
+    request: Request,
+    q: str | None = None,
+    set_code: str | None = None,
+    rarity: str | None = None,
+    sort: str = Query(
+        "set_code",
+        pattern="^(set_code|card_name|trade_quantity|sell_price|condition)$",
+    ),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    owner = _owner_or_404(db, slug)
+    ip = client_ip(request)
+    enforce_rate_limit(db, f"trade-export:ip:{ip}", TRADE_EXPORT_IP_LIMIT)
+    db.commit()
+
+    content, media_type, filename = export_public_trade_xlsx(
+        db,
+        user_id=owner.id,
+        slug=slug,
+        q=q,
+        set_code=set_code,
+        rarity=rarity,
+        sort=sort,
+        sort_dir=sort_dir,
+    )
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/trade/{slug}/order-request", response_model=TradeOrderRequestOut)

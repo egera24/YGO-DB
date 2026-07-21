@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ygo_app.auth import get_current_user
 from ygo_app.cardmarket.market_prices import load_market_prices
-from ygo_app.collection_export import export_collection_csv, list_export_formats
+from ygo_app.collection_export import export_collection, list_export_formats
 from ygo_app.config import COLLECTION_CSV_MAX_BYTES
 from ygo_app.database import SessionLocal, get_db
 from ygo_app.import_data import CollectionImportResult, import_collection_csv
@@ -375,7 +375,7 @@ def get_export_formats(user: User = Depends(get_current_user)):
 
 @router.get("/export-csv")
 def export_csv(
-    format: str = Query(..., description="Export format id (e.g. dragonshield)"),
+    format: str = Query(..., description="Export format id (e.g. dragonshield, excel)"),
     folders: list[str] | None = Query(
         None, description="Folder id or __no_folder__; omit for all"
     ),
@@ -383,14 +383,15 @@ def export_csv(
     user: User = Depends(get_current_user),
 ):
     try:
-        csv_text, media_type, filename = export_collection_csv(
+        content, media_type, filename = export_collection(
             db, user_id=user.id, format_id=format, folder_ids=folders
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    content = "\ufeff" + csv_text
+    if media_type.startswith("text/csv"):
+        content = "\ufeff".encode("utf-8") + content
     return Response(
-        content=content.encode("utf-8"),
+        content=content,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -855,14 +855,21 @@
   font-size: 0.8rem;
 }
 
-.trade-add-error {
+.trade-add-error,
+.trade-offer-error {
   margin: 0;
   color: var(--danger);
   font-size: 0.85rem;
 }
 
-.trade-add-error.hidden {
+.trade-add-error.hidden,
+.trade-offer-error.hidden {
   display: none;
+}
+
+.trade-cart-line-fields input[aria-invalid="true"],
+#trade-add-offer[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 
 .trade-add-actions {

@@ -204,9 +204,7 @@ const $ = (sel) => document.querySelector(sel);
     });
   }
 
-  function offerInputStep() {
-    return getSelectedCurrency() === "HUF" ? "1" : "0.01";
-  }
+  const OFFER_PRICE_ERROR = "Enter a valid alternate offer price (use 0,20 or 0.20).";
 
   function displayOfferValue(eurOffer) {
     if (eurOffer === "" || eurOffer == null) return "";
@@ -221,13 +219,26 @@ const $ = (sel) => document.querySelector(sel);
   function parseOfferInput(raw) {
     const trimmed = String(raw ?? "").trim();
     if (trimmed === "") return "";
-    const num = Number(trimmed);
+    const normalized = trimmed.replace(/[,;]/g, ".");
+    if ((normalized.match(/\./g) || []).length > 1) return Number.NaN;
+    if (!/^\d+(\.\d*)?$/.test(normalized)) return Number.NaN;
+    const num = Number(normalized);
     if (Number.isNaN(num) || num < 0) return Number.NaN;
     if (getSelectedCurrency() === "HUF") {
       const rate = getEurHufRate();
       return Math.round((num / rate) * 100) / 100;
     }
     return num;
+  }
+
+  function setOfferFieldError(input, invalid) {
+    if (!input) return;
+    input.setAttribute("aria-invalid", invalid ? "true" : "false");
+    const label = input.closest("label");
+    const errorEl = label?.querySelector(".trade-offer-error");
+    if (!errorEl) return;
+    errorEl.textContent = invalid ? OFFER_PRICE_ERROR : "";
+    errorEl.classList.toggle("hidden", !invalid);
   }
 
   function updateCurrencyRateHint() {
@@ -315,10 +326,11 @@ const $ = (sel) => document.querySelector(sel);
     }
   }
 
-  function writeCart(cart) {
+  function writeCart(cart, { rerender = true } = {}) {
     sessionStorage.setItem(cartStorageKey(), JSON.stringify(cart));
     updateCartCount();
-    renderCart();
+    if (rerender) renderCart();
+    else updateCartSummary(cart);
   }
 
   function clearCart() {
@@ -514,7 +526,7 @@ const $ = (sel) => document.querySelector(sel);
     qtyInput.max = String(maxQty);
     qtyInput.value = String(existing?.quantity || 1);
     offerInput.value = displayOfferValue(existing?.offer_price);
-    offerInput.step = offerInputStep();
+    offerInput.setAttribute("aria-invalid", "false");
     offerInput.placeholder = formatOfferPlaceholder(item.sell_price);
     syncCurrencySuffixes();
 
@@ -575,11 +587,13 @@ const $ = (sel) => document.querySelector(sel);
     }
     if (offerRaw !== "" && Number.isNaN(offerPrice)) {
       if (errorEl) {
-        errorEl.textContent = "Alternate offer price must be zero or greater.";
+        errorEl.textContent = OFFER_PRICE_ERROR;
         errorEl.classList.remove("hidden");
       }
+      offerInput.setAttribute("aria-invalid", "true");
       return;
     }
+    offerInput.setAttribute("aria-invalid", "false");
 
     const cart = readCart();
     const existing = cart[itemId] || { item_id: itemId, comment: "" };
@@ -607,7 +621,8 @@ const $ = (sel) => document.querySelector(sel);
     const line = cart[itemId];
     if (!line) return;
     line[field] = value;
-    writeCart(cart);
+    const skipRerender = field === "offer_price" || field === "comment";
+    writeCart(cart, { rerender: !skipRerender });
   }
 
   function renderCart() {
@@ -655,9 +670,10 @@ const $ = (sel) => document.querySelector(sel);
               <label>
                 ${renderOfferLabelHtml()}
                 <div class="trade-price-input-wrap">
-                  <input type="number" min="0" step="${offerInputStep()}" value="${escapeHtml(displayOfferValue(line.offer_price))}" data-cart-offer="${line.item_id}" placeholder="${escapeHtml(formatOfferPlaceholder(display.sell_price))}" />
+                  <input type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(displayOfferValue(line.offer_price))}" data-cart-offer="${line.item_id}" placeholder="${escapeHtml(formatOfferPlaceholder(display.sell_price))}" aria-invalid="false" />
                   <span class="trade-currency-suffix" data-cart-currency aria-hidden="true">${escapeHtml(getCurrencyCode())}</span>
                 </div>
+                <p class="trade-offer-error hidden" role="alert"></p>
               </label>
             </div>
             <button type="button" class="secondary trade-cart-line-remove" data-cart-remove="${line.item_id}">Remove</button>
@@ -1486,14 +1502,24 @@ const $ = (sel) => document.querySelector(sel);
     }
 
     const cart = readCart();
+    const hasInvalidOffer = Object.values(cart).some((line) => {
+      const offer = line.offer_price;
+      return offer !== "" && offer != null && Number.isNaN(Number(offer));
+    });
+    if (hasInvalidOffer) {
+      if (errorEl) {
+        errorEl.textContent = OFFER_PRICE_ERROR;
+        errorEl.classList.remove("hidden");
+      }
+      return;
+    }
+
     const lines = Object.values(cart).map((line) => ({
       item_id: line.item_id,
       quantity: Number(line.quantity),
       comment: line.comment || undefined,
       offer_price:
-        line.offer_price === "" ||
-        line.offer_price == null ||
-        Number.isNaN(Number(line.offer_price))
+        line.offer_price === "" || line.offer_price == null
           ? undefined
           : Number(line.offer_price),
     }));
@@ -1677,11 +1703,14 @@ const $ = (sel) => document.querySelector(sel);
       }
       const offer = event.target.closest("[data-cart-offer]");
       if (offer) {
+        const raw = offer.value.trim();
         const parsed = parseOfferInput(offer.value);
+        const invalid = raw !== "" && Number.isNaN(parsed);
+        setOfferFieldError(offer, invalid);
         updateCartLine(
           Number(offer.dataset.cartOffer),
           "offer_price",
-          offer.value.trim() === "" ? "" : parsed
+          raw === "" ? "" : parsed
         );
       }
     });

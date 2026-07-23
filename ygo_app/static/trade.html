@@ -7,7 +7,7 @@
   <title>Trade list</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
   <link rel="stylesheet" href="/static/css/style.css?v=130" />
-  <link rel="stylesheet" href="/static/css/trade.css?v=32" />
+  <link rel="stylesheet" href="/static/css/trade.css?v=33" />
 </head>
 <body class="trade-page">
   <header class="trade-header">
@@ -208,7 +208,7 @@
           </button>
         </div>
         <div class="trade-price-input-wrap">
-          <input type="number" id="trade-add-offer" min="0" step="0.01" placeholder="" />
+          <input type="text" inputmode="decimal" autocomplete="off" id="trade-add-offer" placeholder="" aria-invalid="false" />
           <span id="trade-add-offer-currency" class="trade-currency-suffix" aria-hidden="true">EUR</span>
         </div>
       </div>
@@ -297,6 +297,6 @@
 
   <div id="trade-toast" class="trade-toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/trade.js?v=47" type="module"></script>
+  <script src="/static/js/trade.js?v=48" type="module"></script>
 </body>
 </html>

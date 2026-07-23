@@ -110,6 +110,7 @@ python -m ygo_app.jobs.import_catalog
 |----------|---------|
 | **Import Yugipedia catalog** | Chained jobs: passcodes + 6 detail batches + import (~2–4 h). Each batch must log `[BATCH_RESULT] missing=0` or job exits **3**. Manual: **production** or **dev**. Schedule: **1st & 15th**, production only. Fallback: Import YGO catalog (YGOProDeck API). |
 | **Neon DB keep-alive** | Pings both DBs (needs both secrets). |
+| **Render prod keep-alive** | Pings production `/api/health` every 10 min during Europe/Budapest 08:00–22:00 (no secrets). Staging not pinged. |
 
 ---
 

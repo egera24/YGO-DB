@@ -1579,6 +1579,7 @@ const $ = (sel) => document.querySelector(sel);
       resetTurnstile();
       setCartOpen(false);
       showToast("Order request sent. The seller will contact you if needed.", "success");
+      loadItems().catch(() => {});
     } catch (err) {
       if (errorEl) {
         errorEl.textContent = err.message || "Could not send order request.";

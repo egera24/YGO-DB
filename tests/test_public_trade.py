@@ -94,7 +94,7 @@ class TestPublicTrade(unittest.TestCase):
             rarity_code="(UR)",
             card_name=card.name,
             quantity=2,
-            trade_quantity=2,
+            trade_quantity=10,
             sell_price=12.5,
             condition="NearMint",
             edition="1st Edition",
@@ -151,7 +151,7 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(len(payload["items"]), 1)
         item = payload["items"][0]
         self.assertEqual(item["item_id"], self.trade_item_id)
-        self.assertEqual(item["trade_quantity"], 2)
+        self.assertEqual(item["trade_quantity"], 10)
         self.assertEqual(item["rarity_code"], "(UR)")
         self.assertEqual(item["rarity_display"], "UR")
         self.assertEqual(item["rarity_name"], "Ultra Rare")
@@ -538,6 +538,138 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(response.json()["message"], "Order request sent.")
         send_mock.assert_called_once()
 
+        session = self.Session()
+        item = session.get(CollectionItem, self.trade_item_id)
+        self.assertEqual(item.trade_quantity, 9)
+        self.assertEqual(item.locked_quantity, 1)
+        session.close()
+
+        locks = self.client.get(
+            "/api/collection/trade-locks",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+        )
+        self.assertEqual(locks.status_code, 200)
+        orders = locks.json()["orders"]
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["buyer_email"], "buyer@test.example")
+        self.assertEqual(orders[0]["lines"][0]["quantity"], 1)
+
+    @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
+    def test_order_request_locks_prevent_oversell(self, _send_mock):
+        first = self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 10}],
+                "gdpr_consent": True,
+            },
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 1}],
+                "gdpr_consent": True,
+            },
+        )
+        self.assertEqual(second.status_code, 400)
+
+        listed = self.client.get("/api/public/trade/owner-trade-list")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["total"], 0)
+
+    @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
+    def test_release_trade_lock_restores_trade_quantity(self, _send_mock):
+        self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 3}],
+                "name": "Buyer",
+                "gdpr_consent": True,
+            },
+        )
+        locks = self.client.get(
+            "/api/collection/trade-locks",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+        ).json()["orders"]
+        line_id = locks[0]["lines"][0]["line_id"]
+
+        release = self.client.post(
+            "/api/collection/trade-locks/release",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+            json={"lines": [{"line_id": line_id, "quantity": 2}]},
+        )
+        self.assertEqual(release.status_code, 200)
+        self.assertEqual(release.json()["updated"], 1)
+
+        session = self.Session()
+        item = session.get(CollectionItem, self.trade_item_id)
+        self.assertEqual(item.trade_quantity, 9)
+        self.assertEqual(item.locked_quantity, 1)
+        session.close()
+
+        remaining = self.client.get(
+            "/api/collection/trade-locks",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+        ).json()["orders"]
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["lines"][0]["quantity"], 1)
+
+    @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
+    def test_remove_trade_lock_clears_locked_stock(self, _send_mock):
+        self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 2}],
+                "gdpr_consent": True,
+            },
+        )
+        locks = self.client.get(
+            "/api/collection/trade-locks",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+        ).json()["orders"]
+        line_id = locks[0]["lines"][0]["line_id"]
+
+        remove = self.client.post(
+            "/api/collection/trade-locks/remove",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+            json={"lines": [{"line_id": line_id, "quantity": 2}]},
+        )
+        self.assertEqual(remove.status_code, 200)
+
+        session = self.Session()
+        item = session.get(CollectionItem, self.trade_item_id)
+        self.assertEqual(item.trade_quantity, 8)
+        self.assertEqual(item.locked_quantity, 0)
+        session.close()
+
+        remaining = self.client.get(
+            "/api/collection/trade-locks",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+        ).json()["orders"]
+        self.assertEqual(remaining, [])
+
+    @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
+    def test_trade_locks_require_owner_auth(self, _send_mock):
+        self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 1}],
+                "gdpr_consent": True,
+            },
+        )
+        locks = self.client.get(
+            "/api/collection/trade-locks",
+            headers={"Authorization": f"Bearer {self.owner_token}"},
+        ).json()["orders"]
+        line_id = locks[0]["lines"][0]["line_id"]
+
+        forbidden = self.client.post(
+            "/api/collection/trade-locks/release",
+            headers={"Authorization": f"Bearer {self.other_token}"},
+            json={"lines": [{"line_id": line_id, "quantity": 1}]},
+        )
+        self.assertEqual(forbidden.status_code, 400)
+
     @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
     def test_order_request_rejects_excess_quantity(self, _send_mock):
         response = self.client.post(
@@ -589,7 +721,7 @@ class TestPublicTrade(unittest.TestCase):
             "lines": [{"item_id": self.trade_item_id, "quantity": 1}],
             "gdpr_consent": True,
         }
-        for _ in range(5):
+        for _ in range(10):
             response = self.client.post(
                 "/api/public/trade/owner-trade-list/order-request",
                 json=body,
@@ -703,7 +835,7 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(row[3], "UR")
         self.assertEqual(row[4], "1st Edition")
         self.assertEqual(row[5], "NearMint")
-        self.assertEqual(row[6], 2)
+        self.assertEqual(row[6], 10)
         self.assertEqual(row[7], 12.5)
 
     def test_public_trade_export_xlsx_respects_q_filter(self):

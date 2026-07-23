@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=135" />
+  <link rel="stylesheet" href="/static/css/style.css?v=137" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=6" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -479,6 +479,7 @@
               <div id="collection-trade-menu" class="preset-menu" hidden role="menu">
                 <button type="button" role="menuitem" id="copy-trade-link-btn">Copy trade link</button>
                 <button type="button" role="menuitem" id="trade-settings-btn">Trade settings</button>
+                <button type="button" role="menuitem" id="manage-locked-quantities-btn">Manage locked quantities</button>
               </div>
             </div>
           </div>
@@ -760,6 +761,29 @@
         <button type="button" id="trade-settings-cancel" class="secondary">Cancel</button>
         <button type="button" id="trade-settings-save">Save</button>
       </div>
+    </article>
+  </div>
+
+  <div id="trade-locks-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="trade-locks-title" hidden>
+    <article class="modal-card modal-card--wide trade-locks-modal-card">
+      <button type="button" id="trade-locks-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="trade-locks-title">Manage locked quantities</h2>
+        <p class="muted">Quantities reserved by open order requests. Release them back to trade if a deal fell through, or remove them after a successful sale.</p>
+      </header>
+      <div id="trade-locks-body" class="trade-locks-body" aria-live="polite"></div>
+      <p id="trade-locks-error" class="auth-error hidden" role="alert"></p>
+      <div class="export-collection-actions trade-locks-actions">
+        <button type="button" id="trade-locks-release-selected" class="secondary" disabled title="Release back to trade if the deal fell through">Release selected</button>
+        <button type="button" id="trade-locks-remove-selected" class="btn-danger" disabled title="Remove from collection after a successful sale">Remove selected</button>
+        <button type="button" id="trade-locks-done" class="secondary">Close</button>
+      </div>
+      <div class="search-help-resize-handle" role="separator" aria-orientation="both" aria-label="Resize locked quantities panel" tabindex="-1"></div>
     </article>
   </div>
 
@@ -1282,6 +1306,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=222" type="module"></script>
+  <script src="/static/js/app.js?v=224" type="module"></script>
 </body>
 </html>

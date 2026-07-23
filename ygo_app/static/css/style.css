@@ -4083,3 +4083,106 @@ th[aria-sort="descending"] .th-sort-btn::after {
 .btn-danger:hover {
   background: var(--danger);
 }
+
+.trade-locks-modal-card {
+  display: flex;
+  flex-direction: column;
+  width: 40rem;
+  height: min(70vh, 26.25rem);
+  min-width: 480px;
+  min-height: 280px;
+  max-width: calc(100vw - 2rem);
+  max-height: 90vh;
+  overflow: hidden;
+}
+.trade-locks-modal-card .export-collection-header,
+.trade-locks-modal-card .trade-locks-actions {
+  flex: 0 0 auto;
+}
+.trade-locks-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  margin: 0.25rem 0 0.75rem;
+  min-height: 0;
+}
+.trade-locks-empty {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+.trade-locks-order {
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.75rem;
+  background: color-mix(in srgb, var(--surface) 92%, #000);
+}
+.trade-locks-order-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  align-items: baseline;
+  margin-bottom: 0.65rem;
+}
+.trade-locks-order-header strong {
+  font-size: 0.95rem;
+}
+.trade-locks-order-meta {
+  font-size: 0.85rem;
+}
+.trade-locks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.trade-locks-table th,
+.trade-locks-table td {
+  padding: 0.4rem 0.45rem;
+  text-align: left;
+  vertical-align: middle;
+  border-top: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+}
+.trade-locks-table th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.8rem;
+  border-top: none;
+}
+.trade-locks-table .trade-locks-check {
+  width: 2rem;
+}
+.trade-locks-table .trade-locks-qty {
+  width: 7.5rem;
+  white-space: nowrap;
+}
+.trade-locks-table .trade-locks-row-actions {
+  width: 11rem;
+  white-space: nowrap;
+}
+.trade-locks-qty-input {
+  display: inline-block;
+  vertical-align: middle;
+  width: 3.25rem;
+  padding: 0.25rem 0.35rem;
+}
+.trade-locks-qty-max {
+  display: inline;
+  vertical-align: middle;
+  margin-left: 0.25rem;
+}
+.trade-locks-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.trade-locks-row-actions button {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+.trade-locks-actions {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.trade-locks-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

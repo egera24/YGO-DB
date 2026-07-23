@@ -723,6 +723,49 @@ class TradeOrderRequestOut(BaseModel):
     message: str
 
 
+class TradeLockLineOut(BaseModel):
+    line_id: int
+    collection_item_id: int | None = None
+    card_name: str | None = None
+    set_code: str
+    set_name: str | None = None
+    rarity_code: str
+    rarity_display: str | None = None
+    condition: str | None = None
+    quantity: int
+    comment: str | None = None
+    offer_price: float | None = None
+    list_price: float | None = None
+
+
+class TradeLockOrderOut(BaseModel):
+    order_id: int
+    created_at: datetime
+    buyer_name: str | None = None
+    buyer_email: str | None = None
+    buyer_phone: str | None = None
+    buyer_address: str | None = None
+    lines: list[TradeLockLineOut]
+
+
+class TradeLocksOut(BaseModel):
+    orders: list[TradeLockOrderOut]
+
+
+class TradeLockLineActionIn(BaseModel):
+    line_id: int
+    quantity: int = Field(ge=1)
+
+
+class TradeLockActionIn(BaseModel):
+    lines: list[TradeLockLineActionIn] = Field(min_length=1)
+
+
+class TradeLockActionOut(BaseModel):
+    updated: int
+    action: str
+
+
 class PublicConfigOut(BaseModel):
     turnstile_site_key: str | None = None
     base_currency: str = "EUR"

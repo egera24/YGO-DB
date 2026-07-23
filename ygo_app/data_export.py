@@ -14,6 +14,7 @@ from ygo_app.models import (
     Deck,
     OAuthIdentity,
     SearchPreset,
+    TradeOrder,
     User,
     UserCardTag,
     UserFavorite,
@@ -58,6 +59,12 @@ def build_user_data_export(session: Session, user: User) -> dict:
         .where(SearchPreset.user_id == user.id)
         .order_by(SearchPreset.id)
     ).all()
+    trade_orders = session.scalars(
+        select(TradeOrder)
+        .where(TradeOrder.user_id == user.id)
+        .options(selectinload(TradeOrder.lines))
+        .order_by(TradeOrder.created_at.desc(), TradeOrder.id.desc())
+    ).unique().all()
 
     preset_payload = []
     for preset in presets:
@@ -111,6 +118,7 @@ def build_user_data_export(session: Session, user: User) -> dict:
                 "set_name": item.set_name,
                 "quantity": item.quantity,
                 "trade_quantity": item.trade_quantity,
+                "locked_quantity": item.locked_quantity,
                 "condition": item.condition,
                 "edition": item.edition,
                 "language": item.language,
@@ -157,4 +165,32 @@ def build_user_data_export(session: Session, user: User) -> dict:
             {"card_id": tag.card_id, "tag": tag.tag} for tag in tags
         ],
         "search_presets": preset_payload,
+        "trade_orders": [
+            {
+                "id": order.id,
+                "created_at": _iso(order.created_at),
+                "buyer_name": order.buyer_name,
+                "buyer_email": order.buyer_email,
+                "buyer_phone": order.buyer_phone,
+                "buyer_address": order.buyer_address,
+                "lines": [
+                    {
+                        "id": line.id,
+                        "collection_item_id": line.collection_item_id,
+                        "card_name": line.card_name,
+                        "set_code": line.set_code,
+                        "set_name": line.set_name,
+                        "rarity_code": line.rarity_code,
+                        "rarity_display": line.rarity_display,
+                        "condition": line.condition,
+                        "quantity": line.quantity,
+                        "comment": line.comment,
+                        "offer_price": line.offer_price,
+                        "list_price": line.list_price,
+                    }
+                    for line in order.lines
+                ],
+            }
+            for order in trade_orders
+        ],
     }

@@ -1,5 +1,5 @@
 from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session, joinedload, load_only
+from sqlalchemy.orm import Session, joinedload, load_only, selectinload
 
 import json
 from collections import defaultdict
@@ -18,6 +18,8 @@ from ygo_app.models import (
     RarityPriceRank,
     SearchPreset,
     TcgSet,
+    TradeOrder,
+    TradeOrderLine,
     User,
     UserCardTag,
     UserFavorite,
@@ -1134,7 +1136,7 @@ def _folder_allocation_target(item: CollectionItem) -> int:
     keeper_qty = int(item.quantity or 0)
     if keeper_qty > 0:
         return keeper_qty
-    return int(item.trade_quantity or 0)
+    return int(item.trade_quantity or 0) + int(item.locked_quantity or 0)
 
 
 def _validate_folder_allocations(
@@ -1217,8 +1219,40 @@ def _reconcile_allocations_after_quantity_change(item: CollectionItem) -> None:
 def _ensure_default_allocations(item: CollectionItem) -> None:
     if item.folder_allocations:
         return
-    if int(item.quantity or 0) > 0 or int(item.trade_quantity or 0) > 0:
+    if (
+        int(item.quantity or 0) > 0
+        or int(item.trade_quantity or 0) > 0
+        or int(item.locked_quantity or 0) > 0
+    ):
         raise ValueError("Folder is required")
+
+
+def _shrink_folder_allocations_to_target(item: CollectionItem) -> None:
+    """Reduce folder allocations to match the current allocation target."""
+    target = _folder_allocation_target(item)
+    allocations = list(item.folder_allocations)
+    if not allocations:
+        return
+    if target <= 0:
+        item.folder_allocations.clear()
+        return
+    if len(allocations) == 1:
+        allocations[0].quantity = target
+        return
+    current_total = sum(int(row.quantity) for row in allocations)
+    if current_total <= target:
+        return
+    remaining_cut = current_total - target
+    for alloc in allocations:
+        if remaining_cut <= 0:
+            break
+        qty = int(alloc.quantity)
+        take = min(qty, remaining_cut)
+        alloc.quantity = qty - take
+        remaining_cut -= take
+    for alloc in list(item.folder_allocations):
+        if int(alloc.quantity) <= 0:
+            item.folder_allocations.remove(alloc)
 
 
 
@@ -2783,35 +2817,98 @@ def validate_and_build_trade_order(
     owner_id: int,
     lines: list[dict],
 ) -> list[dict]:
+    """Validate order lines against current trade stock (read-only)."""
+    built, _items = _validate_trade_order_lines(session, owner_id, lines, for_update=False)
+    return built
+
+
+def submit_trade_order_locks(
+    session: Session,
+    owner_id: int,
+    lines: list[dict],
+    buyer_contact: dict,
+) -> list[dict]:
+    """Atomically lock trade stock and persist a trade order for the seller."""
+    built, items_by_id = _validate_trade_order_lines(
+        session, owner_id, lines, for_update=True
+    )
+    order = TradeOrder(
+        user_id=owner_id,
+        buyer_name=buyer_contact.get("name"),
+        buyer_email=buyer_contact.get("email"),
+        buyer_phone=buyer_contact.get("phone"),
+        buyer_address=buyer_contact.get("address"),
+        created_at=datetime.utcnow(),
+    )
+    session.add(order)
+    session.flush()
+
+    for built_line in built:
+        item = items_by_id[built_line["item_id"]]
+        qty = int(built_line["quantity"])
+        item.trade_quantity = int(item.trade_quantity or 0) - qty
+        item.locked_quantity = int(item.locked_quantity or 0) + qty
+        session.add(
+            TradeOrderLine(
+                order_id=order.id,
+                collection_item_id=item.id,
+                card_name=built_line.get("card_name"),
+                set_code=built_line["set_code"],
+                set_name=built_line.get("set_name"),
+                rarity_code=built_line["rarity_code"],
+                rarity_display=built_line.get("rarity_display"),
+                condition=built_line.get("condition"),
+                quantity=qty,
+                comment=built_line.get("comment"),
+                offer_price=built_line.get("offer_price"),
+                list_price=built_line.get("list_price"),
+            )
+        )
+    session.commit()
+    return built
+
+
+def _validate_trade_order_lines(
+    session: Session,
+    owner_id: int,
+    lines: list[dict],
+    *,
+    for_update: bool,
+) -> tuple[list[dict], dict[int, CollectionItem]]:
     if not lines:
         raise ValueError("Order must include at least one line")
 
-    item_ids = [line["item_id"] for line in lines]
-    items = session.execute(
-        select(CollectionItem)
-        .options(joinedload(CollectionItem.linked_printing))
-        .where(
-            CollectionItem.user_id == owner_id,
-            CollectionItem.id.in_(item_ids),
-            CollectionItem.trade_quantity > 0,
-        )
-    ).unique().scalars().all()
+    item_ids = list({line["item_id"] for line in lines})
+    # Do not joinedload here: Postgres rejects FOR UPDATE with outer joins
+    # (FeatureNotSupported: nullable side of an outer join). Validation only
+    # needs CollectionItem columns + market prices.
+    stmt = select(CollectionItem).where(
+        CollectionItem.user_id == owner_id,
+        CollectionItem.id.in_(item_ids),
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    items = session.execute(stmt).scalars().all()
     by_id = {item.id: item for item in items}
     market_map = load_market_prices(
         session, [(item.set_code, item.rarity_code) for item in items]
     )
 
+    # Track remaining available trade qty as we walk lines (same item may repeat).
+    remaining = {item.id: int(item.trade_quantity or 0) for item in items}
+
     built: list[dict] = []
     for line in lines:
         item_id = line["item_id"]
         item = by_id.get(item_id)
-        if item is None:
+        if item is None or remaining.get(item_id, 0) < 1:
             raise ValueError(f"Invalid item in order: {item_id}")
-        qty = line["quantity"]
-        if qty > item.trade_quantity:
+        qty = int(line["quantity"])
+        if qty > remaining[item_id]:
             raise ValueError(
                 f"Requested quantity exceeds trade quantity for item {item_id}"
             )
+        remaining[item_id] -= qty
         market_row = market_map.get((item.set_code, item.rarity_code))
         built.append(
             {
@@ -2828,7 +2925,179 @@ def validate_and_build_trade_order(
                 "list_price": _public_trade_sell_price(item, market_row),
             }
         )
-    return built
+    return built, by_id
+
+
+def list_trade_locks(session: Session, *, user_id: int) -> list[dict]:
+    orders = session.execute(
+        select(TradeOrder)
+        .options(joinedload(TradeOrder.lines))
+        .where(TradeOrder.user_id == user_id)
+        .order_by(TradeOrder.created_at.desc(), TradeOrder.id.desc())
+    ).unique().scalars().all()
+
+    result: list[dict] = []
+    for order in orders:
+        active_lines = [line for line in order.lines if int(line.quantity or 0) > 0]
+        if not active_lines:
+            continue
+        result.append(
+            {
+                "order_id": order.id,
+                "created_at": order.created_at,
+                "buyer_name": order.buyer_name,
+                "buyer_email": order.buyer_email,
+                "buyer_phone": order.buyer_phone,
+                "buyer_address": order.buyer_address,
+                "lines": [
+                    {
+                        "line_id": line.id,
+                        "collection_item_id": line.collection_item_id,
+                        "card_name": line.card_name,
+                        "set_code": line.set_code,
+                        "set_name": line.set_name,
+                        "rarity_code": line.rarity_code,
+                        "rarity_display": line.rarity_display
+                        or rarity_display(line.rarity_code),
+                        "condition": line.condition,
+                        "quantity": int(line.quantity),
+                        "comment": line.comment,
+                        "offer_price": line.offer_price,
+                        "list_price": line.list_price,
+                    }
+                    for line in sorted(active_lines, key=lambda row: row.id)
+                ],
+            }
+        )
+    return result
+
+
+def release_trade_lock_lines(
+    session: Session,
+    *,
+    user_id: int,
+    lines: list[dict],
+) -> dict:
+    return _apply_trade_lock_actions(session, user_id=user_id, lines=lines, action="release")
+
+
+def remove_trade_lock_lines(
+    session: Session,
+    *,
+    user_id: int,
+    lines: list[dict],
+) -> dict:
+    return _apply_trade_lock_actions(session, user_id=user_id, lines=lines, action="remove")
+
+
+def _apply_trade_lock_actions(
+    session: Session,
+    *,
+    user_id: int,
+    lines: list[dict],
+    action: str,
+) -> dict:
+    if not lines:
+        raise ValueError("At least one line is required")
+
+    line_ids = [int(row["line_id"]) for row in lines]
+    if len(line_ids) != len(set(line_ids)):
+        raise ValueError("Duplicate line_id in request")
+
+    qty_by_line = {int(row["line_id"]): int(row["quantity"]) for row in lines}
+    for qty in qty_by_line.values():
+        if qty < 1:
+            raise ValueError("Quantity must be at least 1")
+
+    # selectinload (not joinedload): Postgres rejects FOR UPDATE with outer joins.
+    db_lines = session.execute(
+        select(TradeOrderLine)
+        .join(TradeOrder, TradeOrderLine.order_id == TradeOrder.id)
+        .options(selectinload(TradeOrderLine.collection_item))
+        .where(
+            TradeOrder.user_id == user_id,
+            TradeOrderLine.id.in_(line_ids),
+        )
+        .with_for_update()
+    ).scalars().all()
+    by_id = {line.id: line for line in db_lines}
+    if len(by_id) != len(line_ids):
+        raise ValueError("One or more lock lines were not found")
+
+    item_ids = [
+        line.collection_item_id
+        for line in by_id.values()
+        if line.collection_item_id is not None
+    ]
+    if item_ids:
+        session.execute(
+            select(CollectionItem)
+            .where(
+                CollectionItem.user_id == user_id,
+                CollectionItem.id.in_(item_ids),
+            )
+            .with_for_update()
+        ).scalars().all()
+
+    items_to_delete: dict[int, CollectionItem] = {}
+    affected = 0
+    for line_id, qty in qty_by_line.items():
+        line = by_id[line_id]
+        remaining = int(line.quantity or 0)
+        if qty > remaining:
+            raise ValueError(
+                f"Quantity exceeds locked amount for line {line_id} ({remaining})"
+            )
+        item = line.collection_item
+        if item is not None and item.user_id != user_id:
+            raise ValueError(f"Invalid lock line {line_id}")
+        if item is None and action == "release":
+            raise ValueError(
+                f"Cannot release line {line_id}: collection item no longer exists"
+            )
+
+        line.quantity = remaining - qty
+        if item is not None:
+            locked = int(item.locked_quantity or 0)
+            if qty > locked:
+                raise ValueError(
+                    f"Locked quantity out of sync for item {item.id}"
+                )
+            item.locked_quantity = locked - qty
+            if action == "release":
+                item.trade_quantity = int(item.trade_quantity or 0) + qty
+            else:
+                _shrink_folder_allocations_to_target(item)
+                if (
+                    int(item.quantity or 0) == 0
+                    and int(item.trade_quantity or 0) == 0
+                    and int(item.locked_quantity or 0) == 0
+                ):
+                    items_to_delete[item.id] = item
+
+        if int(line.quantity) <= 0:
+            session.delete(line)
+        affected += 1
+
+    session.flush()
+
+    # Drop empty orders.
+    order_ids = {line.order_id for line in by_id.values()}
+    for order_id in order_ids:
+        order = session.get(TradeOrder, order_id)
+        if order is None:
+            continue
+        remaining_lines = [
+            row for row in order.lines if int(row.quantity or 0) > 0
+        ]
+        if not remaining_lines:
+            session.delete(order)
+
+    for item in items_to_delete.values():
+        session.delete(item)
+
+    session.commit()
+    return {"updated": affected, "action": action}
 
 
 BULK_DEFAULT_CONDITION = "NearMint"

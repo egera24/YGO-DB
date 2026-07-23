@@ -94,7 +94,10 @@ def card_trade_quantity_subquery(user_id: int | None):
 
 def card_total_quantity_subquery(user_id: int | None):
     return _card_quantity_subquery(
-        user_id, CollectionItem.quantity + CollectionItem.trade_quantity
+        user_id,
+        CollectionItem.quantity
+        + CollectionItem.trade_quantity
+        + CollectionItem.locked_quantity,
     )
 
 

@@ -3162,7 +3162,8 @@ function syncModalOpenClass() {
     isModalVisible("#bulk-collection-modal") ||
     isModalVisible("#collection-stats-modal") ||
     isModalVisible("#delete-account-modal") ||
-    isModalVisible("#trade-settings-modal")
+    isModalVisible("#trade-settings-modal") ||
+    isModalVisible("#trade-locks-modal")
   ) {
     document.body.classList.add("modal-open");
   } else {
@@ -3358,6 +3359,50 @@ function initCollectionAddResize(panel) {
   initResizablePanel(panel, {
     storageKey: COLLECTION_ADD_SIZE_KEY,
     limits: collectionAddLimits(),
+  });
+}
+
+const TRADE_LOCKS_SIZE_KEY = "ygo_trade_locks_size";
+const TRADE_LOCKS_MIN_W = 480;
+const TRADE_LOCKS_MIN_H = 280;
+const TRADE_LOCKS_DEFAULT_W = 640;
+const TRADE_LOCKS_VIEWPORT_MARGIN_PX = 32;
+const TRADE_LOCKS_MAX_H_RATIO = 0.9;
+
+function tradeLocksMaxWidth() {
+  return Math.max(TRADE_LOCKS_MIN_W, window.innerWidth - TRADE_LOCKS_VIEWPORT_MARGIN_PX);
+}
+
+function tradeLocksMaxHeight() {
+  return Math.max(TRADE_LOCKS_MIN_H, window.innerHeight * TRADE_LOCKS_MAX_H_RATIO);
+}
+
+function tradeLocksDefaultHeight() {
+  return Math.max(TRADE_LOCKS_MIN_H, Math.min(window.innerHeight * 0.7, 420));
+}
+
+function tradeLocksLimits() {
+  return {
+    minW: TRADE_LOCKS_MIN_W,
+    minH: TRADE_LOCKS_MIN_H,
+    maxW: tradeLocksMaxWidth(),
+    maxH: tradeLocksMaxHeight(),
+  };
+}
+
+function applyTradeLocksPanelSize(panel) {
+  const size = getResizablePanelDefaultSize(
+    TRADE_LOCKS_SIZE_KEY,
+    tradeLocksLimits(),
+    () => ({ width: TRADE_LOCKS_DEFAULT_W, height: tradeLocksDefaultHeight() })
+  );
+  applyResizablePanelSize(panel, size.width, size.height, tradeLocksLimits());
+}
+
+function initTradeLocksResize(panel) {
+  initResizablePanel(panel, {
+    storageKey: TRADE_LOCKS_SIZE_KEY,
+    limits: tradeLocksLimits(),
   });
 }
 
@@ -7986,6 +8031,45 @@ function wireEvents() {
     }
   });
 
+  $("#manage-locked-quantities-btn")?.addEventListener("click", async () => {
+    closeCollectionToolbarMenus();
+    if (!state.token) {
+      showToast("Log in first.", { variant: "error" });
+      return;
+    }
+    await openTradeLocksModal();
+  });
+  $("#trade-locks-close")?.addEventListener("click", closeTradeLocksModal);
+  $("#trade-locks-done")?.addEventListener("click", closeTradeLocksModal);
+  $("#trade-locks-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#trade-locks-modal")) closeTradeLocksModal();
+  });
+  $("#trade-locks-release-selected")?.addEventListener("click", () => {
+    void applyTradeLockAction("release", getSelectedTradeLockLines());
+  });
+  $("#trade-locks-remove-selected")?.addEventListener("click", () => {
+    void applyTradeLockAction("remove", getSelectedTradeLockLines());
+  });
+  $("#trade-locks-body")?.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.matches(".trade-locks-select") || target.matches(".trade-locks-qty-input")) {
+      syncTradeLocksBulkButtons();
+    }
+  });
+  $("#trade-locks-body")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-trade-lock-action]");
+    if (!btn) return;
+    const row = btn.closest("tr[data-line-id]");
+    if (!row) return;
+    const lineId = Number(row.dataset.lineId);
+    const qtyInput = row.querySelector(".trade-locks-qty-input");
+    const quantity = Number(qtyInput?.value || 0);
+    const action = btn.getAttribute("data-trade-lock-action");
+    if (!lineId || !action) return;
+    void applyTradeLockAction(action, [{ line_id: lineId, quantity }]);
+  });
+
   $("#export-collection-cancel")?.addEventListener("click", closeExportCollectionModal);
   $("#export-collection-close")?.addEventListener("click", closeExportCollectionModal);
   $("#export-collection-modal")?.addEventListener("click", (e) => {
@@ -8216,6 +8300,7 @@ function wireEvents() {
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#delete-account-modal")) closeDeleteAccountModal();
     else if (isModalVisible("#trade-settings-modal")) closeTradeSettingsModal();
+    else if (isModalVisible("#trade-locks-modal")) closeTradeLocksModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
     else if (isModalVisible("#card-modal")) closeCardModalOverlay();
@@ -8901,6 +8986,224 @@ async function copyTradeLink() {
     showToast("Trade link copied.");
   } catch {
     showToast("Could not copy link.", { variant: "error" });
+  }
+}
+
+let tradeLocksTrigger = null;
+let tradeLocksBusy = false;
+
+function formatTradeLockDate(value) {
+  if (!value) return "";
+  try {
+    const dt = new Date(value.endsWith("Z") ? value : `${value}Z`);
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
+function tradeLockBuyerLabel(order) {
+  const parts = [];
+  if (order.buyer_name) parts.push(order.buyer_name);
+  if (order.buyer_email) parts.push(order.buyer_email);
+  if (order.buyer_phone) parts.push(order.buyer_phone);
+  return parts.length ? parts.join(" · ") : "Anonymous buyer";
+}
+
+function renderTradeLocksModal(orders) {
+  const body = $("#trade-locks-body");
+  if (!body) return;
+  if (!orders?.length) {
+    body.innerHTML = `<p class="empty-msg trade-locks-empty">No locked quantities right now.</p>`;
+    syncTradeLocksBulkButtons();
+    return;
+  }
+  body.innerHTML = orders
+    .map((order) => {
+      const rows = (order.lines || [])
+        .map((line) => {
+          const maxQty = Number(line.quantity) || 1;
+          const rarity = escapeHtml(line.rarity_display || line.rarity_code || "");
+          const condition = escapeHtml(line.condition || "—");
+          const comment = line.comment
+            ? `<div class="muted">${escapeHtml(line.comment)}</div>`
+            : "";
+          return `
+            <tr data-line-id="${line.line_id}" data-max-qty="${maxQty}">
+              <td class="trade-locks-check">
+                <input type="checkbox" class="trade-locks-select" aria-label="Select locked line" />
+              </td>
+              <td>
+                <div><strong>${escapeHtml(line.card_name || "Unknown card")}</strong></div>
+                <div class="muted">${escapeHtml(line.set_code || "")}${line.set_name ? ` · ${escapeHtml(line.set_name)}` : ""}</div>
+                ${comment}
+              </td>
+              <td>${rarity}</td>
+              <td>${condition}</td>
+              <td class="trade-locks-qty">
+                <input type="number" class="trade-locks-qty-input" min="1" max="${maxQty}" value="${maxQty}" aria-label="Quantity to release or remove" />
+                <span class="muted trade-locks-qty-max">/ ${maxQty}</span>
+              </td>
+              <td>
+                <div class="trade-locks-row-actions">
+                  <button type="button" class="secondary" data-trade-lock-action="release" title="Release back to trade if the deal fell through" aria-label="Release back to trade if the deal fell through">Release</button>
+                  <button type="button" class="btn-danger" data-trade-lock-action="remove" title="Remove from collection after a successful sale" aria-label="Remove from collection after a successful sale">Remove</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+      return `
+        <section class="trade-locks-order" data-order-id="${order.order_id}">
+          <header class="trade-locks-order-header">
+            <strong>${escapeHtml(tradeLockBuyerLabel(order))}</strong>
+            <span class="muted trade-locks-order-meta">${escapeHtml(formatTradeLockDate(order.created_at))}</span>
+          </header>
+          <table class="trade-locks-table">
+            <thead>
+              <tr>
+                <th class="trade-locks-check" scope="col"><span class="sr-only">Select</span></th>
+                <th scope="col">Card</th>
+                <th scope="col">Rarity</th>
+                <th scope="col">Condition</th>
+                <th scope="col">Qty</th>
+                <th scope="col" class="trade-locks-row-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </section>
+      `;
+    })
+    .join("");
+  syncTradeLocksBulkButtons();
+}
+
+function syncTradeLocksBulkButtons() {
+  const selected = getSelectedTradeLockLines();
+  const releaseBtn = $("#trade-locks-release-selected");
+  const removeBtn = $("#trade-locks-remove-selected");
+  const disabled = tradeLocksBusy || selected.length === 0;
+  if (releaseBtn) releaseBtn.disabled = disabled;
+  if (removeBtn) removeBtn.disabled = disabled;
+}
+
+function getSelectedTradeLockLines() {
+  const body = $("#trade-locks-body");
+  if (!body) return [];
+  const lines = [];
+  body.querySelectorAll("tr[data-line-id]").forEach((row) => {
+    const checkbox = row.querySelector(".trade-locks-select");
+    if (!(checkbox instanceof HTMLInputElement) || !checkbox.checked) return;
+    const lineId = Number(row.dataset.lineId);
+    const qtyInput = row.querySelector(".trade-locks-qty-input");
+    const quantity = Number(qtyInput?.value || 0);
+    if (!lineId || quantity < 1) return;
+    lines.push({ line_id: lineId, quantity });
+  });
+  return lines;
+}
+
+async function loadTradeLocks() {
+  return api("/collection/trade-locks");
+}
+
+async function openTradeLocksModal() {
+  const modal = $("#trade-locks-modal");
+  if (!modal) return;
+  tradeLocksTrigger = $("#manage-locked-quantities-btn");
+  const errorEl = $("#trade-locks-error");
+  errorEl?.classList.add("hidden");
+  const body = $("#trade-locks-body");
+  if (body) body.innerHTML = `<p class="muted trade-locks-empty">Loading…</p>`;
+  modal.hidden = false;
+  syncModalOpenClass();
+  const modalCard = modal.querySelector(".trade-locks-modal-card");
+  if (modalCard) {
+    applyTradeLocksPanelSize(modalCard);
+    initTradeLocksResize(modalCard);
+  }
+  syncTradeLocksBulkButtons();
+  try {
+    const payload = await loadTradeLocks();
+    renderTradeLocksModal(payload.orders || []);
+    $("#trade-locks-done")?.focus();
+  } catch (err) {
+    if (body) {
+      body.innerHTML = `<p class="empty-msg trade-locks-empty">Could not load locked quantities.</p>`;
+    }
+    if (errorEl) {
+      errorEl.textContent = err.message || "Could not load locked quantities.";
+      errorEl.classList.remove("hidden");
+    }
+  }
+}
+
+function closeTradeLocksModal() {
+  const modal = $("#trade-locks-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (tradeLocksTrigger ?? $("#manage-locked-quantities-btn"))?.focus();
+  tradeLocksTrigger = null;
+}
+
+async function applyTradeLockAction(action, lines) {
+  const errorEl = $("#trade-locks-error");
+  errorEl?.classList.add("hidden");
+  if (!lines?.length) {
+    showToast("Select at least one line.", { variant: "error" });
+    return;
+  }
+  for (const line of lines) {
+    if (!line.line_id || !(line.quantity >= 1)) {
+      showToast("Enter a valid quantity for each selected line.", { variant: "error" });
+      return;
+    }
+  }
+  if (action === "remove") {
+    const ok = await appConfirm({
+      title: "Remove locked quantity",
+      message:
+        "Remove the selected locked quantity from your collection? Use this only after a successful sale.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  const path =
+    action === "release"
+      ? "/collection/trade-locks/release"
+      : "/collection/trade-locks/remove";
+  tradeLocksBusy = true;
+  syncTradeLocksBulkButtons();
+  try {
+    await api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lines }),
+    });
+    const payload = await loadTradeLocks();
+    renderTradeLocksModal(payload.orders || []);
+    showToast(action === "release" ? "Released to trade." : "Removed from collection.");
+    if (typeof loadCollectionView === "function") {
+      try {
+        await loadCollectionView({ background: true });
+      } catch {
+        /* ignore refresh errors */
+      }
+    }
+  } catch (err) {
+    if (errorEl) {
+      errorEl.textContent = err.message || "Could not update locked quantities.";
+      errorEl.classList.remove("hidden");
+    }
+    showToast(err.message || "Could not update locked quantities.", { variant: "error" });
+  } finally {
+    tradeLocksBusy = false;
+    syncTradeLocksBulkButtons();
   }
 }
 

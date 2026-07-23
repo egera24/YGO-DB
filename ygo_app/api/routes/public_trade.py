@@ -28,7 +28,7 @@ from ygo_app.services import (
     get_user_by_trade_slug,
     list_public_trade_items,
     public_trade_filters,
-    validate_and_build_trade_order,
+    submit_trade_order_locks,
 )
 from ygo_app.trade_export import export_public_trade_xlsx
 from ygo_app.turnstile import turnstile_required, verify_turnstile_token
@@ -36,7 +36,7 @@ from ygo_app.turnstile import turnstile_required, verify_turnstile_token
 router = APIRouter(prefix="/public", tags=["public"])
 logger = logging.getLogger(__name__)
 
-TRADE_ORDER_IP_LIMIT = RateLimitSpec(max_count=5, window_seconds=3600)
+TRADE_ORDER_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
 TRADE_EXPORT_IP_LIMIT = RateLimitSpec(max_count=30, window_seconds=3600)
 
 
@@ -153,10 +153,16 @@ def submit_trade_order_request(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Captcha verification failed")
 
     try:
-        lines = validate_and_build_trade_order(
+        lines = submit_trade_order_locks(
             db,
             owner.id,
             [line.model_dump() for line in body.lines],
+            buyer_contact={
+                "name": body.name,
+                "email": str(body.email) if body.email else None,
+                "phone": body.phone,
+                "address": body.address,
+            },
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

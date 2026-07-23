@@ -38,6 +38,11 @@ from ygo_app.schemas import (
     CollectionListOut,
     CollectionStatsOut,
     CollectionSuggestionsOut,
+    TradeLockActionIn,
+    TradeLockActionOut,
+    TradeLocksOut,
+    TradeLockOrderOut,
+    TradeLockLineOut,
     TradeSettingsOut,
     TradeSettingsUpdateIn,
 )
@@ -56,6 +61,9 @@ from ygo_app.services import (
     list_bulk_collection_grid,
     list_collection,
     list_collection_folders,
+    list_trade_locks,
+    release_trade_lock_lines,
+    remove_trade_lock_lines,
     save_bulk_collection_grid,
     update_collection_folder,
     update_collection_item,
@@ -220,6 +228,62 @@ def patch_trade_settings(
             raise HTTPException(status.HTTP_409_CONFLICT, message) from exc
         raise HTTPException(status.HTTP_400_BAD_REQUEST, message) from exc
     return _trade_settings_out(settings)
+
+
+@router.get("/trade-locks", response_model=TradeLocksOut)
+def get_trade_locks(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    orders = list_trade_locks(db, user_id=user.id)
+    return TradeLocksOut(
+        orders=[
+            TradeLockOrderOut(
+                order_id=order["order_id"],
+                created_at=order["created_at"],
+                buyer_name=order.get("buyer_name"),
+                buyer_email=order.get("buyer_email"),
+                buyer_phone=order.get("buyer_phone"),
+                buyer_address=order.get("buyer_address"),
+                lines=[TradeLockLineOut(**line) for line in order["lines"]],
+            )
+            for order in orders
+        ]
+    )
+
+
+@router.post("/trade-locks/release", response_model=TradeLockActionOut)
+def release_trade_locks(
+    body: TradeLockActionIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        result = release_trade_lock_lines(
+            db,
+            user_id=user.id,
+            lines=[line.model_dump() for line in body.lines],
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return TradeLockActionOut(**result)
+
+
+@router.post("/trade-locks/remove", response_model=TradeLockActionOut)
+def remove_trade_locks(
+    body: TradeLockActionIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        result = remove_trade_lock_lines(
+            db,
+            user_id=user.id,
+            lines=[line.model_dump() for line in body.lines],
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return TradeLockActionOut(**result)
 
 
 @router.get("/folders", response_model=list[CollectionFolderOut])

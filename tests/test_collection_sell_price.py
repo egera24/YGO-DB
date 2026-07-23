@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from ygo_app.models import Base, Card, Printing, PrintingMarketPrice, User
+from ygo_app.models import Base, Card, CollectionFolder, Printing, PrintingMarketPrice, User
 from ygo_app.services import add_collection_item, update_collection_item
 
 
@@ -41,6 +41,12 @@ class TestCollectionSellPrice(unittest.TestCase):
         session.add(user)
         session.flush()
         self.user_id = user.id
+        folder = CollectionFolder(
+            user_id=self.user_id, name="BIN1", name_key="bin1"
+        )
+        session.add(folder)
+        session.flush()
+        self.folder_id = folder.id
 
         card = Card(id=89631139, name="Blue-Eyes White Dragon")
         session.add(card)
@@ -70,23 +76,20 @@ class TestCollectionSellPrice(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
+    def _payload(self, **overrides):
+        body = {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1, "folder_id": self.folder_id}
+        body.update(overrides)
+        return body
+
     def test_add_without_override_leaves_sell_price_null(self):
         session = self.Session()
-        item = add_collection_item(
-            session,
-            self.user_id,
-            {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1},
-        )
+        item = add_collection_item(session, self.user_id, self._payload())
         self.assertIsNone(item.sell_price)
         session.close()
 
     def test_add_enriches_metadata_from_catalog(self):
         session = self.Session()
-        item = add_collection_item(
-            session,
-            self.user_id,
-            {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1},
-        )
+        item = add_collection_item(session, self.user_id, self._payload())
         self.assertEqual(item.card_name, "Blue-Eyes White Dragon")
         self.assertEqual(item.expansion_code, "LOB")
         self.assertEqual(item.set_name, "Legend of Blue Eyes White Dragon")
@@ -97,7 +100,7 @@ class TestCollectionSellPrice(unittest.TestCase):
         item = add_collection_item(
             session,
             self.user_id,
-            {"set_code": "LOB-001", "rarity": "(SR)", "quantity": 1},
+            self._payload(rarity="(SR)"),
         )
         self.assertIsNone(item.sell_price)
         session.close()
@@ -107,23 +110,14 @@ class TestCollectionSellPrice(unittest.TestCase):
         item = add_collection_item(
             session,
             self.user_id,
-            {
-                "set_code": "LOB-001",
-                "rarity": "(UR)",
-                "quantity": 1,
-                "sell_price": 9.99,
-            },
+            self._payload(sell_price=9.99),
         )
         self.assertEqual(item.sell_price, 9.99)
         session.close()
 
     def test_patch_sell_price(self):
         session = self.Session()
-        item = add_collection_item(
-            session,
-            self.user_id,
-            {"set_code": "LOB-001", "rarity": "(UR)", "quantity": 1},
-        )
+        item = add_collection_item(session, self.user_id, self._payload())
         update_collection_item(
             session,
             user_id=self.user_id,

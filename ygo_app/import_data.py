@@ -18,6 +18,14 @@ from sqlalchemy.orm import Session, joinedload
 from tqdm import tqdm
 
 from ygo_app.catalog import fetch_card_entries, load_card_entries
+from ygo_app.collection_identity import (
+    CollectionItemKey,
+    collection_item_key,
+    collection_item_key_from_row,
+    normalize_collection_condition,
+    normalize_collection_edition,
+    normalize_collection_notes,
+)
 from ygo_app.config import DB_PATH, DEFAULT_CARDS_JSON, DEFAULT_COLLECTION_CSV
 from ygo_app.database import Base, SessionLocal, engine, is_postgres, is_sqlite
 from ygo_app.models import Card, CardErrataVersion, CollectionItem, Printing, TcgSet
@@ -34,6 +42,31 @@ from ygo_app.rarity_registry import (
 )
 
 IMPORT_ERROR_COLUMN = "Import Error"
+
+
+def _prepare_collection_csv_lines(lines: list[str]) -> tuple[str, list[str]]:
+    """Return (delimiter, body_lines) for DragonShield / app collection CSV."""
+    delimiter = ","
+    body = list(lines)
+    if not body:
+        return delimiter, body
+    first = body[0].strip()
+    if first in ('"sep=,"', "sep=,"):
+        return ",", body[1:]
+    if first in ('"sep=;"', "sep=;"):
+        return ";", body[1:]
+    header = body[0]
+    if header.count(";") > header.count(","):
+        delimiter = ";"
+    return delimiter, body
+
+
+def _normalize_collection_row(row: dict) -> dict:
+    """Accept DragonShield column aliases (e.g. Folder → Folder Name)."""
+    out = dict(row)
+    if not (out.get("Folder Name") or "").strip() and (out.get("Folder") or "").strip():
+        out["Folder Name"] = out.get("Folder")
+    return out
 
 
 def _legacy_passcode_id(card_id: int | None) -> int | None:
@@ -427,6 +460,12 @@ def init_db():
     # SQLite local dev: create tables without Alembic. Postgres/cloud: migrations only.
     if is_sqlite():
         Base.metadata.create_all(bind=engine)
+        return
+    # Cloud Postgres (Render/Neon): run Alembic on startup so auth/rate-limit tables
+    # exist even when build-time migrate used a different DATABASE_URL or branch.
+    from ygo_app.db_migrate import ensure_db_at_head
+
+    ensure_db_at_head()
 
 
 def _card_fields_from_api(entry: dict) -> dict:
@@ -859,6 +898,15 @@ def _nonempty(value) -> str | None:
     return text or None
 
 
+def _csv_notes(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return normalize_collection_notes(text)
+
+
 def _match_printing_cached(
     set_code: str,
     rarity_raw: str,
@@ -928,15 +976,16 @@ def import_collection_csv(
 
     # Per-user caches populated before the row loop to avoid per-row round-trips
     # (critical on remote Postgres where each query is a network hop).
-    existing_by_key: dict[tuple[str, str], CollectionItem] = {}
+    existing_by_key: dict[CollectionItemKey, CollectionItem] = {}
     printing_by_key: dict[tuple[str, str], int] = {}
+    printing_card_names: dict[int, str] = {}
     catalog_set_codes: set[str] = set()
     substring_parents_by_code: dict[str, list[str]] = {}
     folder_cache: dict[str, "object"] = {}
 
     # New items created during this import (pending ORM, mutated in memory for
     # CSV-internal dedup; inserted in one batched flush at the end).
-    new_by_key: dict[tuple[str, str], CollectionItem] = {}
+    new_by_key: dict[CollectionItemKey, CollectionItem] = {}
     # Bulk-write accumulators for merges into pre-existing DB rows, applied once
     # after the loop so remote Postgres sees batched statements, not per-row I/O.
     alloc_index: dict[tuple[int, int | None], CollectionItemFolder] = {}
@@ -953,7 +1002,20 @@ def import_collection_csv(
         "price_bought",
         "date_bought",
         "notes",
+        "card_name",
     )
+
+    def _catalog_card_name(
+        printing_id: int | None,
+        *,
+        item: CollectionItem | None = None,
+    ) -> str | None:
+        pid = printing_id if printing_id is not None else (
+            item.printing_id if item is not None else None
+        )
+        if pid is None:
+            return None
+        return printing_card_names.get(pid)
 
     def _item_state(item: CollectionItem) -> dict:
         state = item_update_final.get(item.id)
@@ -995,21 +1057,24 @@ def import_collection_csv(
         *,
         quantity: int,
         folder,
+        printing_id: int | None,
     ) -> None:
         item.quantity += quantity
         item.trade_quantity += int(row.get("Trade Quantity") or 0)
         if condition := _nonempty(row.get("Condition")):
-            item.condition = condition
+            item.condition = normalize_collection_condition(condition)
         if edition := _nonempty(row.get("Printing")):
-            item.edition = edition
+            item.edition = normalize_collection_edition(edition)
         if language := _nonempty(row.get("Language")):
             item.language = language
         if price_bought := _float_or_none(row.get("Price Bought")):
             item.price_bought = price_bought
         if date_bought := _nonempty(row.get("Date Bought")):
             item.date_bought = date_bought
-        if notes := _nonempty(row.get("Notes")):
+        if notes := _csv_notes(row.get("Notes")):
             item.notes = notes
+        if catalog_name := _catalog_card_name(printing_id, item=item):
+            item.card_name = catalog_name
         folder_raw = (row.get("Folder Name") or "").strip()
         if folder_raw:
             _merge_folder_allocation(item, folder=folder, quantity=quantity)
@@ -1020,22 +1085,25 @@ def import_collection_csv(
         *,
         quantity: int,
         folder,
+        printing_id: int | None,
     ) -> None:
         state = _item_state(item)
         state["quantity"] += quantity
         state["trade_quantity"] += int(row.get("Trade Quantity") or 0)
         if condition := _nonempty(row.get("Condition")):
-            state["condition"] = condition
+            state["condition"] = normalize_collection_condition(condition)
         if edition := _nonempty(row.get("Printing")):
-            state["edition"] = edition
+            state["edition"] = normalize_collection_edition(edition)
         if language := _nonempty(row.get("Language")):
             state["language"] = language
         if price_bought := _float_or_none(row.get("Price Bought")):
             state["price_bought"] = price_bought
         if date_bought := _nonempty(row.get("Date Bought")):
             state["date_bought"] = date_bought
-        if notes := _nonempty(row.get("Notes")):
+        if notes := _csv_notes(row.get("Notes")):
             state["notes"] = notes
+        if catalog_name := _catalog_card_name(printing_id, item=item):
+            state["card_name"] = catalog_name
         folder_raw = (row.get("Folder Name") or "").strip()
         if not folder_raw:
             return
@@ -1080,47 +1148,72 @@ def import_collection_csv(
             rejected.append({**row, IMPORT_ERROR_COLUMN: reason})
             return
 
+        try:
+            row_notes = _csv_notes(row.get("Notes"))
+        except ValueError as exc:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: str(exc)})
+            return
+
         stored_set_code = matched_set_code or set_code
         quantity = int(row.get("Quantity") or 1)
+        trade_quantity = int(row.get("Trade Quantity") or 0)
         folder_raw = (row.get("Folder Name") or "").strip()
+        if (quantity > 0 or trade_quantity > 0) and not folder_raw:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: "Folder is required"})
+            return
         folder = _folder_for(folder_raw) if folder_raw else None
-        key = (stored_set_code, rarity_code)
+        if (quantity > 0 or trade_quantity > 0) and folder is None:
+            rejected.append({**row, IMPORT_ERROR_COLUMN: "Folder is required"})
+            return
+        key = collection_item_key(
+            stored_set_code,
+            rarity_code,
+            edition=row.get("Printing"),
+            condition=row.get("Condition"),
+        )
 
         if not replace:
             existing = existing_by_key.get(key)
             if existing is not None:
-                _merge_existing_bulk(existing, row, quantity=quantity, folder=folder)
+                _merge_existing_bulk(
+                    existing, row, quantity=quantity, folder=folder, printing_id=printing_id
+                )
                 merged += 1
                 return
 
         pending = new_by_key.get(key)
         if pending is not None:
-            _merge_existing_item(pending, row, quantity=quantity, folder=folder)
+            _merge_existing_item(
+                pending, row, quantity=quantity, folder=folder, printing_id=printing_id
+            )
             merged += 1
             return
 
+        card_name = (
+            printing_card_names.get(printing_id) if printing_id is not None else None
+        )
         item = CollectionItem(
             user_id=user_id,
             set_code=stored_set_code,
             rarity_code=rarity_code,
-            card_name=row.get("Card Name"),
+            card_name=card_name,
             expansion_code=row.get("Set Code"),
             set_name=row.get("Set Name"),
             quantity=quantity,
             trade_quantity=int(row.get("Trade Quantity") or 0),
-            condition=row.get("Condition"),
-            edition=row.get("Printing") or "Unlimited",
+            condition=normalize_collection_condition(row.get("Condition")),
+            edition=normalize_collection_edition(row.get("Printing")),
             language=row.get("Language"),
             price_bought=_float_or_none(row.get("Price Bought")),
             date_bought=row.get("Date Bought"),
-            notes=_nonempty(row.get("Notes")),
+            notes=row_notes,
             sell_price=None,
             printing_id=printing_id,
         )
         item.folder_allocations.append(
             CollectionItemFolder(
-                folder_id=folder.id if folder else None,
-                quantity=quantity,
+                folder_id=folder.id,
+                quantity=quantity if quantity > 0 else max(trade_quantity, 1),
             )
         )
         session.add(item)
@@ -1160,13 +1253,12 @@ def import_collection_csv(
 
         _report("parsing", message="Reading CSV…")
         with path.open("r", encoding="utf-8-sig", newline="") as f:
-            lines = f.readlines()
-        if lines and lines[0].strip() == '"sep=,"':
-            lines = lines[1:]
+            raw_lines = f.readlines()
+        delimiter, lines = _prepare_collection_csv_lines(raw_lines)
 
-        reader = csv.DictReader(lines)
+        reader = csv.DictReader(lines, delimiter=delimiter)
         output_fieldnames = list(reader.fieldnames or []) + [IMPORT_ERROR_COLUMN]
-        rows = list(reader)
+        rows = [_normalize_collection_row(row) for row in reader]
         total = len(rows)
         _report(
             "parsing",
@@ -1263,6 +1355,14 @@ def import_collection_csv(
                 message="Loading alternate-art catalog matches…",
             )
 
+        for chunk in _chunked(sorted(set(printing_by_key.values())), 1000):
+            for pid, name in session.execute(
+                select(Printing.id, Card.name)
+                .join(Card, Printing.card_id == Card.id)
+                .where(Printing.id.in_(chunk))
+            ).all():
+                printing_card_names[int(pid)] = name
+
         # Preload the user's existing collection (with folder allocations) so
         # append merges happen in memory instead of one query per row.
         if not replace:
@@ -1278,7 +1378,7 @@ def import_collection_csv(
                 .scalars()
                 .all()
             ):
-                existing_by_key.setdefault((item.set_code, item.rarity_code), item)
+                existing_by_key.setdefault(collection_item_key_from_row(item), item)
                 for alloc in item.folder_allocations:
                     alloc_index[(item.id, alloc.folder_id)] = alloc
         if progress_callback is not None and total > 0:

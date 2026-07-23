@@ -10,9 +10,13 @@ from unittest.mock import patch
 
 from ygo_app.rarity_registry import (
     clear_rarity_registry_cache,
+    list_rarity_ui_metadata,
     rarity_code_for_name,
     rarity_match_variants,
     resolve_rarity,
+    resolve_rarity_tone,
+    RARITY_ROWS,
+    RARITY_UI_TONES,
     variants_for_printing,
 )
 
@@ -91,6 +95,27 @@ class TestRarityRegistry(unittest.TestCase):
                     resolved.name, "Duel Terminal Ultra Parallel Rare"
                 )
                 self.assertEqual(resolved.code, "DUPR")
+
+
+    def test_every_rarity_row_has_ui_tone(self):
+        for _order, name, _code in RARITY_ROWS:
+            self.assertIn(name, RARITY_UI_TONES, name)
+
+    def test_list_rarity_ui_metadata_covers_all_rows(self):
+        rows = list_rarity_ui_metadata()
+        self.assertEqual(len(rows), len(RARITY_ROWS))
+        names = {row["name"] for row in rows}
+        self.assertEqual(names, {name for _o, name, _c in RARITY_ROWS})
+
+    def test_resolve_rarity_tone_prefers_name_over_code(self):
+        self.assertEqual(
+            resolve_rarity_tone(name="Prismatic Collector's Rare", code="(CR)"),
+            "prismatic-collectors",
+        )
+        self.assertEqual(
+            resolve_rarity_tone(name="Collector's Rare", code="(CR)"),
+            "collectors",
+        )
 
 
 if __name__ == "__main__":

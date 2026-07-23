@@ -12,8 +12,11 @@ from unittest.mock import patch
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
+from openpyxl import load_workbook
 
 from ygo_app.collection_export import (
+    DRAGONSHIELD_HEADERS,
+    export_collection,
     export_collection_csv,
     list_export_formats,
 )
@@ -126,6 +129,74 @@ class TestExportCollectionCsv(unittest.TestCase):
         for key in ("id", "label", "filename", "description"):
             self.assertIn(key, dragon)
 
+    def test_list_export_formats_includes_excel(self):
+        formats = list_export_formats()
+        self.assertTrue(any(f["id"] == "excel" for f in formats))
+        excel = next(f for f in formats if f["id"] == "excel")
+        self.assertEqual(excel["filename"], "ygo_collection.xlsx")
+        self.assertIn("Excel", excel["label"])
+
+    def test_excel_export_matches_dragonshield_columns(self):
+        session = self.Session()
+        content, media_type, filename = export_collection(
+            session, user_id=self.user_id, format_id="excel"
+        )
+        csv_text, _, _ = export_collection_csv(
+            session, user_id=self.user_id, format_id="dragonshield"
+        )
+        session.close()
+
+        self.assertEqual(
+            media_type,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(filename, "ygo_collection.xlsx")
+        self.assertIsInstance(content, (bytes, bytearray))
+
+        wb = load_workbook(io.BytesIO(content))
+        ws = wb.active
+        self.assertEqual(ws.title, "Collection")
+        headers = [cell.value for cell in ws[1]]
+        self.assertEqual(headers, list(DRAGONSHIELD_HEADERS))
+
+        excel_rows = list(ws.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(len(excel_rows), 1)
+        reader = csv.DictReader(io.StringIO("\n".join(csv_text.splitlines()[1:])))
+        csv_row = next(reader)
+        excel_row = excel_rows[0]
+        for idx, header in enumerate(DRAGONSHIELD_HEADERS):
+            expected = csv_row[header]
+            actual = excel_row[idx]
+            if header in {"Quantity", "Trade Quantity"}:
+                self.assertEqual(int(actual), int(expected))
+            else:
+                self.assertEqual(str(actual if actual is not None else ""), expected)
+
+    def test_excel_export_respects_folder_filter(self):
+        session = self.Session()
+        folder = session.execute(
+            select(CollectionFolder).where(CollectionFolder.user_id == self.user_id)
+        ).scalar_one()
+        content, _, _ = export_collection(
+            session,
+            user_id=self.user_id,
+            format_id="excel",
+            folder_ids=[str(folder.id)],
+        )
+        session.close()
+
+        wb = load_workbook(io.BytesIO(content))
+        rows = list(wb.active.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "main")
+        self.assertEqual(rows[0][3], "Ahrima, the Wicked Warden")
+
+    def test_export_collection_csv_rejects_excel_format(self):
+        session = self.Session()
+        with self.assertRaises(ValueError):
+            export_collection_csv(session, user_id=self.user_id, format_id="excel")
+        session.close()
+
     def test_dragonshield_export_uses_cardmarket_prices(self):
         session = self.Session()
         csv_text, media_type, filename = export_collection_csv(
@@ -154,6 +225,23 @@ class TestExportCollectionCsv(unittest.TestCase):
         self.assertEqual(row["LOW"], "0.05")
         self.assertEqual(row["TREND"], "0.32")
         self.assertEqual(row["Sell Price"], "0.45")
+
+    def test_export_includes_notes_column(self):
+        session = self.Session()
+        item = session.execute(
+            select(CollectionItem).where(CollectionItem.user_id == self.user_id)
+        ).scalar_one()
+        item.notes = "Toploader bin"
+        session.commit()
+        csv_text, _, _ = export_collection_csv(
+            session, user_id=self.user_id, format_id="dragonshield"
+        )
+        session.close()
+
+        reader = csv.DictReader(io.StringIO("\n".join(csv_text.splitlines()[1:])))
+        row = next(reader)
+        self.assertIn("Notes", row)
+        self.assertEqual(row["Notes"], "Toploader bin")
 
     def test_export_zero_fills_missing_market_prices(self):
         session = self.Session()

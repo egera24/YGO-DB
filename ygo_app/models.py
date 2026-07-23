@@ -26,6 +26,8 @@ class User(Base):
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    trade_share_slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    trade_display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     oauth_identities: Mapped[list["OAuthIdentity"]] = relationship(back_populates="user")
     collection_items: Mapped[list["CollectionItem"]] = relationship(back_populates="user")
@@ -36,6 +38,7 @@ class User(Base):
     favorites: Mapped[list["UserFavorite"]] = relationship(back_populates="user")
     card_tags: Mapped[list["UserCardTag"]] = relationship(back_populates="user")
     search_presets: Mapped[list["SearchPreset"]] = relationship(back_populates="user")
+    trade_orders: Mapped[list["TradeOrder"]] = relationship(back_populates="user")
 
 
 class OAuthIdentity(Base):
@@ -187,6 +190,7 @@ class CollectionItem(Base):
     set_name: Mapped[str | None] = mapped_column(String(256))
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     trade_quantity: Mapped[int] = mapped_column(Integer, default=0)
+    locked_quantity: Mapped[int] = mapped_column(Integer, default=0)
     condition: Mapped[str | None] = mapped_column(String(32))
     edition: Mapped[str | None] = mapped_column(String(32))
     language: Mapped[str | None] = mapped_column(String(32))
@@ -203,6 +207,62 @@ class CollectionItem(Base):
     folder_allocations: Mapped[list["CollectionItemFolder"]] = relationship(
         back_populates="collection_item",
         cascade="all, delete-orphan",
+    )
+    trade_order_lines: Mapped[list["TradeOrderLine"]] = relationship(
+        back_populates="collection_item"
+    )
+
+
+class TradeOrder(Base):
+    """Seller-facing record of a public trade order request with locked stock."""
+
+    __tablename__ = "trade_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    buyer_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    buyer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    buyer_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    buyer_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    user: Mapped["User"] = relationship(back_populates="trade_orders")
+    lines: Mapped[list["TradeOrderLine"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+    )
+
+
+class TradeOrderLine(Base):
+    """One locked line item from a trade order request."""
+
+    __tablename__ = "trade_order_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("trade_orders.id", ondelete="CASCADE"), index=True
+    )
+    collection_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("collection_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    card_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    set_code: Mapped[str] = mapped_column(String(32))
+    set_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    rarity_code: Mapped[str] = mapped_column(String(64))
+    rarity_display: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    condition: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    offer_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    list_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    order: Mapped["TradeOrder"] = relationship(back_populates="lines")
+    collection_item: Mapped["CollectionItem | None"] = relationship(
+        back_populates="trade_order_lines"
     )
 
 

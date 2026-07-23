@@ -5,9 +5,9 @@ Official Cardmarket product catalog and price guide JSON files replace the legac
 ## Flow
 
 1. **Download** — `downloads.s3.cardmarket.com` Yu-Gi-Oh JSON (game id `3`)
-2. **Archive** — LZMA zip raw files + manifest → R2 bucket `ygo-cardmarket`, key `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip`
-3. **Run log** — Brotli-compressed job log → R2 key `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log.br` (same UTC suffix as zip)
-4. **Pipeline report** — Brotli-compressed rejections + import gate → R2 key `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json.br`
+2. **Archive** — LZMA zip raw files + manifest → R2 bucket `ygo-cardmarket`, key `archives/{YYYY}/{MM}/{DD}/{HHMM}/catalog_archive.zip`
+3. **Run log** — Brotli-compressed job log → R2 key `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_log.log.br` (same UTC run folder as zip)
+4. **Pipeline report** — Brotli-compressed rejections + import gate → R2 key `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_report.json.br`
 5. **Map expansions** — `tcg_sets.name` contained in `products_nonsingles` product names → `idExpansion`
 6. **Match printings** — singles by expansion + card name; rarity guessed from price order vs `rarity_price_ranks`
 7. **Import gate** — validate export for duplicate keys and missing required fields before DB write
@@ -38,21 +38,23 @@ python -m ygo_app.jobs.import_cardmarket_prices --file data/catalog/cardmarket_p
 
 ## R2 artifacts
 
-Bucket: `ygo-cardmarket` (`S3_CARDMARKET_BUCKET`).
+Bucket: `ygo-cardmarket` (`S3_CARDMARKET_BUCKET`). Each sync run uses folder `archives/{YYYY}/{MM}/{DD}/{HHMM}/` (UTC from `YYYYMMDD_HHMM`).
 
 | Key | Content |
 |-----|---------|
-| `archives/catalog_archive_{YYYYMMDD}_{HHMM}.zip` | Raw catalog JSON + manifest (ZIP_LZMA) |
-| `archives/sync_price_log_{YYYYMMDD}_{HHMM}.log.br` | Job log for triage (Brotli) |
-| `archives/sync_price_report_{YYYYMMDD}_{HHMM}.json.br` | Rejections and import gate (Brotli) |
-| `archives/cardmarket_prices_{YYYYMMDD}_{HHMM}.zip` | Matched export (`cardmarket_prices.json` inside, ZIP_LZMA) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/catalog_archive.zip` | Raw catalog JSON + manifest (ZIP_LZMA) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_log.log.br` | Job log for triage (Brotli) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/sync_price_report.json.br` | Rejections and import gate (Brotli) |
+| `archives/{YYYY}/{MM}/{DD}/{HHMM}/cardmarket_prices.zip` | Matched export (`cardmarket_prices.json` inside, ZIP_LZMA) |
+
+Legacy flat keys (`archives/cardmarket_prices_{YYYYMMDD}_{HHMM}.zip`, etc.) are still readable until removed from R2.
 
 ## GitHub Actions
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
 | [`sync-cardmarket-catalog.yml`](../.github/workflows/sync-cardmarket-catalog.yml) | Weekly Sun 04:00 UTC | Full pipeline |
-| [`import-cardmarket-prices.yml`](../.github/workflows/import-cardmarket-prices.yml) | Manual | Re-import latest `archives/cardmarket_prices_{ts}.zip` from R2 |
+| [`import-cardmarket-prices.yml`](../.github/workflows/import-cardmarket-prices.yml) | Manual | Re-import latest `archives/.../cardmarket_prices.zip` from R2 |
 
 Scheduled runs target **production** Neon. Use `workflow_dispatch` with `environment=dev` for testing.
 
@@ -84,8 +86,14 @@ For each `tcg_sets` row with `region = 'TCG'`:
 
 Per Yugipedia set, group `printings` by card. Match Cardmarket singles (`idCategory = 5`) by any mapped `idExpansion` + normalized card name.
 
+- **TCG branding stars** — strip `☆` and `★` from card names before punctuation normalization (Yugipedia `Live☆Twin` / `Evil★Twin` vs Cardmarket `LiveTwin` / `EvilTwin`)
 - **Regional variants** — Yugipedia printings that share the same card, rarity, and collector number but differ only by regional prefix (e.g. `LOD-078` and `LOD-EN078`) are collapsed to one **representative** slot before counting. The representative prefers the `-EN` form. After price pairing, the matched Cardmarket product's prices are **broadcast** to every variant in that slot. Cardmarket does not distinguish these regional codes; one CM single covers all.
-- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with fuller price data (keeps multi-rarity products that each have `avg`).
+- **Print-design variants** — Cardmarket may list multiple `idProduct` rows for the same card name when alternate physical designs exist (e.g. 25LP **Emblazoned** vs normal). The website shows these as V.1–V.4, but the S3 JSON has only the plain card `name`. Before counting, rows are split into consecutive `idProduct` runs separated by a major gap; when structure is unambiguous, one batch is kept:
+  - One run matches the Yugipedia representative count → use that run (e.g. RA05 7-block).
+  - Two equal-sized runs (e.g. 25LP normal vs emblazoned pairs) → keep the run with lower total `avg` price (normal printing; emblazoned is not a separate Yugipedia slot).
+  - Prefix pair + main block (e.g. RA05 9→7) → drop the small prefix, keep the main block.
+  - Unrecognized structure → no collapse; existing `count_mismatch` rejection applies.
+- **Duplicate CM listings** — when multiple Cardmarket singles share the same `idMetacard`, sparse re-listings without `avg` are dropped in favor of rows with price data. Multi-design resolution is handled by print-variant collapse above. When CM count still exceeds Yugipedia after variant collapse, rows with any null among `low` / `avg` / `trend` are dropped if that brings counts into alignment.
 - Count of CM products must equal count of **representative slots** (after regional collapse) for that card in the set
 - Sort CM by `trend`, then `avg`, then `idProduct` ascending
 - Sort representative slots by `rarity_price_ranks.sort_order`
@@ -108,8 +116,8 @@ Export JSON is still uploaded to R2 when the gate fails so you can inspect bad r
 
 | Issue | Action |
 |-------|--------|
-| Expansion mapping rejections | Check `sync_price_log_{YYYYMMDD}_{HHMM}.log.br` and `sync_price_report_{YYYYMMDD}_{HHMM}.json.br` in R2; adjust `tcg_sets.name` or aliases |
-| Printing count mismatch | Yugipedia printings ≠ CM singles for a card — verify catalog freshness |
+| Expansion mapping rejections | Check `sync_price_log.log.br` and `sync_price_report.json.br` in the run folder under `archives/{YYYY}/{MM}/{DD}/{HHMM}/`; adjust `tcg_sets.name` or aliases |
+| Printing count mismatch | Yugipedia printings ≠ CM singles for a card after variant collapse — verify catalog freshness or inspect `extra.cm_id_products` / `extra.id_gaps` in the report |
 | Ambiguous price order | Two CM variants with identical sort keys — manual review in report |
 | Import gate duplicate keys | Bug in export builder — inspect `cardmarket_prices.json` |
 | Download failure | S3 URL may have changed; update `DEFAULT_URLS` or HTML discovery fixtures |

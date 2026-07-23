@@ -1,8 +1,9 @@
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ygo_app.auth import (
@@ -14,9 +15,10 @@ from ygo_app.auth import (
     verify_password,
 )
 from ygo_app.config import TURNSTILE_SITE_KEY
+from ygo_app.data_export import build_user_data_export
 from ygo_app.database import get_db
 from ygo_app.email import send_verification_code
-from ygo_app.models import PendingRegistration, User
+from ygo_app.models import AuthRateLimit, PendingRegistration, User
 from ygo_app.oauth import (
     SUPPORTED_PROVIDERS,
     build_authorize_redirect,
@@ -31,6 +33,8 @@ from ygo_app.oauth import (
     verify_oauth_exchange_token,
     verify_oauth_state,
 )
+from ygo_app.request_client import client_ip
+from ygo_app.trade_share import ensure_user_trade_slug
 from ygo_app.rate_limit import RateLimitSpec, enforce_rate_limit
 from ygo_app.turnstile import turnstile_required, verify_turnstile_token
 from ygo_app.verification import (
@@ -54,6 +58,10 @@ LOGIN_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=900)
 LOGIN_EMAIL_LIMIT = RateLimitSpec(max_count=10, window_seconds=900)
 OAUTH_START_IP_LIMIT = RateLimitSpec(max_count=20, window_seconds=900)
 OAUTH_COMPLETE_IP_LIMIT = RateLimitSpec(max_count=20, window_seconds=900)
+DELETE_ACCOUNT_IP_LIMIT = RateLimitSpec(max_count=5, window_seconds=3600)
+DELETE_ACCOUNT_USER_LIMIT = RateLimitSpec(max_count=5, window_seconds=3600)
+DATA_EXPORT_IP_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
+DATA_EXPORT_USER_LIMIT = RateLimitSpec(max_count=10, window_seconds=3600)
 
 
 class RegisterIn(BaseModel):
@@ -95,8 +103,14 @@ class UserOut(BaseModel):
     id: int
     email: str
     email_verified: bool
+    has_password: bool
 
     model_config = {"from_attributes": True}
+
+
+class DeleteAccountIn(BaseModel):
+    password: str | None = Field(default=None, max_length=128)
+    confirm_email: EmailStr | None = None
 
 
 class AuthConfigOut(BaseModel):
@@ -115,12 +129,7 @@ class OAuthCompleteIn(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    return client_ip(request)
 
 
 def _queue_verification_email(background_tasks: BackgroundTasks, email: str, code: str) -> None:
@@ -232,6 +241,8 @@ def verify_email(body: VerifyEmailIn, request: Request, db: Session = Depends(ge
         email_verified_at=now,
     )
     db.add(user)
+    db.flush()
+    ensure_user_trade_slug(db, user)
     db.delete(pending)
     db.commit()
     db.refresh(user)
@@ -298,7 +309,69 @@ def me(user: User = Depends(get_current_user)):
         id=user.id,
         email=user.email,
         email_verified=user.email_verified_at is not None,
+        has_password=user.hashed_password is not None,
     )
+
+
+def _cleanup_account_side_tables(db: Session, email: str) -> None:
+    pending = get_pending_by_email(db, email)
+    if pending is not None:
+        db.delete(pending)
+    email_key_suffix = f":email:{email}"
+    rows = db.scalars(
+        select(AuthRateLimit).where(AuthRateLimit.key.endswith(email_key_suffix))
+    ).all()
+    for row in rows:
+        db.delete(row)
+
+
+@router.get("/data-export")
+def data_export(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    client_ip = _client_ip(request)
+    enforce_rate_limit(db, f"data_export:ip:{client_ip}", DATA_EXPORT_IP_LIMIT)
+    enforce_rate_limit(db, f"data_export:user:{user.id}", DATA_EXPORT_USER_LIMIT)
+    payload = build_user_data_export(db, user)
+    db.commit()
+    filename = f"ygo-account-export-{user.id}.json"
+    return JSONResponse(
+        content=payload,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(
+    body: DeleteAccountIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    client_ip = _client_ip(request)
+    enforce_rate_limit(db, f"delete_account:ip:{client_ip}", DELETE_ACCOUNT_IP_LIMIT)
+    enforce_rate_limit(db, f"delete_account:user:{user.id}", DELETE_ACCOUNT_USER_LIMIT)
+
+    if user.hashed_password is not None:
+        if not body.password or not verify_password(body.password, user.hashed_password):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid password")
+    else:
+        confirm = normalize_email(body.confirm_email) if body.confirm_email else ""
+        if confirm != normalize_email(user.email):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Type your account email to confirm deletion",
+            )
+
+    email = normalize_email(user.email)
+    user_id = user.id
+    _cleanup_account_side_tables(db, email)
+    # Core DELETE so DB ondelete=CASCADE runs; ORM delete would NULL FKs first.
+    db.execute(delete(User).where(User.id == user_id))
+    db.commit()
+    return None
 
 
 @router.get("/oauth/{provider}/start")

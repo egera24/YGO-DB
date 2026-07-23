@@ -1,9 +1,11 @@
 from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session, joinedload, load_only
+from sqlalchemy.orm import Session, joinedload, load_only, selectinload
 
 import json
-from datetime import datetime
+from collections import defaultdict
+from datetime import date, datetime
 
+from ygo_app.import_progress import ProgressThrottle
 from ygo_app.models import (
     Card,
     CollectionFolder,
@@ -13,20 +15,35 @@ from ygo_app.models import (
     DeckCard,
     Printing,
     PrintingMarketPrice,
+    RarityPriceRank,
     SearchPreset,
+    TcgSet,
+    TradeOrder,
+    TradeOrderLine,
     User,
     UserCardTag,
     UserFavorite,
 )
 from ygo_app.card_filters import (
+    card_response_extras,
     link_markers_contain_all,
     mechanic_filter,
     parse_multi_param,
     types_overlap_filter,
 )
+from ygo_app.collection_identity import (
+    COLLECTION_CONDITIONS,
+    COLLECTION_EDITIONS,
+    collection_item_key,
+    find_collection_item_by_identity,
+    normalize_collection_condition,
+    normalize_collection_edition,
+    normalize_collection_notes,
+)
 from ygo_app.cardmarket.market_prices import load_market_prices
 from ygo_app.search_sort import (
     apply_collection_sort_joins,
+    apply_sort_direction,
     build_card_search_order_by,
     build_collection_order_by,
 )
@@ -39,6 +56,9 @@ from ygo_app.search_query import (
 )
 from ygo_app.utils import normalize_rarity_code, rarity_display
 from ygo_app.rarity_registry import rarity_match_variants, resolve_rarity
+from ygo_app.trade_share import assign_unique_trade_slug, ensure_user_trade_slug
+from ygo_app.yugipedia.images import resolve_display_image_url_small
+from ygo_app.yugipedia.set_chronology import set_abbr_from_code
 
 
 class SearchPresetConflictError(Exception):
@@ -821,7 +841,8 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
 
     owned_map: dict[tuple[str, str], int] = {}
     trade_map: dict[tuple[str, str], int] = {}
-    collection_item_id_map: dict[tuple[str, str], int] = {}
+    collection_item_id_map: dict[tuple[str, str], int | None] = {}
+    collection_variant_count_map: dict[tuple[str, str], int] = {}
     if user_id is not None:
         rows = session.execute(
             select(
@@ -829,6 +850,7 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
                 CollectionItem.rarity_code,
                 func.sum(CollectionItem.quantity),
                 func.sum(CollectionItem.trade_quantity),
+                func.count(CollectionItem.id),
                 func.min(CollectionItem.id),
             )
             .join(
@@ -839,16 +861,22 @@ def get_card_detail(session: Session, card_id: int, user_id: int | None) -> Card
             .where(Printing.card_id == card_id, CollectionItem.user_id == user_id)
             .group_by(CollectionItem.set_code, CollectionItem.rarity_code)
         ).all()
-        for set_code, rarity_code, qty, trade_qty, item_id in rows:
-            owned_map[(set_code, rarity_code)] = int(qty or 0)
-            trade_map[(set_code, rarity_code)] = int(trade_qty or 0)
-            collection_item_id_map[(set_code, rarity_code)] = int(item_id)
+        for set_code, rarity_code, qty, trade_qty, variant_count, item_id in rows:
+            key = (set_code, rarity_code)
+            owned_map[key] = int(qty or 0)
+            trade_map[key] = int(trade_qty or 0)
+            variant_count_int = int(variant_count or 0)
+            collection_variant_count_map[key] = variant_count_int
+            collection_item_id_map[key] = (
+                int(item_id) if variant_count_int == 1 else None
+            )
 
     for printing in card.printings:
         key = (printing.set_code, printing.set_rarity_code)
         printing.owned_quantity = owned_map.get(key, 0)
         printing.trade_quantity = trade_map.get(key, 0)
         printing.collection_item_id = collection_item_id_map.get(key)
+        printing.collection_variant_count = collection_variant_count_map.get(key, 0)
 
     from ygo_app.cardmarket.market_prices import attach_market_prices_to_printings
 
@@ -890,10 +918,6 @@ def _folder_allocations_for_row(item: CollectionItem) -> list[dict]:
         }
         for row in allocations
     ]
-
-
-def _default_folder_allocations(quantity: int) -> list[dict]:
-    return [{"folder_id": None, "quantity": quantity}]
 
 
 def get_or_create_folder(
@@ -1012,11 +1036,20 @@ def update_collection_folder(
 
 
 def delete_collection_folder(
-    session: Session, *, user_id: int, folder_id: int
-) -> tuple[int, int]:
+    session: Session,
+    *,
+    user_id: int,
+    folder_id: int,
+    target_folder_id: int | None = None,
+    remove_cards: bool = False,
+) -> tuple[int, int, int, int]:
     folder = session.get(CollectionFolder, folder_id)
     if not folder or folder.user_id != user_id:
         raise ValueError("Folder not found")
+    if remove_cards and target_folder_id is not None:
+        raise ValueError(
+            "Provide either remove_cards or target_folder_id, not both"
+        )
     allocations = (
         session.execute(
             select(CollectionItemFolder)
@@ -1038,24 +1071,72 @@ def delete_collection_folder(
         .scalars()
         .all()
     )
+    if allocations and not remove_cards and target_folder_id is None:
+        raise ValueError(
+            "target_folder_id is required when the folder still has cards"
+        )
+    if not remove_cards and target_folder_id is not None:
+        if target_folder_id == folder_id:
+            raise ValueError("target_folder_id must be a different folder")
+        target = session.get(CollectionFolder, target_folder_id)
+        if not target or target.user_id != user_id:
+            raise ValueError("Folder not found")
+
     moved_allocations = 0
     moved_quantity = 0
-    for allocation in allocations:
-        item = allocation.collection_item
-        moved_allocations += 1
-        moved_quantity += int(allocation.quantity)
-        no_folder = next(
-            (row for row in item.folder_allocations if row.folder_id is None),
-            None,
-        )
-        if no_folder:
-            no_folder.quantity += allocation.quantity
-            session.delete(allocation)
-        else:
-            allocation.folder_id = None
+    removed_allocations = 0
+    removed_quantity = 0
+
+    if remove_cards:
+        items_to_delete: list[CollectionItem] = []
+        for allocation in allocations:
+            item = allocation.collection_item
+            qty = int(allocation.quantity)
+            removed_allocations += 1
+            removed_quantity += qty
+            if int(item.quantity or 0) > 0:
+                item.quantity = max(0, int(item.quantity) - qty)
+            else:
+                item.trade_quantity = max(0, int(item.trade_quantity or 0) - qty)
+            # Remove from the relationship so delete-orphan handles the row once;
+            # avoids a double DELETE when the parent item is removed next.
+            item.folder_allocations.remove(allocation)
+            if int(item.quantity or 0) == 0 and int(item.trade_quantity or 0) == 0:
+                items_to_delete.append(item)
+        session.flush()
+        for item in items_to_delete:
+            session.delete(item)
+    else:
+        for allocation in allocations:
+            item = allocation.collection_item
+            moved_allocations += 1
+            moved_quantity += int(allocation.quantity)
+            existing_target = next(
+                (
+                    row
+                    for row in item.folder_allocations
+                    if row.folder_id == target_folder_id and row is not allocation
+                ),
+                None,
+            )
+            if existing_target:
+                existing_target.quantity += allocation.quantity
+                session.delete(allocation)
+            else:
+                allocation.folder_id = target_folder_id
+    # Flush reassignments before deleting the folder so ON DELETE SET NULL
+    # does not wipe the new folder_id.
+    session.flush()
     session.delete(folder)
     session.commit()
-    return moved_allocations, moved_quantity
+    return moved_allocations, moved_quantity, removed_allocations, removed_quantity
+
+
+def _folder_allocation_target(item: CollectionItem) -> int:
+    keeper_qty = int(item.quantity or 0)
+    if keeper_qty > 0:
+        return keeper_qty
+    return int(item.trade_quantity or 0) + int(item.locked_quantity or 0)
 
 
 def _validate_folder_allocations(
@@ -1067,21 +1148,24 @@ def _validate_folder_allocations(
 ) -> list[dict]:
     if not allocations:
         raise ValueError("At least one folder allocation is required")
-    merged: dict[int | None, int] = {}
+    merged: dict[int, int] = {}
     for row in allocations:
         folder_id = row.get("folder_id")
         qty = int(row["quantity"])
         if qty < 1:
             raise ValueError("Allocation quantity must be at least 1")
-        if folder_id is not None:
-            folder = session.get(CollectionFolder, folder_id)
-            if not folder or folder.user_id != user_id:
-                raise ValueError("Folder not found")
+        if folder_id is None:
+            raise ValueError("Folder is required")
+        folder = session.get(CollectionFolder, folder_id)
+        if not folder or folder.user_id != user_id:
+            raise ValueError("Folder not found")
         merged[folder_id] = merged.get(folder_id, 0) + qty
     total = sum(merged.values())
-    if total != item.quantity:
+    target = _folder_allocation_target(item)
+    if total != target:
+        label = "quantity" if int(item.quantity or 0) > 0 else "trade quantity"
         raise ValueError(
-            f"Folder allocations must sum to item quantity ({item.quantity}), got {total}"
+            f"Folder allocations must sum to item {label} ({target}), got {total}"
         )
     return [{"folder_id": key, "quantity": value} for key, value in merged.items()]
 
@@ -1109,36 +1193,66 @@ def set_item_folder_allocations(
 
 def _reconcile_allocations_after_quantity_change(item: CollectionItem) -> None:
     allocations = list(item.folder_allocations)
+    target = int(item.quantity or 0)
     if not allocations:
-        item.folder_allocations.append(
-            CollectionItemFolder(folder_id=None, quantity=item.quantity)
-        )
+        if target > 0:
+            raise ValueError("Folder is required")
         return
     if len(allocations) == 1:
-        allocations[0].quantity = item.quantity
+        allocations[0].quantity = target
         return
     current_total = sum(int(row.quantity) for row in allocations)
-    diff = item.quantity - current_total
+    diff = target - current_total
     if diff == 0:
         return
-    no_folder = next((row for row in allocations if row.folder_id is None), None)
-    if no_folder:
-        no_folder.quantity = max(1, no_folder.quantity + diff)
-    elif diff > 0:
-        item.folder_allocations.append(
-            CollectionItemFolder(folder_id=None, quantity=diff)
-        )
-    else:
+    named = [row for row in allocations if row.folder_id is not None]
+    if diff > 0 and named:
+        named[0].quantity = int(named[0].quantity) + diff
+        return
+    if diff < 0:
         raise ValueError(
             "Reduce folder allocations before lowering total quantity"
         )
+    raise ValueError("Folder is required")
 
 
 def _ensure_default_allocations(item: CollectionItem) -> None:
-    if not item.folder_allocations:
-        item.folder_allocations.append(
-            CollectionItemFolder(folder_id=None, quantity=item.quantity)
-        )
+    if item.folder_allocations:
+        return
+    if (
+        int(item.quantity or 0) > 0
+        or int(item.trade_quantity or 0) > 0
+        or int(item.locked_quantity or 0) > 0
+    ):
+        raise ValueError("Folder is required")
+
+
+def _shrink_folder_allocations_to_target(item: CollectionItem) -> None:
+    """Reduce folder allocations to match the current allocation target."""
+    target = _folder_allocation_target(item)
+    allocations = list(item.folder_allocations)
+    if not allocations:
+        return
+    if target <= 0:
+        item.folder_allocations.clear()
+        return
+    if len(allocations) == 1:
+        allocations[0].quantity = target
+        return
+    current_total = sum(int(row.quantity) for row in allocations)
+    if current_total <= target:
+        return
+    remaining_cut = current_total - target
+    for alloc in allocations:
+        if remaining_cut <= 0:
+            break
+        qty = int(alloc.quantity)
+        take = min(qty, remaining_cut)
+        alloc.quantity = qty - take
+        remaining_cut -= take
+    for alloc in list(item.folder_allocations):
+        if int(alloc.quantity) <= 0:
+            item.folder_allocations.remove(alloc)
 
 
 
@@ -1179,18 +1293,57 @@ def _card_for_collection_item(
     return None
 
 
+def _release_dates_by_set_codes(
+    session: Session, set_codes: set[str] | list[str]
+) -> dict[str, date]:
+    from ygo_app.formats.pool import expansion_abbr_from_set_code
+
+    set_code_to_abbr: dict[str, str] = {}
+    abbrs: set[str] = set()
+    for set_code in set_codes:
+        abbr = expansion_abbr_from_set_code(set_code or "")
+        if not abbr:
+            continue
+        set_code_to_abbr[set_code] = abbr
+        abbrs.add(abbr)
+    if not abbrs:
+        return {}
+
+    abbr_to_date = {
+        abbr: release_date
+        for abbr, release_date in session.execute(
+            select(TcgSet.abbr, TcgSet.release_date).where(
+                TcgSet.abbr.in_(abbrs),
+                TcgSet.release_date.is_not(None),
+            )
+        ).all()
+    }
+    return {
+        set_code: abbr_to_date[abbr]
+        for set_code, abbr in set_code_to_abbr.items()
+        if abbr in abbr_to_date
+    }
+
+
 def _collection_item_row(
     item: CollectionItem,
     *,
     set_code_fallback: dict[str, Card | None] | None = None,
     folder_filter: str | None = None,
     market_row: PrintingMarketPrice | None = None,
+    release_date_map: dict[str, date] | None = None,
 ) -> dict:
     card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
     linked = item.linked_printing
-    rarity_name = linked.set_rarity if linked is not None else None
+    resolved = resolve_rarity(item.rarity_code)
+    if resolved is not None:
+        rarity_name = resolved.name
+    else:
+        rarity_name = linked.set_rarity if linked is not None else None
     row = {c.name: getattr(item, c.name) for c in CollectionItem.__table__.columns}
-    row["printing"] = row.pop("edition", None)
+    row["condition"] = normalize_collection_condition(row.get("condition"))
+    row["edition"] = normalize_collection_edition(row.get("edition"))
+    row["printing"] = row["edition"]
     if market_row is not None:
         row["low_price"] = market_row.low_price
         row["avg_price"] = market_row.avg_price
@@ -1208,14 +1361,17 @@ def _collection_item_row(
         folder_id = int(folder_filter)
         alloc = next((f for f in folders if f["folder_id"] == folder_id), None)
         display_quantity = alloc["quantity"] if alloc else 0
+    display_card_name = item.card_name or (card.name if card else None)
     return {
         **row,
+        "card_name": display_card_name,
         "quantity": display_quantity,
         "card_id": card.id if card else None,
         "image_url_small": card.image_url_small if card else None,
         "rarity_display": rarity_display(item.rarity_code),
         "rarity_name": rarity_name,
         "folders": folders,
+        "release_date": release_date_map.get(item.set_code) if release_date_map else None,
     }
 
 
@@ -1240,19 +1396,32 @@ def _apply_collection_folder_filter(stmt, folder: str | None):
     )
 
 
-def list_collection(
-    session: Session,
+def _scoped_collection_quantity(item: CollectionItem, folder_filter: str | None) -> int:
+    folders = _folder_allocations_for_row(item)
+    if folder_filter == NO_FOLDER:
+        alloc = next((f for f in folders if f["folder_id"] is None), None)
+        return int(alloc["quantity"]) if alloc else 0
+    if folder_filter and folder_filter != NO_FOLDER:
+        folder_id = int(folder_filter)
+        alloc = next((f for f in folders if f["folder_id"] == folder_id), None)
+        return int(alloc["quantity"]) if alloc else 0
+    return int(item.quantity)
+
+
+def _apply_collection_item_filters(
+    stmt,
     *,
     user_id: int,
     q: str | None = None,
-    folder: str | None = None,
+    card_name: str | None = None,
     set_code: str | None = None,
-    sort: str = "set_code",
-    sort_dir: str = "asc",
-    limit: int = 100,
-    offset: int = 0,
-) -> tuple[list[dict], int]:
-    stmt = select(CollectionItem).where(CollectionItem.user_id == user_id)
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+):
+    stmt = stmt.where(CollectionItem.user_id == user_id)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -1262,9 +1431,354 @@ def list_collection(
                 CollectionItem.set_name.ilike(like),
             )
         )
-    stmt = _apply_collection_folder_filter(stmt, folder)
+    if card_name:
+        stmt = stmt.where(CollectionItem.card_name.ilike(f"%{card_name.strip()}%"))
     if set_code:
         stmt = stmt.where(CollectionItem.set_code.ilike(f"%{set_code.strip()}%"))
+    if set_name:
+        stmt = stmt.where(CollectionItem.set_name.ilike(f"%{set_name.strip()}%"))
+    if rarity:
+        stmt = stmt.where(CollectionItem.rarity_code == rarity.strip())
+    if edition:
+        norm = normalize_collection_edition(edition)
+        if norm:
+            stmt = stmt.where(CollectionItem.edition == norm)
+    if condition:
+        norm = normalize_collection_condition(condition)
+        if norm:
+            stmt = stmt.where(CollectionItem.condition == norm)
+    return _apply_collection_folder_filter(stmt, folder)
+
+
+def _resolve_collection_folder_label(
+    session: Session, *, user_id: int, folder: str | None
+) -> str:
+    if not folder:
+        return "All"
+    if folder == NO_FOLDER:
+        return "No Folder"
+    row = session.execute(
+        select(CollectionFolder.name).where(
+            CollectionFolder.id == int(folder),
+            CollectionFolder.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    return row or f"Folder {folder}"
+
+
+def _collection_filter_rarities(session: Session, filtered_ids) -> list[dict]:
+    rarity_codes = session.execute(
+        select(CollectionItem.rarity_code)
+        .where(CollectionItem.id.in_(filtered_ids))
+        .where(
+            CollectionItem.rarity_code.isnot(None),
+            CollectionItem.rarity_code != "",
+        )
+        .distinct()
+    ).scalars().all()
+
+    seen: set[str] = set()
+    rarities: list[dict] = []
+    for code in rarity_codes:
+        resolved = resolve_rarity(code)
+        key = resolved.name if resolved else code
+        if key in seen:
+            continue
+        seen.add(key)
+        rarities.append(
+            {
+                "rarity_code": code,
+                "rarity_name": resolved.name if resolved else None,
+            }
+        )
+    rarities.sort(key=lambda row: (row["rarity_name"] or row["rarity_code"]).lower())
+    return rarities
+
+
+def _collection_filtered_item_ids(
+    *,
+    user_id: int,
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+    exclude: frozenset[str] = frozenset(),
+):
+    stmt = select(CollectionItem)
+    stmt = _apply_collection_item_filters(
+        stmt,
+        user_id=user_id,
+        q=q,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=None if "rarity" in exclude else rarity,
+        edition=None if "edition" in exclude else edition,
+        condition=None if "condition" in exclude else condition,
+        folder=folder,
+    )
+    return stmt.with_only_columns(CollectionItem.id)
+
+
+def collection_filter_options(
+    session: Session,
+    *,
+    user_id: int,
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+) -> dict:
+    filter_kwargs = {
+        "user_id": user_id,
+        "q": q,
+        "card_name": card_name,
+        "set_code": set_code,
+        "set_name": set_name,
+        "rarity": rarity,
+        "edition": edition,
+        "condition": condition,
+        "folder": folder,
+    }
+
+    rarity_ids = _collection_filtered_item_ids(**filter_kwargs, exclude=frozenset({"rarity"}))
+    edition_ids = _collection_filtered_item_ids(**filter_kwargs, exclude=frozenset({"edition"}))
+    condition_ids = _collection_filtered_item_ids(**filter_kwargs, exclude=frozenset({"condition"}))
+
+    editions = session.execute(
+        select(CollectionItem.edition)
+        .where(CollectionItem.id.in_(edition_ids))
+        .where(CollectionItem.edition.isnot(None), CollectionItem.edition != "")
+        .distinct()
+        .order_by(CollectionItem.edition)
+    ).scalars().all()
+
+    conditions = session.execute(
+        select(CollectionItem.condition)
+        .where(CollectionItem.id.in_(condition_ids))
+        .where(CollectionItem.condition.isnot(None), CollectionItem.condition != "")
+        .distinct()
+        .order_by(CollectionItem.condition)
+    ).scalars().all()
+
+    normalized_editions = sorted(
+        {normalize_collection_edition(e) for e in editions if normalize_collection_edition(e)},
+        key=str.lower,
+    )
+    normalized_conditions = sorted(
+        {normalize_collection_condition(c) for c in conditions if normalize_collection_condition(c)},
+        key=str.lower,
+    )
+
+    return {
+        "rarities": _collection_filter_rarities(session, rarity_ids),
+        "editions": normalized_editions,
+        "conditions": normalized_conditions,
+    }
+
+
+def collection_suggestions(
+    session: Session,
+    *,
+    user_id: int,
+    field: str,
+    q: str | None = None,
+    limit: int = 20,
+    q_filter: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+) -> list[str]:
+    column_map = {
+        "card_name": CollectionItem.card_name,
+        "set_code": CollectionItem.set_code,
+        "set_name": CollectionItem.set_name,
+    }
+    column = column_map.get(field)
+    if column is None:
+        return []
+
+    stmt = select(CollectionItem)
+    stmt = _apply_collection_item_filters(
+        stmt,
+        user_id=user_id,
+        q=q_filter,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=rarity,
+        edition=edition,
+        condition=condition,
+        folder=folder,
+    )
+    stmt = stmt.where(column.isnot(None), column != "")
+    if q and q.strip():
+        stmt = stmt.where(column.ilike(f"%{q.strip()}%"))
+
+    rows = session.execute(
+        select(column)
+        .where(CollectionItem.id.in_(stmt.with_only_columns(CollectionItem.id)))
+        .where(column.isnot(None), column != "")
+        .distinct()
+        .order_by(column)
+        .limit(max(1, min(limit, 50)))
+    ).scalars().all()
+    return [str(value).strip() for value in rows if str(value).strip()]
+
+
+def collection_detail_stats(
+    session: Session,
+    *,
+    user_id: int,
+    folder: str | None = None,
+) -> dict:
+    stmt = select(CollectionItem).where(CollectionItem.user_id == user_id)
+    stmt = _apply_collection_folder_filter(stmt, folder)
+    items = (
+        session.execute(
+            stmt.options(
+                joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+                joinedload(CollectionItem.folder_allocations).joinedload(
+                    CollectionItemFolder.folder
+                ),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+
+    missing_codes = {
+        item.set_code for item in items if _card_for_collection_item(item) is None
+    }
+    fallback_map = _cards_by_set_codes(session, missing_codes)
+    market_keys = [(item.set_code, item.rarity_code) for item in items]
+    market_map = load_market_prices(session, market_keys)
+    release_date_map = _release_dates_by_set_codes(session, {item.set_code for item in items})
+
+    unique_printings = 0
+    total_quantity = 0
+    sum_low = 0.0
+    sum_avg = 0.0
+    sum_trend = 0.0
+    has_low = False
+    has_avg = False
+    has_trend = False
+    max_item: CollectionItem | None = None
+    max_row: dict | None = None
+    max_trend: float | None = None
+
+    for item in items:
+        qty = _scoped_collection_quantity(item, folder)
+        if qty <= 0:
+            continue
+        unique_printings += 1
+        total_quantity += qty
+
+        market_row = market_map.get((item.set_code, item.rarity_code))
+        low = market_row.low_price if market_row else None
+        avg = market_row.avg_price if market_row else None
+        trend = market_row.trend_price if market_row else None
+
+        if low is not None:
+            has_low = True
+            sum_low += float(low) * qty
+        if avg is not None:
+            has_avg = True
+            sum_avg += float(avg) * qty
+        if trend is not None:
+            has_trend = True
+            sum_trend += float(trend) * qty
+
+        trend_val = float(trend) if trend is not None else None
+        if trend_val is not None:
+            replace = False
+            if max_item is None:
+                replace = True
+            elif max_trend is None or trend_val > max_trend:
+                replace = True
+            elif trend_val == max_trend:
+                max_qty = max_row["quantity"] if max_row else 0
+                max_name = (max_row.get("card_name") or "").lower() if max_row else ""
+                row = _collection_item_row(
+                    item,
+                    set_code_fallback=fallback_map,
+                    folder_filter=folder,
+                    market_row=market_row,
+                    release_date_map=release_date_map,
+                )
+                if qty > max_qty or (
+                    qty == max_qty
+                    and (row.get("card_name") or "").lower() < max_name
+                ):
+                    replace = True
+            if replace:
+                max_item = item
+                max_trend = trend_val
+                max_row = _collection_item_row(
+                    item,
+                    set_code_fallback=fallback_map,
+                    folder_filter=folder,
+                    market_row=market_row,
+                    release_date_map=release_date_map,
+                )
+
+    return {
+        "folder": folder,
+        "folder_label": _resolve_collection_folder_label(
+            session, user_id=user_id, folder=folder
+        ),
+        "unique_printings": unique_printings,
+        "total_quantity": total_quantity,
+        "sum_low_price": sum_low if has_low else None,
+        "sum_avg_price": sum_avg if has_avg else None,
+        "sum_trend_price": sum_trend if has_trend else None,
+        "max_value_item": max_row,
+    }
+
+
+def list_collection(
+    session: Session,
+    *,
+    user_id: int,
+    q: str | None = None,
+    card_name: str | None = None,
+    set_code: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    edition: str | None = None,
+    condition: str | None = None,
+    folder: str | None = None,
+    sort: str = "set_code",
+    sort_dir: str = "asc",
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    stmt = select(CollectionItem)
+    stmt = _apply_collection_item_filters(
+        stmt,
+        user_id=user_id,
+        q=q,
+        card_name=card_name,
+        set_code=set_code,
+        set_name=set_name,
+        rarity=rarity,
+        edition=edition,
+        condition=condition,
+        folder=folder,
+    )
 
     total = session.execute(
         select(func.count()).select_from(stmt.subquery())
@@ -1300,6 +1814,7 @@ def list_collection(
 
     market_keys = [(item.set_code, item.rarity_code) for item in items]
     market_map = load_market_prices(session, market_keys)
+    release_date_map = _release_dates_by_set_codes(session, {item.set_code for item in items})
 
     results = [
         _collection_item_row(
@@ -1307,6 +1822,7 @@ def list_collection(
             set_code_fallback=fallback_map,
             folder_filter=folder,
             market_row=market_map.get((item.set_code, item.rarity_code)),
+            release_date_map=release_date_map,
         )
         for item in items
     ]
@@ -1659,9 +2175,81 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
     rarity_code, rarity_raw = resolve_collection_rarity(data["rarity"])
     quantity = data.get("quantity", 1)
     set_code = data["set_code"].strip()
+    edition = normalize_collection_edition(data.get("printing"))
+    condition = normalize_collection_condition(data.get("condition"))
+    trade_quantity = data.get("trade_quantity", 0)
     sell_price = (
         float(data["sell_price"]) if data.get("sell_price") is not None else None
     )
+    notes = normalize_collection_notes(data.get("notes"))
+    folder_allocations = data.get("folder_allocations")
+    folder_id = data.get("folder_id")
+
+    needs_folder = int(quantity or 0) > 0 or int(trade_quantity or 0) > 0
+    if needs_folder and not folder_allocations and folder_id is None:
+        raise ValueError("Folder is required")
+
+    existing = find_collection_item_by_identity(
+        session,
+        user_id=user_id,
+        set_code=set_code,
+        rarity_code=rarity_code,
+        edition=edition,
+        condition=condition,
+    )
+    if existing is not None:
+        existing.quantity += quantity
+        existing.trade_quantity += trade_quantity
+        if sell_price is not None:
+            existing.sell_price = sell_price
+        if folder_allocations:
+            # Rebuild allocations from request, scaled to total item quantity.
+            set_item_folder_allocations(
+                session,
+                user_id=user_id,
+                item=existing,
+                allocations=folder_allocations,
+            )
+        elif folder_id is not None:
+            folder = session.get(CollectionFolder, folder_id)
+            if not folder or folder.user_id != user_id:
+                raise ValueError("Folder not found")
+            no_folder_qty = sum(
+                int(row.quantity)
+                for row in existing.folder_allocations
+                if row.folder_id is None
+            )
+            allocs = [
+                {"folder_id": row.folder_id, "quantity": int(row.quantity)}
+                for row in existing.folder_allocations
+                if row.folder_id is not None
+            ]
+            add_qty = quantity + no_folder_qty
+            if add_qty > 0:
+                matched = next(
+                    (row for row in allocs if row["folder_id"] == folder_id),
+                    None,
+                )
+                if matched is not None:
+                    matched["quantity"] += add_qty
+                else:
+                    allocs.append({"folder_id": folder_id, "quantity": add_qty})
+                set_item_folder_allocations(
+                    session,
+                    user_id=user_id,
+                    item=existing,
+                    allocations=allocs,
+                )
+            else:
+                _reconcile_allocations_after_quantity_change(existing)
+        elif quantity > 0:
+            raise ValueError("Folder is required")
+        else:
+            _reconcile_allocations_after_quantity_change(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+
     item = CollectionItem(
         user_id=user_id,
         set_code=set_code,
@@ -1670,14 +2258,14 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
         expansion_code=data.get("expansion_code"),
         set_name=data.get("set_name"),
         quantity=quantity,
-        trade_quantity=data.get("trade_quantity", 0),
-        condition=data.get("condition"),
-        edition=data.get("printing"),
+        trade_quantity=trade_quantity,
+        condition=condition,
+        edition=edition,
         language=data.get("language"),
         price_bought=data.get("price_bought"),
         date_bought=data.get("date_bought"),
         sell_price=sell_price,
-        notes=data.get("notes"),
+        notes=notes,
         printing_id=None,
     )
     printing = find_printing_for_rarity(session, set_code, rarity_raw)
@@ -1698,32 +2286,26 @@ def add_collection_item(session: Session, user_id: int, data: dict) -> Collectio
                 if card is not None:
                     item.card_name = card.name
 
-    if data.get("folder_allocations"):
+    if folder_allocations:
         set_item_folder_allocations(
             session,
             user_id=user_id,
             item=item,
-            allocations=data["folder_allocations"],
+            allocations=folder_allocations,
         )
-    elif data.get("folder_id") is not None:
-        folder_id = data["folder_id"]
-        if folder_id is not None:
-            folder = session.get(CollectionFolder, folder_id)
-            if not folder or folder.user_id != user_id:
-                raise ValueError("Folder not found")
+    elif folder_id is not None:
+        folder = session.get(CollectionFolder, folder_id)
+        if not folder or folder.user_id != user_id:
+            raise ValueError("Folder not found")
+        alloc_qty = quantity if quantity > 0 else trade_quantity
         set_item_folder_allocations(
             session,
             user_id=user_id,
             item=item,
-            allocations=[{"folder_id": folder_id, "quantity": quantity}],
+            allocations=[{"folder_id": folder_id, "quantity": alloc_qty}],
         )
-    else:
-        set_item_folder_allocations(
-            session,
-            user_id=user_id,
-            item=item,
-            allocations=_default_folder_allocations(quantity),
-        )
+    elif needs_folder:
+        raise ValueError("Folder is required")
 
     session.commit()
     session.refresh(item)
@@ -1749,16 +2331,15 @@ def _reassign_collection_item_printing(
         raise ValueError(
             f"No catalog printing found for {set_code} ({label})"
         )
-    duplicate = session.execute(
-        select(CollectionItem.id)
-        .where(
-            CollectionItem.user_id == user_id,
-            CollectionItem.set_code == set_code,
-            CollectionItem.rarity_code == rarity_code,
-            CollectionItem.id != item.id,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
+    duplicate = find_collection_item_by_identity(
+        session,
+        user_id=user_id,
+        set_code=set_code,
+        rarity_code=rarity_code,
+        edition=item.edition,
+        condition=item.condition,
+        exclude_item_id=item.id,
+    )
     if duplicate is not None:
         raise ValueError(
             f"You already have a collection row for {set_code} "
@@ -1803,8 +2384,29 @@ def update_collection_item(
                 rarity_code=rarity_code,
             )
     old_quantity = item.quantity
+    if "edition" in data:
+        data["edition"] = normalize_collection_edition(data["edition"])
+    if "condition" in data:
+        data["condition"] = normalize_collection_condition(data["condition"])
+    if "notes" in data:
+        data["notes"] = normalize_collection_notes(data["notes"])
     for field, value in data.items():
         setattr(item, field, value)
+    if any(field in data for field in ("edition", "condition")):
+        duplicate = find_collection_item_by_identity(
+            session,
+            user_id=user_id,
+            set_code=item.set_code,
+            rarity_code=item.rarity_code,
+            edition=item.edition,
+            condition=item.condition,
+            exclude_item_id=item.id,
+        )
+        if duplicate is not None:
+            raise ValueError(
+                f"You already have a collection row for {item.set_code} "
+                f"({rarity_display(item.rarity_code)}) with this edition and condition."
+            )
     if "quantity" in data and folder_allocations is None:
         if item.quantity != old_quantity:
             _reconcile_allocations_after_quantity_change(item)
@@ -1863,3 +2465,1177 @@ def remove_user_tag(session: Session, user_id: int, card_id: int, tag: str) -> N
     if row:
         session.delete(row)
         session.commit()
+
+
+PUBLIC_TRADE_SORT_FIELDS = frozenset(
+    {"set_code", "card_name", "trade_quantity", "sell_price", "condition"}
+)
+
+
+def _expansion_code_for_item(set_code: str, expansion_code: str | None = None) -> str:
+    for candidate in (expansion_code, set_code):
+        text = (candidate or "").strip()
+        if not text:
+            continue
+        if "-" in text:
+            return text.split("-", 1)[0]
+        return text
+    return ""
+
+
+def _apply_public_trade_expansion_filter(stmt, expansion: str):
+    expansion = expansion.strip()
+    if not expansion:
+        return stmt
+    return stmt.where(
+        or_(
+            CollectionItem.expansion_code == expansion,
+            CollectionItem.set_code.ilike(f"{expansion}-%"),
+            CollectionItem.set_code == expansion,
+        )
+    )
+
+
+def _apply_public_trade_rarity_filter(stmt, rarity: str):
+    rarity = rarity.strip()
+    if not rarity:
+        return stmt
+    variants = rarity_match_variants(rarity)
+    if not variants:
+        return stmt
+    return stmt.where(CollectionItem.rarity_code.in_(variants))
+
+
+def _public_trade_resolved_sell_price_expr():
+    """List price used for display: owner override, else current market trend."""
+    return func.coalesce(CollectionItem.sell_price, PrintingMarketPrice.trend_price)
+
+
+def _build_public_trade_order_by(sort: str, sort_dir: str) -> list:
+    field = sort if sort in PUBLIC_TRADE_SORT_FIELDS else "set_code"
+    direction = sort_dir if sort_dir in ("asc", "desc") else "asc"
+    tie = apply_sort_direction(CollectionItem.id, direction)
+    columns = {
+        "set_code": CollectionItem.set_code,
+        "card_name": CollectionItem.card_name,
+        "trade_quantity": CollectionItem.trade_quantity,
+        "sell_price": _public_trade_resolved_sell_price_expr(),
+        "condition": CollectionItem.condition,
+    }
+    order_col = columns.get(field, CollectionItem.set_code)
+    return [apply_sort_direction(order_col, direction, nulls=True), tie]
+
+
+def get_user_by_trade_slug(session: Session, slug: str) -> User | None:
+    return session.execute(
+        select(User).where(User.trade_share_slug == slug)
+    ).scalar_one_or_none()
+
+
+def get_trade_settings(session: Session, user_id: int) -> dict:
+    user = session.get(User, user_id)
+    if user is None:
+        raise ValueError("User not found")
+    if not user.trade_share_slug:
+        ensure_user_trade_slug(session, user)
+        session.commit()
+        session.refresh(user)
+    return {
+        "slug": user.trade_share_slug,
+        "display_name": user.trade_display_name,
+    }
+
+
+def update_trade_settings(
+    session: Session,
+    user_id: int,
+    *,
+    slug: str | None = None,
+    display_name: str | None = None,
+) -> dict:
+    user = session.get(User, user_id)
+    if user is None:
+        raise ValueError("User not found")
+    ensure_user_trade_slug(session, user)
+    if slug is not None:
+        assign_unique_trade_slug(session, user, slug)
+    if display_name is not None:
+        user.trade_display_name = display_name.strip() or None
+    session.commit()
+    session.refresh(user)
+    return {
+        "slug": user.trade_share_slug,
+        "display_name": user.trade_display_name,
+    }
+
+
+def _public_trade_sell_price(
+    item: CollectionItem,
+    market_row: PrintingMarketPrice | None,
+) -> float | None:
+    if item.sell_price is not None:
+        return float(item.sell_price)
+    if market_row is not None and market_row.trend_price is not None:
+        return float(market_row.trend_price)
+    return None
+
+
+def _public_trade_card_out(card: Card | None) -> dict | None:
+    if card is None:
+        return None
+    extras = card_response_extras(card)
+    return {
+        "id": card.id,
+        "passcode": card.passcode,
+        "name": card.name,
+        "type": card.type,
+        "category": card.category,
+        "types": extras["types"],
+        "mechanic": card.mechanic,
+        "attribute": card.attribute,
+        "level": card.level,
+        "rank": card.rank,
+        "link_rating": extras["link_rating"],
+        "pendulum_scale": extras["pendulum_scale"],
+        "link_markers": extras["link_markers"],
+        "archetype": card.archetype,
+        "atk": card.atk,
+        "def_": card.def_,
+        "desc": card.desc,
+        "image_url": card.image_url,
+        "image_url_small": resolve_display_image_url_small(
+            card.image_url_small, card.image_url
+        ),
+    }
+
+
+def _public_trade_item_row(
+    item: CollectionItem,
+    *,
+    set_code_fallback: dict | None = None,
+    market_row: PrintingMarketPrice | None = None,
+) -> dict:
+    card = _card_for_collection_item(item, set_code_fallback=set_code_fallback)
+    linked = item.linked_printing
+    resolved = resolve_rarity(item.rarity_code)
+    if resolved is not None:
+        rarity_name = resolved.name
+    else:
+        rarity_name = linked.set_rarity if linked is not None else None
+    card_out = _public_trade_card_out(card)
+    set_name = item.set_name
+    if not (set_name or "").strip() and linked is not None and linked.set_name:
+        set_name = linked.set_name
+    return {
+        "item_id": item.id,
+        "card_name": item.card_name or (card.name if card else None),
+        "set_code": item.set_code,
+        "set_name": set_name,
+        "rarity_code": item.rarity_code,
+        "rarity_display": rarity_display(item.rarity_code),
+        "rarity_name": rarity_name,
+        "edition": normalize_collection_edition(item.edition),
+        "condition": normalize_collection_condition(item.condition),
+        "trade_quantity": item.trade_quantity,
+        "sell_price": _public_trade_sell_price(item, market_row),
+        "image_url_small": (
+            card_out["image_url_small"] if card_out else None
+        ),
+        "card": card_out,
+    }
+
+
+def list_public_trade_items(
+    session: Session,
+    *,
+    user_id: int,
+    q: str | None = None,
+    set_code: str | None = None,
+    rarity: str | None = None,
+    sort: str = "set_code",
+    sort_dir: str = "asc",
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    stmt = select(CollectionItem).where(
+        CollectionItem.user_id == user_id,
+        CollectionItem.trade_quantity > 0,
+    )
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                CollectionItem.card_name.ilike(like),
+                CollectionItem.set_code.ilike(like),
+                CollectionItem.set_name.ilike(like),
+            )
+        )
+    if set_code:
+        stmt = _apply_public_trade_expansion_filter(stmt, set_code)
+    if rarity:
+        stmt = _apply_public_trade_rarity_filter(stmt, rarity)
+
+    total = session.execute(
+        select(func.count()).select_from(stmt.subquery())
+    ).scalar() or 0
+
+    dialect = session.get_bind().dialect.name
+    if sort in {"passcode", "release_date", "folder_name"}:
+        sort = "set_code"
+    stmt = apply_collection_sort_joins(stmt, sort, dialect=dialect)
+    if sort == "sell_price":
+        stmt = stmt.outerjoin(
+            PrintingMarketPrice,
+            (PrintingMarketPrice.set_code == CollectionItem.set_code)
+            & (PrintingMarketPrice.rarity_code == CollectionItem.rarity_code)
+            & PrintingMarketPrice.is_current.is_(True),
+        )
+    order_by = _build_public_trade_order_by(sort, sort_dir)
+
+    items = (
+        session.execute(
+            stmt.options(
+                joinedload(CollectionItem.linked_printing).joinedload(Printing.card),
+            )
+            .order_by(*order_by)
+            .offset(offset)
+            .limit(limit)
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+
+    missing_codes = {
+        item.set_code for item in items if _card_for_collection_item(item) is None
+    }
+    fallback_map = _cards_by_set_codes(session, missing_codes)
+    market_map = load_market_prices(
+        session, [(item.set_code, item.rarity_code) for item in items]
+    )
+
+    results = [
+        _public_trade_item_row(
+            item,
+            set_code_fallback=fallback_map,
+            market_row=market_map.get((item.set_code, item.rarity_code)),
+        )
+        for item in items
+    ]
+    return results, int(total)
+
+
+def public_trade_filters(session: Session, *, user_id: int) -> dict:
+    rows = session.execute(
+        select(
+            CollectionItem.set_code,
+            CollectionItem.expansion_code,
+            CollectionItem.set_name,
+        )
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.trade_quantity > 0,
+        )
+        .distinct()
+    ).all()
+
+    expansion_names: dict[str, str | None] = {}
+    for set_code, expansion_code, set_name in rows:
+        code = _expansion_code_for_item(set_code, expansion_code)
+        if not code:
+            continue
+        if code not in expansion_names:
+            expansion_names[code] = (set_name or "").strip() or None
+        elif not expansion_names[code] and set_name:
+            expansion_names[code] = set_name.strip()
+
+    missing_names = [code for code, name in expansion_names.items() if not name]
+    if missing_names:
+        tcg_rows = session.execute(
+            select(TcgSet).where(TcgSet.abbr.in_(missing_names))
+        ).scalars().all()
+        for tcg_set in tcg_rows:
+            if tcg_set.abbr in expansion_names and not expansion_names[tcg_set.abbr]:
+                expansion_names[tcg_set.abbr] = tcg_set.name
+
+    sets = sorted(
+        [
+            {"expansion_code": code, "set_name": name}
+            for code, name in expansion_names.items()
+        ],
+        key=lambda row: (row["set_name"] or row["expansion_code"]).lower(),
+    )
+
+    conditions = session.execute(
+        select(CollectionItem.condition)
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.trade_quantity > 0,
+            CollectionItem.condition.isnot(None),
+            CollectionItem.condition != "",
+        )
+        .distinct()
+        .order_by(CollectionItem.condition)
+    ).scalars().all()
+
+    rarity_codes = session.execute(
+        select(CollectionItem.rarity_code)
+        .where(
+            CollectionItem.user_id == user_id,
+            CollectionItem.trade_quantity > 0,
+            CollectionItem.rarity_code.isnot(None),
+            CollectionItem.rarity_code != "",
+        )
+        .distinct()
+    ).scalars().all()
+
+    seen_rarities: set[str] = set()
+    rarities: list[dict] = []
+    for code in rarity_codes:
+        resolved = resolve_rarity(code)
+        key = resolved.name if resolved else code
+        if key in seen_rarities:
+            continue
+        seen_rarities.add(key)
+        rarities.append(
+            {
+                "rarity_code": code,
+                "rarity_name": resolved.name if resolved else None,
+            }
+        )
+    rarities.sort(key=lambda row: (row["rarity_name"] or row["rarity_code"]).lower())
+
+    return {
+        "sets": sets,
+        "conditions": list(conditions),
+        "rarities": rarities,
+    }
+
+
+def validate_and_build_trade_order(
+    session: Session,
+    owner_id: int,
+    lines: list[dict],
+) -> list[dict]:
+    """Validate order lines against current trade stock (read-only)."""
+    built, _items = _validate_trade_order_lines(session, owner_id, lines, for_update=False)
+    return built
+
+
+def submit_trade_order_locks(
+    session: Session,
+    owner_id: int,
+    lines: list[dict],
+    buyer_contact: dict,
+) -> list[dict]:
+    """Atomically lock trade stock and persist a trade order for the seller."""
+    built, items_by_id = _validate_trade_order_lines(
+        session, owner_id, lines, for_update=True
+    )
+    order = TradeOrder(
+        user_id=owner_id,
+        buyer_name=buyer_contact.get("name"),
+        buyer_email=buyer_contact.get("email"),
+        buyer_phone=buyer_contact.get("phone"),
+        buyer_address=buyer_contact.get("address"),
+        created_at=datetime.utcnow(),
+    )
+    session.add(order)
+    session.flush()
+
+    for built_line in built:
+        item = items_by_id[built_line["item_id"]]
+        qty = int(built_line["quantity"])
+        item.trade_quantity = int(item.trade_quantity or 0) - qty
+        item.locked_quantity = int(item.locked_quantity or 0) + qty
+        session.add(
+            TradeOrderLine(
+                order_id=order.id,
+                collection_item_id=item.id,
+                card_name=built_line.get("card_name"),
+                set_code=built_line["set_code"],
+                set_name=built_line.get("set_name"),
+                rarity_code=built_line["rarity_code"],
+                rarity_display=built_line.get("rarity_display"),
+                condition=built_line.get("condition"),
+                quantity=qty,
+                comment=built_line.get("comment"),
+                offer_price=built_line.get("offer_price"),
+                list_price=built_line.get("list_price"),
+            )
+        )
+    session.commit()
+    return built
+
+
+def _validate_trade_order_lines(
+    session: Session,
+    owner_id: int,
+    lines: list[dict],
+    *,
+    for_update: bool,
+) -> tuple[list[dict], dict[int, CollectionItem]]:
+    if not lines:
+        raise ValueError("Order must include at least one line")
+
+    item_ids = list({line["item_id"] for line in lines})
+    # Do not joinedload here: Postgres rejects FOR UPDATE with outer joins
+    # (FeatureNotSupported: nullable side of an outer join). Validation only
+    # needs CollectionItem columns + market prices.
+    stmt = select(CollectionItem).where(
+        CollectionItem.user_id == owner_id,
+        CollectionItem.id.in_(item_ids),
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    items = session.execute(stmt).scalars().all()
+    by_id = {item.id: item for item in items}
+    market_map = load_market_prices(
+        session, [(item.set_code, item.rarity_code) for item in items]
+    )
+
+    # Track remaining available trade qty as we walk lines (same item may repeat).
+    remaining = {item.id: int(item.trade_quantity or 0) for item in items}
+
+    built: list[dict] = []
+    for line in lines:
+        item_id = line["item_id"]
+        item = by_id.get(item_id)
+        if item is None or remaining.get(item_id, 0) < 1:
+            raise ValueError(f"Invalid item in order: {item_id}")
+        qty = int(line["quantity"])
+        if qty > remaining[item_id]:
+            raise ValueError(
+                f"Requested quantity exceeds trade quantity for item {item_id}"
+            )
+        remaining[item_id] -= qty
+        market_row = market_map.get((item.set_code, item.rarity_code))
+        built.append(
+            {
+                "item_id": item_id,
+                "quantity": qty,
+                "comment": line.get("comment"),
+                "offer_price": line.get("offer_price"),
+                "card_name": item.card_name,
+                "set_code": item.set_code,
+                "set_name": item.set_name,
+                "rarity_code": item.rarity_code,
+                "rarity_display": rarity_display(item.rarity_code),
+                "condition": normalize_collection_condition(item.condition),
+                "list_price": _public_trade_sell_price(item, market_row),
+            }
+        )
+    return built, by_id
+
+
+def list_trade_locks(session: Session, *, user_id: int) -> list[dict]:
+    orders = session.execute(
+        select(TradeOrder)
+        .options(joinedload(TradeOrder.lines))
+        .where(TradeOrder.user_id == user_id)
+        .order_by(TradeOrder.created_at.desc(), TradeOrder.id.desc())
+    ).unique().scalars().all()
+
+    result: list[dict] = []
+    for order in orders:
+        active_lines = [line for line in order.lines if int(line.quantity or 0) > 0]
+        if not active_lines:
+            continue
+        result.append(
+            {
+                "order_id": order.id,
+                "created_at": order.created_at,
+                "buyer_name": order.buyer_name,
+                "buyer_email": order.buyer_email,
+                "buyer_phone": order.buyer_phone,
+                "buyer_address": order.buyer_address,
+                "lines": [
+                    {
+                        "line_id": line.id,
+                        "collection_item_id": line.collection_item_id,
+                        "card_name": line.card_name,
+                        "set_code": line.set_code,
+                        "set_name": line.set_name,
+                        "rarity_code": line.rarity_code,
+                        "rarity_display": line.rarity_display
+                        or rarity_display(line.rarity_code),
+                        "condition": line.condition,
+                        "quantity": int(line.quantity),
+                        "comment": line.comment,
+                        "offer_price": line.offer_price,
+                        "list_price": line.list_price,
+                    }
+                    for line in sorted(active_lines, key=lambda row: row.id)
+                ],
+            }
+        )
+    return result
+
+
+def release_trade_lock_lines(
+    session: Session,
+    *,
+    user_id: int,
+    lines: list[dict],
+) -> dict:
+    return _apply_trade_lock_actions(session, user_id=user_id, lines=lines, action="release")
+
+
+def remove_trade_lock_lines(
+    session: Session,
+    *,
+    user_id: int,
+    lines: list[dict],
+) -> dict:
+    return _apply_trade_lock_actions(session, user_id=user_id, lines=lines, action="remove")
+
+
+def _apply_trade_lock_actions(
+    session: Session,
+    *,
+    user_id: int,
+    lines: list[dict],
+    action: str,
+) -> dict:
+    if not lines:
+        raise ValueError("At least one line is required")
+
+    line_ids = [int(row["line_id"]) for row in lines]
+    if len(line_ids) != len(set(line_ids)):
+        raise ValueError("Duplicate line_id in request")
+
+    qty_by_line = {int(row["line_id"]): int(row["quantity"]) for row in lines}
+    for qty in qty_by_line.values():
+        if qty < 1:
+            raise ValueError("Quantity must be at least 1")
+
+    # selectinload (not joinedload): Postgres rejects FOR UPDATE with outer joins.
+    db_lines = session.execute(
+        select(TradeOrderLine)
+        .join(TradeOrder, TradeOrderLine.order_id == TradeOrder.id)
+        .options(selectinload(TradeOrderLine.collection_item))
+        .where(
+            TradeOrder.user_id == user_id,
+            TradeOrderLine.id.in_(line_ids),
+        )
+        .with_for_update()
+    ).scalars().all()
+    by_id = {line.id: line for line in db_lines}
+    if len(by_id) != len(line_ids):
+        raise ValueError("One or more lock lines were not found")
+
+    item_ids = [
+        line.collection_item_id
+        for line in by_id.values()
+        if line.collection_item_id is not None
+    ]
+    if item_ids:
+        session.execute(
+            select(CollectionItem)
+            .where(
+                CollectionItem.user_id == user_id,
+                CollectionItem.id.in_(item_ids),
+            )
+            .with_for_update()
+        ).scalars().all()
+
+    items_to_delete: dict[int, CollectionItem] = {}
+    affected = 0
+    for line_id, qty in qty_by_line.items():
+        line = by_id[line_id]
+        remaining = int(line.quantity or 0)
+        if qty > remaining:
+            raise ValueError(
+                f"Quantity exceeds locked amount for line {line_id} ({remaining})"
+            )
+        item = line.collection_item
+        if item is not None and item.user_id != user_id:
+            raise ValueError(f"Invalid lock line {line_id}")
+        if item is None and action == "release":
+            raise ValueError(
+                f"Cannot release line {line_id}: collection item no longer exists"
+            )
+
+        line.quantity = remaining - qty
+        if item is not None:
+            locked = int(item.locked_quantity or 0)
+            if qty > locked:
+                raise ValueError(
+                    f"Locked quantity out of sync for item {item.id}"
+                )
+            item.locked_quantity = locked - qty
+            if action == "release":
+                item.trade_quantity = int(item.trade_quantity or 0) + qty
+            else:
+                _shrink_folder_allocations_to_target(item)
+                if (
+                    int(item.quantity or 0) == 0
+                    and int(item.trade_quantity or 0) == 0
+                    and int(item.locked_quantity or 0) == 0
+                ):
+                    items_to_delete[item.id] = item
+
+        if int(line.quantity) <= 0:
+            session.delete(line)
+        affected += 1
+
+    session.flush()
+
+    # Drop empty orders.
+    order_ids = {line.order_id for line in by_id.values()}
+    for order_id in order_ids:
+        order = session.get(TradeOrder, order_id)
+        if order is None:
+            continue
+        remaining_lines = [
+            row for row in order.lines if int(row.quantity or 0) > 0
+        ]
+        if not remaining_lines:
+            session.delete(order)
+
+    for item in items_to_delete.values():
+        session.delete(item)
+
+    session.commit()
+    return {"updated": affected, "action": action}
+
+
+BULK_DEFAULT_CONDITION = "NearMint"
+BULK_DEFAULT_EDITION = "1st Edition"
+BULK_DEFAULT_LANGUAGE = "English"
+BULK_GRID_MAX_CHANGES = 500
+
+
+def _bulk_rarity_sort_map(session: Session) -> dict[str, int]:
+    rows = session.scalars(
+        select(RarityPriceRank).order_by(RarityPriceRank.sort_order)
+    ).all()
+    mapping: dict[str, int] = {}
+    for row in rows:
+        order = int(row.sort_order)
+        if row.rarity_code:
+            mapping[row.rarity_code.upper()] = order
+        mapping[row.name.upper()] = order
+    return mapping
+
+
+def _bulk_rarity_sort_order(rarity_code: str, sort_map: dict[str, int]) -> int:
+    normalized = normalize_rarity_code(rarity_code)
+    bare = normalized.strip("()").upper()
+    if bare in sort_map:
+        return sort_map[bare]
+    resolved = resolve_rarity(rarity_code)
+    if resolved is not None:
+        if resolved.code.upper() in sort_map:
+            return sort_map[resolved.code.upper()]
+        if resolved.name.upper() in sort_map:
+            return sort_map[resolved.name.upper()]
+    return 9999
+
+
+def _bulk_item_matches_default_variant(item: CollectionItem) -> bool:
+    condition = normalize_collection_condition(item.condition) or BULK_DEFAULT_CONDITION
+    edition = normalize_collection_edition(item.edition)
+    return condition == BULK_DEFAULT_CONDITION and edition == BULK_DEFAULT_EDITION
+
+
+def _bulk_grid_baseline(
+    *,
+    quantity: int,
+    trade_quantity: int,
+    folder_name: str | None,
+    collection_item_id: int | None,
+) -> dict:
+    return {
+        "quantity": int(quantity),
+        "trade_quantity": int(trade_quantity),
+        "folder_name": folder_name,
+        "collection_item_id": collection_item_id,
+    }
+
+
+def _bulk_build_row(
+    *,
+    row_id: str,
+    printing: Printing,
+    card: Card | None,
+    rarity_sort: int,
+    today: str,
+    item: CollectionItem | None = None,
+    allocation: CollectionItemFolder | None = None,
+) -> dict:
+    trade_q = int(item.trade_quantity) if item else 0
+    if allocation is not None:
+        folder_name = allocation.folder.name if allocation.folder else None
+        folder_id = allocation.folder_id
+        quantity = int(item.quantity) if item else int(allocation.quantity)
+        allocation_id = allocation.id
+        collection_item_id = item.id if item else None
+    elif item is not None:
+        folder_name = None
+        folder_id = None
+        quantity = int(item.quantity)
+        allocation_id = None
+        collection_item_id = item.id
+    else:
+        folder_name = None
+        folder_id = None
+        quantity = 0
+        allocation_id = None
+        collection_item_id = None
+
+    condition = (
+        normalize_collection_condition(item.condition) if item else BULK_DEFAULT_CONDITION
+    ) or BULK_DEFAULT_CONDITION
+    edition = (
+        normalize_collection_edition(item.edition) if item else BULK_DEFAULT_EDITION
+    )
+    language = (item.language if item else None) or BULK_DEFAULT_LANGUAGE
+    price_bought = item.price_bought if item else None
+    date_bought = item.date_bought if item else today
+
+    resolved = resolve_rarity(printing.set_rarity_code)
+    rarity_name = (
+        resolved.name if resolved is not None else printing.set_rarity
+    )
+    expansion = set_abbr_from_code(printing.set_code)
+    total_q = quantity + trade_q
+    baseline = _bulk_grid_baseline(
+        quantity=quantity,
+        trade_quantity=trade_q,
+        folder_name=folder_name,
+        collection_item_id=collection_item_id,
+    )
+    return {
+        "row_id": row_id,
+        "printing_id": printing.id,
+        "collection_item_id": collection_item_id,
+        "allocation_id": allocation_id,
+        "folder_id": folder_id,
+        "folder_name": folder_name,
+        "quantity": quantity,
+        "trade_quantity": trade_q,
+        "total_quantity": total_q,
+        "card_name": card.name if card else None,
+        "expansion_code": expansion,
+        "set_name": printing.set_name,
+        "set_code": printing.set_code,
+        "rarity_name": rarity_name,
+        "rarity_code": printing.set_rarity_code,
+        "rarity_sort_order": rarity_sort,
+        "condition": condition,
+        "edition": edition,
+        "language": language,
+        "price_bought": price_bought,
+        "date_bought": date_bought,
+        "owned": total_q > 0,
+        "baseline": baseline,
+    }
+
+
+def _bulk_sort_rows(rows: list[dict], sort: list[dict] | None) -> list[dict]:
+    if not sort:
+        sort = [
+            {"field": "set_code", "dir": "asc"},
+            {"field": "rarity_sort_order", "dir": "asc"},
+        ]
+
+    def sort_key(row: dict):
+        keys = []
+        for spec in sort:
+            field = spec.get("field", "set_code")
+            direction = spec.get("dir", "asc")
+            value = row.get(field)
+            if value is None:
+                value = ""
+            if isinstance(value, str):
+                value = value.lower()
+            keys.append(value if direction == "asc" else _bulk_invert_sort_value(value))
+        return tuple(keys)
+
+    return sorted(rows, key=sort_key)
+
+
+def _bulk_invert_sort_value(value):
+    if isinstance(value, (int, float)):
+        return -value
+    if isinstance(value, str):
+        return tuple(-ord(ch) for ch in value)
+    return value
+
+
+def list_bulk_collection_grid(
+    session: Session,
+    *,
+    user_id: int,
+    set_code: str,
+    q: str | None = None,
+    sort: list[dict] | None = None,
+) -> tuple[list[dict], int, str]:
+    raw = (set_code or "").strip()
+    if not raw:
+        raise ValueError("Set code is required")
+    abbr = set_abbr_from_code(raw) or raw.upper()
+
+    stmt = (
+        select(Printing)
+        .join(Card, Printing.card_id == Card.id)
+        .where(Printing.set_code.ilike(f"{abbr}-%"))
+    )
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Card.name.ilike(like),
+                Printing.set_code.ilike(like),
+                Printing.set_name.ilike(like),
+            )
+        )
+
+    printings = (
+        session.execute(stmt.options(joinedload(Printing.card)).order_by(Printing.set_code))
+        .unique()
+        .scalars()
+        .all()
+    )
+
+    rarity_sort_map = _bulk_rarity_sort_map(session)
+    today = date.today().isoformat()
+
+    items = (
+        session.execute(
+            select(CollectionItem)
+            .options(
+                joinedload(CollectionItem.folder_allocations).joinedload(
+                    CollectionItemFolder.folder
+                )
+            )
+            .where(
+                CollectionItem.user_id == user_id,
+                CollectionItem.set_code.ilike(f"{abbr}-%"),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+
+    items_by_printing: dict[tuple[str, str], list[CollectionItem]] = defaultdict(list)
+    for item in items:
+        key = (item.set_code, normalize_rarity_code(item.rarity_code))
+        items_by_printing[key].append(item)
+
+    rows: list[dict] = []
+    for printing in printings:
+        card = printing.card
+        rarity_sort = _bulk_rarity_sort_order(printing.set_rarity_code, rarity_sort_map)
+        key = (printing.set_code, normalize_rarity_code(printing.set_rarity_code))
+        matched_items = items_by_printing.get(key, [])
+
+        for item in matched_items:
+            allocations = list(item.folder_allocations)
+            if allocations:
+                for allocation in allocations:
+                    rows.append(
+                        _bulk_build_row(
+                            row_id=f"r-{item.id}-a{allocation.id}",
+                            printing=printing,
+                            card=card,
+                            rarity_sort=rarity_sort,
+                            today=today,
+                            item=item,
+                            allocation=allocation,
+                        )
+                    )
+            else:
+                rows.append(
+                    _bulk_build_row(
+                        row_id=f"r-{item.id}-a0",
+                        printing=printing,
+                        card=card,
+                        rarity_sort=rarity_sort,
+                        today=today,
+                        item=item,
+                    )
+                )
+
+        if not any(_bulk_item_matches_default_variant(item) for item in matched_items):
+            rows.append(
+                _bulk_build_row(
+                    row_id=f"p-{printing.id}-default",
+                    printing=printing,
+                    card=card,
+                    rarity_sort=rarity_sort,
+                    today=today,
+                )
+            )
+
+    rows = _bulk_sort_rows(rows, sort)
+    return rows, len(rows), abbr
+
+
+def bulk_collection_grid_meta(session: Session, *, user_id: int) -> dict:
+    folders = list_collection_folders(session, user_id=user_id)
+    return {
+        "folders": folders,
+        "conditions": list(COLLECTION_CONDITIONS),
+        "editions": list(COLLECTION_EDITIONS),
+        "languages": list(
+            (
+                "English",
+                "French",
+                "Italian",
+                "German",
+                "Spanish",
+                "Portuguese",
+            )
+        ),
+    }
+
+
+def _bulk_change_eligible(change: dict) -> bool:
+    qty = int(change.get("quantity") or 0)
+    trade = int(change.get("trade_quantity") or 0)
+    baseline = change.get("baseline") or {}
+    base_qty = int(baseline.get("quantity") or 0)
+    base_trade = int(baseline.get("trade_quantity") or 0)
+    if qty > 0 or trade > 0:
+        return True
+    if base_qty > 0 or base_trade > 0:
+        return True
+    return False
+
+
+def _bulk_folder_row_alloc_qty(row: dict) -> int:
+    qty = int(row.get("quantity") or 0)
+    if qty > 0:
+        return qty
+    return int(row.get("trade_quantity") or 0)
+
+
+def _bulk_folder_rows(group_changes: list[dict], *, trade_q: int) -> list[dict]:
+    keeper_rows = [row for row in group_changes if int(row.get("quantity") or 0) > 0]
+    if keeper_rows:
+        return keeper_rows
+    if trade_q <= 0:
+        return []
+    return [row for row in group_changes if (row.get("folder_name") or "").strip()]
+
+
+def save_bulk_collection_grid(
+    session: Session,
+    *,
+    user_id: int,
+    set_code: str,
+    changes: list[dict],
+    progress_callback=None,
+) -> dict:
+    raw = (set_code or "").strip()
+    if not raw:
+        raise ValueError("Set code is required")
+    abbr = set_abbr_from_code(raw) or raw.upper()
+
+    if len(changes) > BULK_GRID_MAX_CHANGES:
+        raise ValueError(f"Too many changes (max {BULK_GRID_MAX_CHANGES})")
+
+    eligible = [change for change in changes if _bulk_change_eligible(change)]
+    if not eligible:
+        return {
+            "printings_updated": 0,
+            "quantities_added": 0,
+            "trade_quantities_added": 0,
+            "items_created": 0,
+            "items_updated": 0,
+            "items_deleted": 0,
+        }
+
+    groups: dict[tuple[str, str, str, str | None], list[dict]] = defaultdict(list)
+    for change in eligible:
+        rarity_code = normalize_rarity_code(change["rarity_code"])
+        key = collection_item_key(
+            change["set_code"].strip(),
+            rarity_code,
+            edition=change.get("edition"),
+            condition=change.get("condition"),
+        )
+        groups[key].append(change)
+
+    printings_updated: set[tuple[str, str]] = set()
+    quantities_added = 0
+    trade_quantities_added = 0
+    items_created = 0
+    items_updated = 0
+    items_deleted = 0
+
+    total_groups = len(groups)
+    progress_throttle = ProgressThrottle() if progress_callback else None
+
+    for group_index, (key, group_changes) in enumerate(groups.items(), start=1):
+        set_code_key, rarity_code, edition, condition = key
+        trade_q = max(int(row.get("trade_quantity") or 0) for row in group_changes)
+        folder_rows = _bulk_folder_rows(group_changes, trade_q=trade_q)
+        total_qty = sum(int(row.get("quantity") or 0) for row in folder_rows)
+
+        if total_qty > 0:
+            for row in folder_rows:
+                if not (row.get("folder_name") or "").strip():
+                    raise ValueError(
+                        f"Folder is required for {set_code_key} "
+                        f"({rarity_display(rarity_code)})"
+                    )
+        elif trade_q > 0 and folder_rows:
+            for row in folder_rows:
+                if not (row.get("folder_name") or "").strip():
+                    raise ValueError(
+                        f"Folder is required for {set_code_key} "
+                        f"({rarity_display(rarity_code)})"
+                    )
+
+        baseline_qty = max(int(row.get("baseline", {}).get("quantity") or 0) for row in group_changes)
+        baseline_trade = max(
+            int(row.get("baseline", {}).get("trade_quantity") or 0)
+            for row in group_changes
+        )
+
+        existing = find_collection_item_by_identity(
+            session,
+            user_id=user_id,
+            set_code=set_code_key,
+            rarity_code=rarity_code,
+            edition=edition,
+            condition=condition,
+        )
+
+        if total_qty == 0 and trade_q == 0:
+            if existing is not None:
+                for row in group_changes:
+                    item_id = row.get("collection_item_id")
+                    if item_id is not None and item_id != existing.id:
+                        raise ValueError("Collection item not found")
+                session.delete(existing)
+                items_deleted += 1
+                printings_updated.add((set_code_key, rarity_code))
+                quantities_added += max(0, -baseline_qty)
+                trade_quantities_added += max(0, -baseline_trade)
+            continue
+
+        metadata = group_changes[0]
+        for row in group_changes:
+            item_id = row.get("collection_item_id")
+            if item_id is not None:
+                item = session.get(CollectionItem, item_id)
+                if not item or item.user_id != user_id:
+                    raise ValueError("Collection item not found")
+                if existing is not None and item.id != existing.id:
+                    raise ValueError("Collection item not found")
+
+        printing = session.get(Printing, metadata["printing_id"])
+        if printing is None:
+            raise ValueError("Printing not found")
+        if set_abbr_from_code(printing.set_code) != abbr:
+            raise ValueError("Printing not found for set")
+
+        folder_allocations: list[dict] = []
+        merged_folders: dict[int | None, int] = {}
+        for row in folder_rows:
+            folder = get_or_create_folder(
+                session, user_id, (row.get("folder_name") or "").strip()
+            )
+            folder_id = folder.id if folder else None
+            merged_folders[folder_id] = merged_folders.get(folder_id, 0) + _bulk_folder_row_alloc_qty(
+                row
+            )
+        for folder_id, qty in merged_folders.items():
+            folder_allocations.append({"folder_id": folder_id, "quantity": qty})
+
+        card_name = printing.card.name if printing.card else None
+
+        if existing is None:
+            item = CollectionItem(
+                user_id=user_id,
+                set_code=set_code_key,
+                rarity_code=rarity_code,
+                card_name=card_name,
+                expansion_code=set_abbr_from_code(set_code_key),
+                set_name=printing.set_name,
+                quantity=total_qty,
+                trade_quantity=trade_q,
+                condition=condition,
+                edition=edition,
+                language=metadata.get("language") or BULK_DEFAULT_LANGUAGE,
+                price_bought=metadata.get("price_bought"),
+                date_bought=metadata.get("date_bought"),
+                printing_id=printing.id,
+            )
+            session.add(item)
+            session.flush()
+            if folder_allocations:
+                set_item_folder_allocations(
+                    session,
+                    user_id=user_id,
+                    item=item,
+                    allocations=folder_allocations,
+                )
+            else:
+                item.folder_allocations.clear()
+                session.flush()
+            items_created += 1
+            quantities_added += max(0, total_qty - baseline_qty)
+            trade_quantities_added += max(0, trade_q - baseline_trade)
+        else:
+            old_qty = int(existing.quantity)
+            old_trade = int(existing.trade_quantity)
+            existing.quantity = total_qty
+            existing.trade_quantity = trade_q
+            existing.language = metadata.get("language") or existing.language
+            if metadata.get("price_bought") is not None:
+                existing.price_bought = metadata.get("price_bought")
+            if metadata.get("date_bought"):
+                existing.date_bought = metadata.get("date_bought")
+            if not existing.printing_id:
+                existing.printing_id = printing.id
+            if card_name and not existing.card_name:
+                existing.card_name = card_name
+            if folder_allocations:
+                set_item_folder_allocations(
+                    session,
+                    user_id=user_id,
+                    item=existing,
+                    allocations=folder_allocations,
+                )
+            else:
+                existing.folder_allocations.clear()
+                session.flush()
+            items_updated += 1
+            qty_delta = total_qty - old_qty
+            trade_delta = trade_q - old_trade
+            if qty_delta > 0:
+                quantities_added += qty_delta
+            if trade_delta > 0:
+                trade_quantities_added += trade_delta
+
+        printings_updated.add((set_code_key, rarity_code))
+
+        if progress_callback and (
+            progress_throttle is None
+            or progress_throttle.should_emit(group_index)
+            or group_index == total_groups
+        ):
+            progress_callback(
+                {
+                    "phase": "saving",
+                    "current": group_index,
+                    "total": total_groups,
+                    "message": f"Saving {group_index} of {total_groups} printings…",
+                }
+            )
+
+    session.commit()
+    return {
+        "printings_updated": len(printings_updated),
+        "quantities_added": max(0, quantities_added),
+        "trade_quantities_added": max(0, trade_quantities_added),
+        "items_created": items_created,
+        "items_updated": items_updated,
+        "items_deleted": items_deleted,
+    }

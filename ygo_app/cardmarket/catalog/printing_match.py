@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -15,12 +17,100 @@ from ygo_app.cardmarket.catalog.rarity_guess import (
     YugipediaPrintingRef,
     assign_rarities_by_price,
 )
+from ygo_app.cardmarket.catalog.print_variants import collapse_cm_print_variants
 from ygo_app.cardmarket.catalog.regional_variants import group_regional_variant_refs
 from ygo_app.cardmarket.export_schema import row_from_db
 from ygo_app.models import Card, Printing, RarityPriceRank
 
 
 YGO_SINGLE_CATEGORY = 5
+
+_ALLOWED_PAREN_SUFFIXES = frozenset({"skill", "skills"})
+_PARENTHETICAL_SUFFIX_RE = re.compile(r"^\s*\(([^)]+)\)\s*$")
+
+
+def _parenthetical_suffix_key_matches(cm_key: str, needle: str) -> bool:
+    """True when a normalized CM key is '<needle> (<allowed suffix>)' only."""
+    if not needle or not cm_key.startswith(needle):
+        return False
+    if len(cm_key) <= len(needle):
+        return False
+    if cm_key[len(needle)] not in " \t":
+        return False
+    remainder = cm_key[len(needle) :]
+    match = _PARENTHETICAL_SUFFIX_RE.match(remainder)
+    if not match:
+        return False
+    return match.group(1).strip().lower() in _ALLOWED_PAREN_SUFFIXES
+
+
+def _raw_cm_name_matches_parenthetical_suffix(raw_name: str, needle: str) -> bool:
+    """Match raw Cardmarket names like 'Catch of the Day (Skill)' to a Yugipedia needle."""
+    text = unicodedata.normalize("NFKC", (raw_name or "").strip().lower())
+    text = text.replace("&amp;", "&")
+    if not text.startswith(needle):
+        return False
+    if len(text) <= len(needle):
+        return False
+    if text[len(needle)] not in " \t":
+        return False
+    remainder = text[len(needle) :].lstrip()
+    match = re.fullmatch(r"\(([^)]+)\)", remainder)
+    if not match:
+        return False
+    return match.group(1).strip().lower() in _ALLOWED_PAREN_SUFFIXES
+
+
+def _fallback_parenthetical_suffix_keys(
+    cm_by_card_name: dict[str, list[dict]],
+    needle: str,
+    *,
+    cm_rows: list[dict] | None = None,
+) -> list[dict]:
+    """Stage-B lookup when exact normalized name match fails."""
+    matches: list[dict] = []
+    seen_ids: set[int] = set()
+
+    for cm_key, rows in cm_by_card_name.items():
+        if not _parenthetical_suffix_key_matches(cm_key, needle):
+            continue
+        for row in rows:
+            product_id = int(row["idProduct"])
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
+            matches.append(row)
+
+    if cm_rows:
+        for row in cm_rows:
+            raw_name = str(row.get("name") or "")
+            if not _raw_cm_name_matches_parenthetical_suffix(raw_name, needle):
+                continue
+            product_id = int(row["idProduct"])
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
+            matches.append(row)
+
+    return matches
+
+
+def _lookup_cm_matches(
+    cm_by_card_name: dict[str, list[dict]],
+    *,
+    needle: str,
+    cm_rows: list[dict],
+) -> tuple[list[dict], bool]:
+    exact = cm_by_card_name.get(needle, [])
+    if exact:
+        return exact, False
+
+    fallback = _fallback_parenthetical_suffix_keys(
+        cm_by_card_name,
+        needle,
+        cm_rows=cm_rows,
+    )
+    return fallback, bool(fallback)
 
 
 def _build_price_index(price_rows: list[dict]) -> dict[int, dict]:
@@ -66,7 +156,7 @@ def _dedupe_cm_duplicate_listings(
     cm_matches: list[dict],
     price_index: dict[int, dict],
 ) -> list[dict]:
-    """Drop sparse re-listings that share a Cardmarket idMetacard with a fuller price row."""
+    """Drop sparse re-listings without avg that share an idMetacard with a priced row."""
     by_metacard: dict[int, list[dict]] = defaultdict(list)
     no_metacard: list[dict] = []
 
@@ -102,6 +192,33 @@ def _dedupe_cm_duplicate_listings(
         result.append(best)
 
     return result
+
+
+def _has_complete_core_price(price: dict) -> bool:
+    return all(price.get(key) is not None for key in ("low", "avg", "trend"))
+
+
+def _prune_incomplete_cm_when_overcount(
+    cm_matches: list[dict],
+    price_index: dict[int, dict],
+    target_count: int,
+) -> list[dict]:
+    if len(cm_matches) <= target_count:
+        return cm_matches
+
+    complete = [
+        row
+        for row in cm_matches
+        if _has_complete_core_price(price_index.get(int(row["idProduct"]), {}))
+    ]
+    if len(complete) >= target_count:
+        return complete
+    return cm_matches
+
+
+def _cm_id_gaps(cm_matches: list[dict]) -> list[int]:
+    ids = sorted(int(row["idProduct"]) for row in cm_matches)
+    return [ids[index + 1] - ids[index] for index in range(len(ids) - 1)]
 
 
 def _dedupe_cm_matches_by_expansion_preference(
@@ -182,7 +299,12 @@ def match_printings_to_catalog(
         for card_id, card_printings in by_card_id.items():
             stats["cards_processed"] += 1
             card: Card = card_printings[0].card
-            cm_matches = cm_by_card_name.get(normalize_card_name(card.name), [])
+            needle = normalize_card_name(card.name)
+            cm_matches, _ = _lookup_cm_matches(
+                cm_by_card_name,
+                needle=needle,
+                cm_rows=cm_rows,
+            )
             cm_matches = _dedupe_cm_matches_by_expansion_preference(
                 cm_matches,
                 expansion_match_counts=mapping.expansion_match_counts,
@@ -205,6 +327,23 @@ def match_printings_to_catalog(
                 for printing in card_printings
             ]
 
+            regional_groups = group_regional_variant_refs(yg_refs)
+            representatives = [rep for rep, _ in regional_groups]
+            variants_by_rep = {
+                (rep.set_code, rep.rarity_code): variants for rep, variants in regional_groups
+            }
+
+            cm_matches = collapse_cm_print_variants(
+                cm_matches,
+                target_count=len(representatives),
+                price_index=price_index,
+            )
+            cm_matches = _prune_incomplete_cm_when_overcount(
+                cm_matches,
+                price_index,
+                target_count=len(representatives),
+            )
+
             cm_priced = []
             for row in cm_matches:
                 pid = int(row["idProduct"])
@@ -220,12 +359,6 @@ def match_printings_to_catalog(
                         low=price.get("low"),
                     )
                 )
-
-            regional_groups = group_regional_variant_refs(yg_refs)
-            representatives = [rep for rep, _ in regional_groups]
-            variants_by_rep = {
-                (rep.set_code, rep.rarity_code): variants for rep, variants in regional_groups
-            }
 
             try:
                 pairs = assign_rarities_by_price(
@@ -244,6 +377,12 @@ def match_printings_to_catalog(
                         "card_name": exc.card_name or card.name,
                         "yugipedia_count": exc.yugipedia_count,
                         "cardmarket_count": exc.cardmarket_count,
+                        "extra": {
+                            "cm_id_products": sorted(
+                                int(row["idProduct"]) for row in cm_matches
+                            ),
+                            "id_gaps": _cm_id_gaps(cm_matches),
+                        },
                     }
                 )
                 continue

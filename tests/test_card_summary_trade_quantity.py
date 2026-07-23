@@ -103,9 +103,35 @@ class TestCardSummaryTradeQuantity(unittest.TestCase):
         self.assertEqual(by_code["LOB-001"].owned_quantity, 2)
         self.assertEqual(by_code["LOB-001"].trade_quantity, 1)
         self.assertEqual(by_code["LOB-001"].collection_item_id, self.item_lob_id)
+        self.assertEqual(by_code["LOB-001"].collection_variant_count, 1)
         self.assertEqual(by_code["LOB-002"].owned_quantity, 3)
         self.assertEqual(by_code["LOB-002"].trade_quantity, 2)
         self.assertEqual(by_code["LOB-002"].collection_item_id, self.item_lob2_id)
+        self.assertEqual(by_code["LOB-002"].collection_variant_count, 1)
+
+    def test_get_card_detail_multiple_variants_clear_single_edit_id(self):
+        session = self.Session()
+        session.add(
+            CollectionItem(
+                user_id=self.user_id,
+                set_code="LOB-001",
+                rarity_code="(UR)",
+                quantity=1,
+                edition="1st Edition",
+                condition="NearMint",
+            )
+        )
+        session.commit()
+        session.close()
+
+        session = self.Session()
+        card = get_card_detail(session, self.card_id, self.user_id)
+        session.close()
+
+        by_code = {p.set_code: p for p in card.printings}
+        self.assertEqual(by_code["LOB-001"].owned_quantity, 3)
+        self.assertEqual(by_code["LOB-001"].collection_variant_count, 2)
+        self.assertIsNone(by_code["LOB-001"].collection_item_id)
 
 
 if __name__ == "__main__":

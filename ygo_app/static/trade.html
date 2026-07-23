@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Trade list</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
+  <link rel="stylesheet" href="/static/css/style.css?v=130" />
+  <link rel="stylesheet" href="/static/css/trade.css?v=33" />
+</head>
+<body class="trade-page">
+  <header class="trade-header">
+    <div class="trade-header-main">
+      <h1 id="trade-title">Trade list</h1>
+      <p id="trade-subtitle" class="trade-subtitle">Loading…</p>
+    </div>
+    <button type="button" id="trade-cart-toggle" class="icon-btn trade-cart-icon-btn" aria-label="Open cart" aria-expanded="false" aria-controls="trade-cart-panel">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="9" cy="21" r="1" />
+        <circle cx="20" cy="21" r="1" />
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+      </svg>
+      <span id="trade-cart-count" class="trade-cart-count hidden" aria-hidden="true">0</span>
+    </button>
+  </header>
+
+  <main class="trade-main">
+    <form id="trade-filter-form" class="trade-toolbar">
+      <input type="search" id="trade-q" placeholder="Search name or set…" autocomplete="off" />
+      <div class="trade-filter-combobox" id="trade-set-combobox">
+        <input type="text" id="trade-set-code" placeholder="All sets" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="trade-set-list" aria-label="Filter by set" />
+        <div id="trade-set-list" class="trade-filter-list" role="listbox" hidden></div>
+      </div>
+      <div class="trade-filter-combobox" id="trade-rarity-combobox">
+        <input type="text" id="trade-rarity" placeholder="All rarities" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="trade-rarity-list" aria-label="Filter by rarity" />
+        <div id="trade-rarity-list" class="trade-filter-list" role="listbox" hidden></div>
+      </div>
+      <div class="trade-sort-controls" id="trade-sort-controls">
+        <label class="visually-hidden" for="trade-sort">Sort by</label>
+        <div class="sort-controls">
+          <select id="trade-sort" aria-label="Sort trade list">
+            <option value="set_code" selected>Set code</option>
+            <option value="card_name">Name</option>
+            <option value="trade_quantity">Trade quantity</option>
+            <option value="sell_price">Sell price</option>
+            <option value="condition">Condition</option>
+          </select>
+          <button type="button" id="trade-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
+        </div>
+      </div>
+      <div class="app-currency-group">
+        <div class="sort-controls sort-controls--field-only app-currency-control">
+          <span class="sort-controls-label sort-controls-label--icon-only" id="trade-currency-label" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+          </span>
+          <select id="trade-currency" aria-label="Currency">
+            <option value="EUR">EUR (€)</option>
+            <option value="HUF">HUF (Ft)</option>
+          </select>
+        </div>
+        <span id="trade-currency-rate" class="app-currency-rate hidden" aria-live="polite"></span>
+      </div>
+      <div class="trade-view-toggle" role="group" aria-label="View mode">
+        <button
+          type="button"
+          id="trade-view-list"
+          class="icon-btn secondary active"
+          aria-pressed="true"
+          aria-label="List view"
+          title="List view"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <line x1="7" y1="9" x2="17" y2="9" />
+            <line x1="7" y1="13" x2="17" y2="13" />
+          </svg>
+          <span class="sr-only">List view</span>
+        </button>
+        <button
+          type="button"
+          id="trade-view-tiles"
+          class="icon-btn secondary"
+          aria-pressed="false"
+          aria-label="Tiles view"
+          title="Tiles view"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+          <span class="sr-only">Tiles view</span>
+        </button>
+      </div>
+      <button
+        type="button"
+        id="trade-export-xlsx"
+        class="icon-btn secondary"
+        aria-label="Export Excel"
+        title="Export Excel"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        <span class="sr-only">Export Excel</span>
+      </button>
+      <button type="submit">Apply</button>
+    </form>
+
+    <p id="trade-stats" class="trade-stats"></p>
+    <p id="trade-rate-note" class="trade-rate-note hidden"></p>
+
+    <div id="trade-list-view" class="trade-list-view">
+      <div class="collection-table-wrap">
+        <table id="trade-table" class="trade-table">
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col" data-sort="card_name" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Card">Card</button></th>
+              <th scope="col" data-sort="set_code" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Set">Set</button></th>
+              <th scope="col">Rarity</th>
+              <th scope="col">Edition</th>
+              <th scope="col" data-sort="condition" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Condition">Condition</button></th>
+              <th scope="col" data-sort="trade_quantity" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Trade quantity">Trade Qty</button></th>
+              <th scope="col" data-sort="sell_price" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Price">Price</button></th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody id="trade-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="trade-tile-view" class="trade-tile-view hidden">
+      <div id="trade-grid" class="card-grid"></div>
+    </div>
+
+    <div id="trade-pagination" class="search-pagination hidden"></div>
+    <p id="trade-empty" class="empty-msg hidden">No cards available for trade in this list.</p>
+    <p id="trade-error" class="empty-msg trade-error hidden"></p>
+  </main>
+
+  <div id="trade-card-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="trade-card-modal-name" hidden>
+    <article class="modal-card">
+      <button type="button" id="trade-card-modal-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <div class="modal-body">
+        <div class="modal-image-slot" id="trade-card-modal-image-slot">
+          <div id="trade-card-modal-image-loading" class="modal-image-loading" hidden>
+            <span class="loading-spinner" role="status" aria-hidden="true"></span>
+            <p>Image is being loaded</p>
+          </div>
+          <img id="trade-card-modal-image" alt="" />
+          <span class="trade-image-watermark trade-image-watermark--lg" aria-hidden="true"><span class="trade-image-watermark-badge">Artwork may vary</span></span>
+        </div>
+        <div class="modal-info">
+          <h2 id="trade-card-modal-name"></h2>
+          <p id="trade-card-modal-passcode" class="modal-passcode muted" hidden>
+            <span class="modal-passcode-label">Passcode:</span>
+            <span id="trade-card-modal-passcode-text" class="modal-passcode-digits"></span>
+            <button type="button" id="trade-card-modal-passcode-copy" class="icon-btn modal-passcode-copy" aria-label="Copy passcode" title="Copy passcode" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+              </svg>
+            </button>
+          </p>
+          <p id="trade-card-modal-meta" class="muted"></p>
+          <p id="trade-card-modal-desc"></p>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <div id="trade-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="trade-add-title" hidden>
+    <article class="modal-card modal-card--narrow trade-add-card">
+      <button type="button" id="trade-add-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="trade-add-header">
+        <h2 id="trade-add-title">Add to cart</h2>
+      </header>
+      <div id="trade-add-preview" class="trade-add-preview"></div>
+      <label class="trade-field" for="trade-add-qty">
+        <span>Quantity</span>
+        <input type="number" id="trade-add-qty" min="1" value="1" required />
+      </label>
+      <div class="trade-field">
+        <div class="trade-field-label-row">
+          <label for="trade-add-offer">Alternate Offer Price</label>
+          <button type="button" class="icon-btn supplement-icon-btn trade-offer-info-btn" aria-label="About alternate offer price" aria-haspopup="dialog" aria-controls="trade-offer-info-popover" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4" />
+              <path d="M12 8h.01" />
+            </svg>
+          </button>
+        </div>
+        <div class="trade-price-input-wrap">
+          <input type="text" inputmode="decimal" autocomplete="off" id="trade-add-offer" placeholder="" aria-invalid="false" />
+          <span id="trade-add-offer-currency" class="trade-currency-suffix" aria-hidden="true">EUR</span>
+        </div>
+      </div>
+      <p id="trade-add-error" class="trade-add-error hidden" role="alert"></p>
+      <div class="trade-add-actions">
+        <button type="button" id="trade-add-cancel" class="secondary">Cancel</button>
+        <button type="button" id="trade-add-confirm">Add to cart</button>
+      </div>
+    </article>
+  </div>
+
+  <aside id="trade-cart-panel" class="trade-cart-panel hidden" aria-label="Shopping cart">
+    <div class="trade-cart-header">
+      <h2>Cart</h2>
+      <button type="button" id="trade-cart-close" class="icon-btn" aria-label="Close cart">×</button>
+    </div>
+    <div id="trade-cart-summary" class="trade-cart-summary hidden" hidden>
+      <p class="trade-cart-summary-count"><span id="trade-cart-summary-count">0</span> <span id="trade-cart-summary-count-label">cards</span></p>
+      <p class="trade-cart-summary-total">
+        <span>Total</span>
+        <strong id="trade-cart-summary-list-total">—</strong>
+      </p>
+      <p id="trade-cart-summary-alt-row" class="trade-cart-summary-alt hidden" hidden>
+        <span class="trade-cart-summary-alt-label">
+          Alternate total
+          <span class="trade-cart-summary-info-wrap">
+            <button type="button" class="icon-btn trade-cart-summary-info" aria-label="About alternate total" aria-describedby="trade-cart-summary-alt-tip">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
+            </button>
+            <span id="trade-cart-summary-alt-tip" class="trade-cart-summary-tooltip" role="tooltip">
+              This total applies only if the seller accepts your alternate offer prices.
+            </span>
+          </span>
+        </span>
+        <strong id="trade-cart-summary-alt-total">—</strong>
+      </p>
+    </div>
+    <div id="trade-cart-lines" class="trade-cart-lines"></div>
+    <p id="trade-cart-empty" class="empty-msg">Your cart is empty.</p>
+
+    <form id="trade-order-form" class="trade-order-form">
+      <p class="trade-contact-banner">
+        All contact fields are optional. Share only what you are comfortable with.
+      </p>
+      <label class="trade-field">
+        <span>Name</span>
+        <input type="text" id="trade-contact-name" maxlength="128" autocomplete="name" />
+      </label>
+      <label class="trade-field">
+        <span>Email</span>
+        <input type="email" id="trade-contact-email" maxlength="255" autocomplete="email" />
+      </label>
+      <label class="trade-field">
+        <span>Phone</span>
+        <input type="tel" id="trade-contact-phone" maxlength="64" autocomplete="tel" />
+      </label>
+      <label class="trade-field">
+        <span>Delivery address</span>
+        <textarea id="trade-contact-address" maxlength="500" rows="3" autocomplete="street-address"></textarea>
+      </label>
+      <label class="trade-consent check">
+        <input type="checkbox" id="trade-gdpr-consent" required />
+        <span>I agree to the processing of my data for this order request (<a href="/legal/privacy" target="_blank" rel="noopener">Privacy Policy</a>).</span>
+      </label>
+      <div id="trade-turnstile" class="trade-turnstile" aria-label="Captcha"></div>
+      <p id="trade-order-error" class="trade-order-error hidden" role="alert"></p>
+      <button type="submit" id="trade-order-submit">Send order request</button>
+    </form>
+  </aside>
+  <div id="trade-cart-backdrop" class="trade-cart-backdrop hidden" hidden></div>
+
+  <footer class="trade-footer">
+    <a href="/legal/privacy">Privacy</a>
+    <span aria-hidden="true">·</span>
+    <a href="/legal/imprint">Imprint</a>
+    <span aria-hidden="true">·</span>
+    <a href="/legal/terms">Terms</a>
+    <span aria-hidden="true">·</span>
+    <a href="mailto:{{PLACEHOLDER_CONTACT_EMAIL}}">Contact</a>
+  </footer>
+
+  <div id="trade-offer-info-popover" class="trade-offer-info-popover" role="dialog" aria-modal="false" aria-labelledby="trade-offer-info-title" hidden>
+    <p id="trade-offer-info-title" class="trade-offer-info-title">Alternate Offer Price</p>
+    <p class="trade-offer-info-text">You can enter a different price you'd like to pay for this card. The seller will see your alternate offer and can re-evaluate it.</p>
+  </div>
+
+  <div id="trade-toast" class="trade-toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="/static/js/trade.js?v=49" type="module"></script>
+</body>
+</html>

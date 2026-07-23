@@ -19,7 +19,15 @@ from ygo_app.cardmarket.archive_compression import (
     write_lzma_zip,
 )
 from ygo_app.cardmarket.export_schema import load_export
-from ygo_app.cardmarket.paths import LEGACY_R2_CARDMARKET_PRICES_KEY, prices_archive_key
+from ygo_app.cardmarket.paths import (
+    LEGACY_R2_CARDMARKET_PRICES_KEY,
+    catalog_archive_key,
+    legacy_prices_archive_key,
+    pipeline_report_key,
+    prices_archive_key,
+    run_log_key,
+    run_ts_from_prices_archive_key,
+)
 from ygo_app.cardmarket.r2_storage import (
     download_latest_prices_archive,
     upload_catalog_archive,
@@ -102,7 +110,7 @@ class TestCardmarketR2Storage(unittest.TestCase):
                     run_ts=_RUN_TS,
                 )
 
-        self.assertEqual(key, f"archives/catalog_archive_{_RUN_TS}.zip")
+        self.assertEqual(key, catalog_archive_key(_RUN_TS))
         mock_s3.upload_file.assert_called_once()
         args = mock_s3.upload_file.call_args
         self.assertEqual(args[0][1], _CARDMARKET_BUCKET)
@@ -143,7 +151,7 @@ class TestCardmarketR2Storage(unittest.TestCase):
             ):
                 key = upload_run_log(log_path, run_ts=_RUN_TS)
 
-        self.assertEqual(key, f"archives/sync_price_log_{_RUN_TS}.log.br")
+        self.assertEqual(key, run_log_key(_RUN_TS))
         mock_s3.put_object.assert_called_once()
         kwargs = mock_s3.put_object.call_args.kwargs
         self.assertEqual(kwargs["Bucket"], _CARDMARKET_BUCKET)
@@ -164,14 +172,14 @@ class TestCardmarketR2Storage(unittest.TestCase):
             ):
                 key = upload_pipeline_report(report_path, run_ts=_RUN_TS)
 
-        self.assertEqual(key, f"archives/sync_price_report_{_RUN_TS}.json.br")
+        self.assertEqual(key, pipeline_report_key(_RUN_TS))
         mock_s3.put_object.assert_called_once()
         kwargs = mock_s3.put_object.call_args.kwargs
         self.assertEqual(kwargs["Bucket"], _CARDMARKET_BUCKET)
         self.assertEqual(kwargs["Key"], key)
 
     @patch("ygo_app.cardmarket.r2_storage.build_s3_client")
-    def test_download_latest_prices_archive_picks_newest(self, mock_build_client):
+    def test_download_latest_prices_archive_picks_newest_nested(self, mock_build_client):
         mock_s3 = MagicMock()
         mock_build_client.return_value = mock_s3
         older = prices_archive_key("20260628_1200")
@@ -207,6 +215,75 @@ class TestCardmarketR2Storage(unittest.TestCase):
         self.assertEqual(mock_s3.download_file.call_args[0][1], newer)
 
     @patch("ygo_app.cardmarket.r2_storage.build_s3_client")
+    def test_download_latest_prices_archive_picks_newest_mixed_layout(self, mock_build_client):
+        mock_s3 = MagicMock()
+        mock_build_client.return_value = mock_s3
+        legacy_older = legacy_prices_archive_key("20260628_1200")
+        nested_newer = prices_archive_key("20260629_1200")
+        mock_s3.list_objects_v2.return_value = {
+            "Contents": [{"Key": legacy_older}, {"Key": nested_newer}],
+            "IsTruncated": False,
+        }
+
+        def _fake_download(bucket, key, dest):
+            with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    PRICES_EXPORT_MEMBER,
+                    json.dumps(_SAMPLE_EXPORT),
+                )
+
+        mock_s3.download_file.side_effect = _fake_download
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "cardmarket_prices.json"
+            with patch(
+                "ygo_app.cardmarket.r2_storage.config.S3_CARDMARKET_BUCKET",
+                _CARDMARKET_BUCKET,
+            ):
+                download_latest_prices_archive(dest)
+
+        self.assertEqual(mock_s3.download_file.call_args[0][1], nested_newer)
+
+    @patch("ygo_app.cardmarket.r2_storage.build_s3_client")
+    def test_download_prices_archive_run_ts_legacy_fallback(self, mock_build_client):
+        mock_s3 = MagicMock()
+        mock_build_client.return_value = mock_s3
+        run_ts = "20260629_1200"
+        legacy_key = legacy_prices_archive_key(run_ts)
+
+        def _head_object(**kwargs):
+            if kwargs["Key"] == prices_archive_key(run_ts):
+                from botocore.exceptions import ClientError
+
+                raise ClientError(
+                    {"Error": {"Code": "404", "Message": "Not Found"}},
+                    "HeadObject",
+                )
+            return {}
+
+        mock_s3.head_object.side_effect = _head_object
+
+        def _fake_download(bucket, key, dest):
+            with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(
+                    PRICES_EXPORT_MEMBER,
+                    json.dumps(_SAMPLE_EXPORT),
+                )
+
+        mock_s3.download_file.side_effect = _fake_download
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "cardmarket_prices.json"
+            with patch(
+                "ygo_app.cardmarket.r2_storage.config.S3_CARDMARKET_BUCKET",
+                _CARDMARKET_BUCKET,
+            ):
+                download_latest_prices_archive(dest, run_ts=run_ts)
+
+        mock_s3.download_file.assert_called_once()
+        self.assertEqual(mock_s3.download_file.call_args[0][1], legacy_key)
+
+    @patch("ygo_app.cardmarket.r2_storage.build_s3_client")
     def test_download_latest_prices_archive_legacy_fallback(self, mock_build_client):
         mock_s3 = MagicMock()
         mock_build_client.return_value = mock_s3
@@ -230,6 +307,20 @@ class TestCardmarketR2Storage(unittest.TestCase):
             mock_s3.download_file.call_args[0][1],
             LEGACY_R2_CARDMARKET_PRICES_KEY,
         )
+
+
+class TestArchiveKeyHelpers(unittest.TestCase):
+    def test_run_ts_from_prices_archive_key_nested(self):
+        key = prices_archive_key("20260629_2241")
+        self.assertEqual(key, "archives/2026/06/29/2241/cardmarket_prices.zip")
+        self.assertEqual(run_ts_from_prices_archive_key(key), "20260629_2241")
+
+    def test_run_ts_from_prices_archive_key_legacy(self):
+        key = legacy_prices_archive_key("20260629_2241")
+        self.assertEqual(run_ts_from_prices_archive_key(key), "20260629_2241")
+
+    def test_run_ts_from_prices_archive_key_unknown(self):
+        self.assertIsNone(run_ts_from_prices_archive_key("archives/other.zip"))
 
 
 class TestRunTsSuffix(unittest.TestCase):

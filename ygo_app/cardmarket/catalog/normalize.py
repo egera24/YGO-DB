@@ -17,6 +17,8 @@ NON_TCG_NONSINGLE_MARKERS = (
 
 _SHORT_REGIONAL_CODE = re.compile(r"\([A-Za-z]{1,4}\)")
 
+_TCG_BRANDING_STARS = ("\u2606", "\u2605")  # ☆ ★
+
 
 def normalize_expansion_name(name: str) -> str:
     text = unicodedata.normalize("NFKC", (name or "").replace("&amp;", "&").strip().lower())
@@ -26,7 +28,15 @@ def normalize_expansion_name(name: str) -> str:
 
 def normalize_card_name(name: str) -> str:
     text = unicodedata.normalize("NFKC", (name or "").strip().lower())
+    for ch in _TCG_BRANDING_STARS:
+        text = text.replace(ch, "")
     text = text.replace("&amp;", "&")
+    # Cardmarket appends "(Skill)" or "(Skills)" to Skill cards, while Yugipedia
+    # typically does not. Normalize both to the base card name so lookups align.
+    if "(skills)" in text:
+        text = text.replace("(skills)", " ")
+    if "(skill)" in text:
+        text = text.replace("(skill)", " ")
     text = re.sub(r"[^\w\s\-']", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -66,13 +76,24 @@ def is_expansion_level_nonsingle_contaminant(product_name: str) -> bool:
 
 
 def excluded_nonsingle_expansion_ids(nonsingles: list[dict]) -> set[int]:
-    excluded: set[int] = set()
+    """Exclude idExpansion only when every nonsingle in it is non-TCG.
+
+    Mixed expansions (e.g. base starter deck + promotional pack in 1051) keep
+    the expansion; row-level filters drop ineligible products.
+    """
+    by_expansion: dict[int, list[str]] = {}
     for row in nonsingles:
         exp_id = row.get("idExpansion")
         if exp_id is None:
             continue
-        if is_expansion_level_nonsingle_contaminant(str(row.get("name") or "")):
-            excluded.add(int(exp_id))
+        exp_key = int(exp_id)
+        by_expansion.setdefault(exp_key, []).append(str(row.get("name") or ""))
+
+    excluded: set[int] = set()
+    for exp_id, names in by_expansion.items():
+        if any(not is_non_tcg_nonsingle_product(name) for name in names):
+            continue
+        excluded.add(exp_id)
     return excluded
 
 

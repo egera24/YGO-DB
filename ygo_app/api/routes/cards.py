@@ -40,6 +40,7 @@ def _printing_out(p: Printing) -> PrintingOut:
         owned_quantity=getattr(p, "owned_quantity", 0),
         trade_quantity=getattr(p, "trade_quantity", 0),
         collection_item_id=getattr(p, "collection_item_id", None),
+        collection_variant_count=getattr(p, "collection_variant_count", 0),
         low_price=getattr(p, "low_price", None),
         avg_price=getattr(p, "avg_price", None),
         trend_price=getattr(p, "trend_price", None),

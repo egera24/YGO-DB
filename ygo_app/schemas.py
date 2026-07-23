@@ -1,6 +1,16 @@
 from datetime import datetime, date
+import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
+from ygo_app.collection_identity import (
+    COLLECTION_CONDITIONS,
+    COLLECTION_EDITIONS,
+    COLLECTION_NOTES_MAX_LENGTH,
+    normalize_collection_condition,
+    normalize_collection_edition,
+    normalize_collection_notes,
+)
 
 
 class PrintingOut(BaseModel):
@@ -13,6 +23,7 @@ class PrintingOut(BaseModel):
     owned_quantity: int = 0
     trade_quantity: int = 0
     collection_item_id: int | None = None
+    collection_variant_count: int = 0
     low_price: float | None = None
     avg_price: float | None = None
     trend_price: float | None = None
@@ -150,6 +161,7 @@ class CollectionItemOut(BaseModel):
     notes: str | None
     card_id: int | None = None
     image_url_small: str | None = None
+    release_date: date | None = None
 
     model_config = {"from_attributes": True}
 
@@ -175,6 +187,41 @@ class CollectionStatsOut(BaseModel):
     no_folder_count: int
     no_folder_quantity: int
     folders: list[CollectionFolderStats]
+
+
+class CollectionDetailStatsOut(BaseModel):
+    folder: str | None = None
+    folder_label: str
+    unique_printings: int
+    total_quantity: int
+    sum_low_price: float | None = None
+    sum_avg_price: float | None = None
+    sum_trend_price: float | None = None
+    max_value_item: CollectionItemOut | None = None
+
+
+class CollectionFilterRarityOut(BaseModel):
+    rarity_code: str
+    rarity_name: str | None = None
+
+
+class RarityUiOut(BaseModel):
+    sort_order: int
+    name: str
+    code: str
+    normalized_code: str
+    display: str
+    tone: str
+
+
+class CollectionFiltersOut(BaseModel):
+    rarities: list[CollectionFilterRarityOut]
+    editions: list[str]
+    conditions: list[str]
+
+
+class CollectionSuggestionsOut(BaseModel):
+    values: list[str]
 
 
 class CollectionFolderOut(BaseModel):
@@ -224,10 +271,19 @@ class FolderAllocation(BaseModel):
     folder_id: int | None
     quantity: int = Field(ge=1)
 
+    @field_validator("folder_id")
+    @classmethod
+    def _require_folder_id(cls, value: int | None) -> int:
+        if value is None:
+            raise ValueError("Folder is required")
+        return value
+
 
 class CollectionFolderDeleteResult(BaseModel):
-    moved_allocations: int
-    moved_quantity: int
+    moved_allocations: int = 0
+    moved_quantity: int = 0
+    removed_allocations: int = 0
+    removed_quantity: int = 0
 
 
 class CollectionItemCreate(BaseModel):
@@ -246,20 +302,36 @@ class CollectionItemCreate(BaseModel):
     price_bought: float | None = None
     date_bought: str | None = None
     sell_price: float | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=COLLECTION_NOTES_MAX_LENGTH)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variant_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "condition" in data:
+            data["condition"] = normalize_collection_condition(data.get("condition"))
+        if "printing" in data:
+            data["printing"] = normalize_collection_edition(data.get("printing"))
+        return data
+
+    @model_validator(mode="after")
+    def _require_folder(self):
+        needs_folder = self.quantity >= 1 or self.trade_quantity >= 1
+        if not needs_folder:
+            return self
+        if self.folder_allocations:
+            return self
+        if self.folder_id is None:
+            raise ValueError("Folder is required")
+        return self
+
+    @field_validator("notes")
+    @classmethod
+    def _validate_notes(cls, value: str | None) -> str | None:
+        return normalize_collection_notes(value)
 
 
-COLLECTION_CONDITIONS = (
-    "Mint",
-    "NearMint",
-    "Excellent",
-    "Good",
-    "LightPlayed",
-    "Played",
-    "Poor",
-)
-
-COLLECTION_EDITIONS = ("Unlimited", "1st Edition", "Limited Edition")
 COLLECTION_LANGUAGES = (
     "English",
     "French",
@@ -279,7 +351,18 @@ class CollectionItemUpdate(BaseModel):
     printing: str | None = None
     folder_allocations: list[FolderAllocation] | None = None
     sell_price: float | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=COLLECTION_NOTES_MAX_LENGTH)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variant_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "condition" in data:
+            data["condition"] = normalize_collection_condition(data.get("condition"))
+        if "printing" in data:
+            data["printing"] = normalize_collection_edition(data.get("printing"))
+        return data
 
     @field_validator("condition")
     @classmethod
@@ -288,6 +371,11 @@ class CollectionItemUpdate(BaseModel):
             allowed = ", ".join(COLLECTION_CONDITIONS)
             raise ValueError(f"Condition must be one of: {allowed}")
         return value
+
+    @field_validator("notes")
+    @classmethod
+    def _validate_notes(cls, value: str | None) -> str | None:
+        return normalize_collection_notes(value)
 
 
 class DeckPreviewCard(BaseModel):
@@ -499,3 +587,309 @@ class SearchPresetUpdate(BaseModel):
         if self.name is None and self.params is None:
             raise ValueError("At least one of name or params is required")
         return self
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = _HTML_TAG_RE.sub("", value).strip()
+    return cleaned or None
+
+
+class TradeSettingsOut(BaseModel):
+    slug: str
+    display_name: str | None = None
+    trade_url: str
+
+
+class TradeSettingsUpdateIn(BaseModel):
+    slug: str | None = Field(default=None, max_length=64)
+    display_name: str | None = Field(default=None, max_length=128)
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        return name or None
+
+
+class PublicTradeSellerOut(BaseModel):
+    display_name: str | None = None
+
+
+class PublicTradeCardOut(BaseModel):
+    id: int
+    passcode: int | None = None
+    name: str
+    type: str | None = None
+    category: str | None = None
+    types: list[str] = Field(default_factory=list)
+    mechanic: str | None = None
+    attribute: str | None = None
+    level: int | None = None
+    rank: int | None = None
+    link_rating: int | None = None
+    pendulum_scale: int | None = None
+    link_markers: list[str] = Field(default_factory=list)
+    archetype: str | None = None
+    atk: int | None = None
+    def_: int | None = Field(None, serialization_alias="def")
+    desc: str | None = None
+    image_url: str | None = None
+    image_url_small: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class PublicTradeItemOut(BaseModel):
+    item_id: int
+    card_name: str | None
+    set_code: str
+    set_name: str | None
+    rarity_code: str
+    rarity_display: str | None = None
+    rarity_name: str | None = None
+    edition: str | None = None
+    condition: str | None
+    trade_quantity: int
+    sell_price: float | None = None
+    image_url_small: str | None = None
+    card: PublicTradeCardOut | None = None
+
+
+class PublicTradeListOut(BaseModel):
+    seller: PublicTradeSellerOut
+    items: list[PublicTradeItemOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class PublicTradeRarityOptionOut(BaseModel):
+    rarity_code: str
+    rarity_name: str | None = None
+
+
+class PublicTradeSetOptionOut(BaseModel):
+    expansion_code: str
+    set_name: str | None = None
+
+
+class PublicTradeFiltersOut(BaseModel):
+    sets: list[PublicTradeSetOptionOut] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+    rarities: list[PublicTradeRarityOptionOut] = Field(default_factory=list)
+
+
+class TradeOrderLineIn(BaseModel):
+    item_id: int
+    quantity: int = Field(ge=1)
+    comment: str | None = Field(default=None, max_length=500)
+    offer_price: float | None = Field(default=None, ge=0)
+
+    @field_validator("comment")
+    @classmethod
+    def sanitize_comment(cls, value: str | None) -> str | None:
+        return _strip_html(value)
+
+
+class TradeOrderRequestIn(BaseModel):
+    lines: list[TradeOrderLineIn] = Field(min_length=1)
+    name: str | None = Field(default=None, max_length=128)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=64)
+    address: str | None = Field(default=None, max_length=500)
+    gdpr_consent: bool
+    turnstile_token: str | None = None
+
+    @field_validator("name", "phone", "address")
+    @classmethod
+    def sanitize_text(cls, value: str | None) -> str | None:
+        return _strip_html(value)
+
+    @model_validator(mode="after")
+    def require_consent(self):
+        if not self.gdpr_consent:
+            raise ValueError("GDPR consent is required")
+        return self
+
+
+class TradeOrderRequestOut(BaseModel):
+    message: str
+
+
+class TradeLockLineOut(BaseModel):
+    line_id: int
+    collection_item_id: int | None = None
+    card_name: str | None = None
+    set_code: str
+    set_name: str | None = None
+    rarity_code: str
+    rarity_display: str | None = None
+    condition: str | None = None
+    quantity: int
+    comment: str | None = None
+    offer_price: float | None = None
+    list_price: float | None = None
+
+
+class TradeLockOrderOut(BaseModel):
+    order_id: int
+    created_at: datetime
+    buyer_name: str | None = None
+    buyer_email: str | None = None
+    buyer_phone: str | None = None
+    buyer_address: str | None = None
+    lines: list[TradeLockLineOut]
+
+
+class TradeLocksOut(BaseModel):
+    orders: list[TradeLockOrderOut]
+
+
+class TradeLockLineActionIn(BaseModel):
+    line_id: int
+    quantity: int = Field(ge=1)
+
+
+class TradeLockActionIn(BaseModel):
+    lines: list[TradeLockLineActionIn] = Field(min_length=1)
+
+
+class TradeLockActionOut(BaseModel):
+    updated: int
+    action: str
+
+
+class PublicConfigOut(BaseModel):
+    turnstile_site_key: str | None = None
+    base_currency: str = "EUR"
+    eur_huf_rate: float
+    eur_huf_rate_source: str
+    eur_huf_rate_as_of: str | None = None
+
+
+class BulkGridBaselineOut(BaseModel):
+    quantity: int = 0
+    trade_quantity: int = 0
+    folder_name: str | None = None
+    collection_item_id: int | None = None
+
+
+class BulkGridRowOut(BaseModel):
+    row_id: str
+    printing_id: int
+    collection_item_id: int | None = None
+    allocation_id: int | None = None
+    folder_id: int | None = None
+    folder_name: str | None = None
+    quantity: int = 0
+    trade_quantity: int = 0
+    total_quantity: int = 0
+    card_name: str | None = None
+    expansion_code: str | None = None
+    set_name: str | None = None
+    set_code: str
+    rarity_name: str | None = None
+    rarity_code: str
+    rarity_sort_order: int = 9999
+    condition: str
+    edition: str
+    language: str
+    price_bought: float | None = None
+    date_bought: str | None = None
+    owned: bool = False
+    baseline: BulkGridBaselineOut
+
+
+class BulkGridListOut(BaseModel):
+    rows: list[BulkGridRowOut]
+    total: int
+    set_code: str
+
+
+class BulkGridMetaOut(BaseModel):
+    folders: list[CollectionFolderOut]
+    conditions: list[str]
+    editions: list[str]
+    languages: list[str]
+
+
+class BulkGridBaselineIn(BaseModel):
+    quantity: int = 0
+    trade_quantity: int = 0
+    folder_name: str | None = None
+    collection_item_id: int | None = None
+
+
+class BulkGridChange(BaseModel):
+    row_id: str
+    printing_id: int
+    collection_item_id: int | None = None
+    allocation_id: int | None = None
+    set_code: str
+    rarity_code: str
+    folder_name: str | None = None
+    quantity: int = Field(default=0, ge=0)
+    trade_quantity: int = Field(default=0, ge=0)
+    condition: str = "NearMint"
+    edition: str = "1st Edition"
+    language: str = "English"
+    price_bought: float | None = None
+    date_bought: str | None = None
+    baseline: BulkGridBaselineIn
+    is_client_duplicate: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_variant_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "condition" in data:
+            data["condition"] = normalize_collection_condition(data.get("condition"))
+        if "edition" in data:
+            data["edition"] = normalize_collection_edition(data.get("edition"))
+        return data
+
+    @field_validator("condition")
+    @classmethod
+    def _validate_condition(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_CONDITIONS:
+            allowed = ", ".join(COLLECTION_CONDITIONS)
+            raise ValueError(f"Condition must be one of: {allowed}")
+        return value
+
+    @field_validator("edition")
+    @classmethod
+    def _validate_edition(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_EDITIONS:
+            allowed = ", ".join(COLLECTION_EDITIONS)
+            raise ValueError(f"Edition must be one of: {allowed}")
+        return value
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, value: str | None) -> str | None:
+        if value is not None and value not in COLLECTION_LANGUAGES:
+            allowed = ", ".join(COLLECTION_LANGUAGES)
+            raise ValueError(f"Language must be one of: {allowed}")
+        return value
+
+
+class BulkGridSaveIn(BaseModel):
+    set_code: str
+    changes: list[BulkGridChange] = Field(default_factory=list, max_length=500)
+
+
+class BulkGridSaveResult(BaseModel):
+    printings_updated: int = 0
+    quantities_added: int = 0
+    trade_quantities_added: int = 0
+    items_created: int = 0
+    items_updated: int = 0
+    items_deleted: int = 0

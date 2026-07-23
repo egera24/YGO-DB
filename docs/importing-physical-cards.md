@@ -5,11 +5,21 @@ you can import, without any scanning hardware or third-party tools.
 
 ## The one thing that makes this fast
 
-The importer matches every row to the catalog using **only two fields**:
+The importer matches every row to the catalog using **two required fields**:
 
 - **`Card Number`** - the set code printed on the card (bottom-right of the card
   frame), e.g. `25LP-EN001`, `LOB-EN005`.
 - **`Rarity`** - the rarity code, entered plain (`UR`, `ScR`, `SR`, `C`, ...).
+
+For **deduplication** within your collection (import append and UI add), the app
+also uses optional DragonShield columns:
+
+- **`Printing`** (edition: Unlimited, 1st Edition, Limited Edition)
+- **`Condition`** (NearMint, LightPlayed, etc.)
+
+Two rows with the same card number and rarity but different edition or condition
+become **separate** collection lines. Rows that match on all four dimensions merge
+and sum `Quantity`.
 
 Everything else (card name, set name, prices, artwork) is filled automatically
 from the catalog when the row matches. So you do **not** need to type card names,
@@ -37,7 +47,7 @@ AAA_COLLECTION,2,LOB-EN005,UR
 | `Card Number` | Yes        | Printed set code. Part of the match key.                        |
 | `Rarity`      | Yes        | Plain rarity code (no parentheses). Part of the match key.      |
 | `Quantity`    | Recommended| Defaults to 1 if blank. Use this to collapse duplicates.        |
-| `Folder Name` | Optional   | Assigns the card to a collection folder. Blank = no folder.     |
+| `Folder Name` | Yes        | Assigns the card to a collection folder. Required for every row. |
 
 > You do **not** need a card-name column. If you want an extra `Card Name` column
 > as a personal sanity-check while typing, you can add one - but it's optional and
@@ -46,6 +56,36 @@ AAA_COLLECTION,2,LOB-EN005,UR
 > The two match columns matter because a card is looked up by the exact pair
 > `(Card Number, Rarity)`. Get the set code and rarity right and the rest sorts
 > itself out.
+
+### Condition and edition aliases
+
+The importer accepts common DragonShield and shorthand spellings and stores
+**canonical** values internally:
+
+| Canonical condition | Also accepted |
+| ------------------- | ------------- |
+| `NearMint` | `Near Mint`, `NM`, `near-mint` |
+| `LightPlayed` | `Light Played`, `LP`, `light-played` |
+| `Mint` | `MT` |
+| `Excellent` | `EX` |
+| `Good` | `GD` |
+| `Played` | `PL` |
+| `Poor` | `PO` |
+
+| Canonical edition | Also accepted |
+| ----------------- | ------------- |
+| `Unlimited` | `UE` |
+| `1st Edition` | `First Edition`, `1st Ed`, `1st`, `1stEdition` |
+| `Limited Edition` | `Limited`, `Limited Ed`, `LE` |
+
+Rows that differ only by alias spelling (e.g. `Light Played` vs `LightPlayed`) are
+treated as the **same** variant and merge on import. Legacy rows already in the
+database can be normalized with:
+
+```powershell
+python -m ygo_app.jobs.normalize_collection_variants --dry-run
+python -m ygo_app.jobs.normalize_collection_variants
+```
 
 ## Step-by-step workflow
 
@@ -58,17 +98,23 @@ type the changing number.
 
 ### 2. Collapse duplicates with `Quantity`
 
-Do not create one row per physical card. If you have 3 copies of the same card in
-the same set and rarity, enter **one** row with `Quantity` = 3. A 10,000-card box
-is usually far fewer than 10,000 rows once duplicates are combined.
+Do not create one row per physical card **when edition and condition are the same**.
+If you have 3 Unlimited Near Mint copies of the same card in the same set and
+rarity, enter **one** row with `Quantity` = 3.
+
+If copies differ by edition (e.g. 1st Edition vs Unlimited) or condition (e.g.
+Near Mint vs Light Played), use **separate rows** with `Quantity` = 1 each (or
+the count per variant). A 10,000-card box is usually far fewer than 10,000 rows
+once identical variants are combined.
 
 ### 3. Type only the changing fields
 
-For each unique (set code, rarity) card:
+For each unique (set code, rarity, edition, condition) card:
 
 - Fill-down `Folder Name` and the set prefix across the batch you're working on.
 - Type the collector number and the rarity code.
-- Set `Quantity` for the number of copies.
+- Set `Printing` and `Condition` when they differ between copies you own.
+- Set `Quantity` for the number of copies of that variant.
 
 Spreadsheet tips (Excel / Google Sheets / LibreOffice):
 

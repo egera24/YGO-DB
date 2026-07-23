@@ -90,9 +90,10 @@ python -m ygo_app.jobs.sync_card_images --manifest-only   # rebuild manifest fro
 
 Vendor migration later: `rclone sync` the bucket to any S3-compatible provider, change `S3_*` + `IMAGE_BASE_URL` secrets, re-run the import (or one SQL `UPDATE ... replace(...)`).
 
-### Optional: DB keep-alive workflow
+### Optional: keep-alive workflows
 
-The **Neon DB keep-alive** workflow pings **production** and **dev** databases every few days (requires both secrets).
+- **Neon DB keep-alive** — pings **production** and **dev** databases every few days (requires both secrets).
+- **Render prod keep-alive** — pings production `GET /api/health` every 10 minutes during **Europe/Budapest 08:00–22:00** so the free web service stays warm (~420 Free instance hours/month). Does **not** ping staging. Do **not** run a 24/7 keep-alive on free (shared 750-hour workspace quota; two always-on free services would exhaust it).
 
 See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → production workflow.
 
@@ -190,10 +191,10 @@ For **local development**, use `EMAIL_BACKEND=console` in `.env` — verificatio
 | Topic | What to expect |
 |--------|----------------|
 | **Data** | Neon free data does not expire at 30 days (unlike Render free Postgres). |
-| **Cold starts** | Render web sleeps after ~15 min idle; Neon may take a few seconds to wake on first query. |
+| **Cold starts** | Outside the prod keep-alive window (or after ~15 min idle), Render spins down; first request ~1 min. Neon may take a few seconds to wake on first query. |
 | **Neon limits** | 0.5 GB storage, 100 CU-hours/month — fine for hobby use; monitor in Neon dashboard. |
 | **Backups** | Limited on free tier; export data occasionally if it matters. |
-| **Do not** ping Render every few minutes to stay warm — you will burn the 750 free instance hours/month. |
+| **Render hours** | 750 Free instance hours/workspace/month. Prod daytime keep-alive (~420 h/mo) fits; do **not** keep-alive staging or run 24/7 on free. |
 
 ---
 

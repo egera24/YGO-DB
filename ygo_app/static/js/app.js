@@ -1,4 +1,39 @@
+import {
+  closeBulkCollectionModal,
+  initBulkCollection,
+  isBulkCollectionSaving,
+  refreshBulkCollectionAuthVisibility,
+  refreshBulkCollectionCurrency,
+} from "./bulk-collection.js";
+import {
+  COLLECTION_CONDITIONS,
+  COLLECTION_EDITIONS,
+  conditionBadgeHtml,
+  editionBadgeHtml,
+  normalizeConditionValue,
+  normalizeEditionValue,
+} from "./condition-edition-badges.js";
+import { createFilterCombobox } from "./filter-combobox.js";
+import { rarityBadgeHtml } from "./rarity-badges.js";
+import {
+  bindDetailsPanelToggle,
+  bindSortDirToggle,
+  bindTableHeaderSort,
+  readSortDir,
+  setSortDir,
+  syncSortToggleLabel,
+  syncTableHeaderSort,
+} from "./sort-controls.js";
+import {
+  appConfirm,
+  appPrompt,
+  cancelAppDialog,
+  initAppDialogs,
+  isAppDialogOpen,
+} from "./ui-dialogs.js";
+
 const API = "/api";
+const CURRENCY_STORAGE_KEY = "ygo-currency";
 
 const IMG_PLACEHOLDER =
   "data:image/svg+xml," +
@@ -45,6 +80,13 @@ const state = {
   banlistsByFormat: {},
   genesysPointLists: [],
   zoneTooltips: {},
+  tradeSettings: null,
+  currency: "EUR",
+  publicConfig: {
+    eur_huf_rate: 390,
+    eur_huf_rate_source: "fallback",
+    eur_huf_rate_as_of: null,
+  },
 };
 
 let searchRequestSeq = 0;
@@ -59,16 +101,6 @@ const COLLECTION_PAGE_SIZE = 100;
 const NO_FOLDER = "__no_folder__";
 const COLLECTION_FOLDER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 const INFO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>`;
-const COLLECTION_CONDITIONS = [
-  { value: "Mint", label: "Mint (MT)", tone: "mint" },
-  { value: "NearMint", label: "Near Mint (NM)", tone: "nearmint" },
-  { value: "Excellent", label: "Excellent (EX)", tone: "excellent" },
-  { value: "Good", label: "Good (GD)", tone: "good" },
-  { value: "LightPlayed", label: "Light Played (LP)", tone: "lightplayed" },
-  { value: "Played", label: "Played (PL)", tone: "played" },
-  { value: "Poor", label: "Poor (PO)", tone: "poor" },
-];
-const COLLECTION_EDITIONS = ["Unlimited", "1st Edition", "Limited Edition"];
 const COLLECTION_LANGUAGES = [
   "English",
   "French",
@@ -318,7 +350,7 @@ async function applyRouteFromHash({ initial = false } = {}) {
         route.invalid ||
         !route.deckId ||
         route.deckId !== state.activeDeckId);
-    if (!initial && leavingDirtyDeck && !confirmLeaveDeck()) {
+    if (!initial && leavingDirtyDeck && !(await confirmLeaveDeck())) {
       syncRouteHash({ replace: true });
       return;
     }
@@ -342,18 +374,23 @@ async function applyRouteFromHash({ initial = false } = {}) {
   lastAppliedRouteHash = window.location.hash;
 }
 
-function conditionLabel(value) {
-  if (!value) return "—";
-  const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
-  return match ? match.label : value;
+function collectionReleaseDateCell(item) {
+  const text = formatNumericDate(item.release_date) || "—";
+  const titleAttr = item.release_date ? ` title="${escapeHtml(text)}"` : "";
+  return `<td class="collection-release-date"${titleAttr}>${escapeHtml(text)}</td>`;
 }
 
-function conditionBadgeHtml(value) {
-  if (!value) return "—";
-  const match = COLLECTION_CONDITIONS.find((c) => c.value === value);
-  const label = match ? match.label : value;
-  const tone = match ? match.tone : "unknown";
-  return `<span class="condition-badge condition-badge--${tone}">${escapeHtml(label)}</span>`;
+function collectionNotesCell(item) {
+  const notes = (item.notes || "").trim();
+  if (!notes) {
+    return '<td class="collection-notes"></td>';
+  }
+  return `<td class="collection-notes collection-notes--filled" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>`;
+}
+
+function collectionFolderCell(item) {
+  const label = formatFolderAllocationsLabel(item.folders);
+  return `<td class="collection-col-folder">${escapeHtml(label)}</td>`;
 }
 
 async function api(path, options = {}) {
@@ -825,15 +862,14 @@ async function submitAuthForm(form, action, { busyLabel, successToast } = {}) {
 function updateAuthUI() {
   const loggedIn = Boolean(state.token && state.user);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
-  $("#import-collection-btn")?.classList.toggle("hidden", !loggedIn);
-  $("#export-collection-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#account-settings-wrap")?.classList.toggle("hidden", !loggedIn);
+  if (!loggedIn) closeAccountSettingsMenu();
+  $("#collection-toolbar-actions")?.classList.toggle("hidden", !loggedIn);
+  refreshBulkCollectionAuthVisibility(loggedIn);
   $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
-  if (loggedIn) {
-    userEl.textContent = state.user.email;
-    userEl.classList.remove("hidden");
-  } else {
-    userEl.classList.add("hidden");
+  if (userEl) {
+    userEl.textContent = loggedIn ? state.user.email : "";
   }
 }
 
@@ -841,6 +877,11 @@ async function bootstrapAuthenticatedApp() {
   initFilterMultiWidgets();
   setupLinkMarkerGrid();
   setupSummoningSuggestions();
+
+  state.currency = loadCurrencyPreference();
+  syncCurrencySelect();
+  syncPriceInputFields();
+  await loadPublicConfig();
 
   const route = parseRouteHash();
   const initialView =
@@ -942,12 +983,22 @@ function logout() {
   setAuthenticatedShell(false);
   showAuthLanding();
   updateAuthUI();
-  renderSearchPresetSelect();
+  renderSearchPresetList();
   if (location.hash !== "#/") {
     suppressHashSync = true;
     location.hash = "#/";
     suppressHashSync = false;
   }
+}
+
+async function confirmLogout() {
+  const ok = await appConfirm({
+    title: "Log out",
+    message: "Log out of your account?",
+    confirmLabel: "Log out",
+  });
+  if (!ok) return;
+  logout();
 }
 
 async function loadStatus() {
@@ -1751,9 +1802,9 @@ function resetSearchFilters() {
   });
 
   const searchSortEl = $("#search-sort");
-  if (searchSortEl) searchSortEl.value = "name";
-  const searchSortDirEl = $("#search-sort-dir");
-  if (searchSortDirEl) searchSortDirEl.value = "asc";
+  if (searchSortEl) searchSortEl.value = "";
+  setSortDir($("#search-sort-dir"), "asc");
+  syncSearchSortToggleLabel();
 
   closeAllFilterMultiPanels();
   renderActiveSearchFilters();
@@ -1862,9 +1913,21 @@ function hasAdvancedSearchFilters() {
   return collectActiveSearchFilterChips().some((chip) => !PRIMARY_SEARCH_FILTER_IDS.has(chip.id));
 }
 
+let advancedFiltersUserCollapsed = false;
+
 function syncAdvancedFiltersOpen() {
   const details = $("#advanced-filters");
-  if (details && hasAdvancedSearchFilters()) details.open = true;
+  const hadAdvanced = hasAdvancedSearchFilters();
+  if (!hadAdvanced) advancedFiltersUserCollapsed = false;
+  if (details && hadAdvanced && !advancedFiltersUserCollapsed) details.open = true;
+  syncAdvancedFiltersToggle();
+}
+
+function syncAdvancedFiltersToggle() {
+  const details = $("#advanced-filters");
+  const btn = $("#advanced-filters-toggle");
+  if (!details || !btn) return;
+  btn.setAttribute("aria-expanded", details.open ? "true" : "false");
 }
 
 function countAdvancedSearchFilters() {
@@ -1878,7 +1941,7 @@ function syncAdvancedFiltersSummary() {
   if (!badge) return;
   const count = countAdvancedSearchFilters();
   if (count > 0) {
-    badge.textContent = `· ${count}`;
+    badge.textContent = `(${count})`;
     badge.classList.remove("hidden");
   } else {
     badge.textContent = "";
@@ -1981,32 +2044,158 @@ function renderSearchResultsSummary({ loading = false } = {}) {
   el.classList.remove("hidden");
 }
 
-function closePresetMenu() {
-  const menu = $("#search-preset-menu");
-  const btn = $("#search-preset-menu-btn");
+const SEARCH_TOOL_PANELS = ["search-presets-panel", "search-sort-panel", "advanced-filters"];
+
+/** When opening one panel, which others to close. Sort and advanced filters may stay open together. */
+const SEARCH_TOOL_PANEL_CLOSE_TARGETS = {
+  "search-presets-panel": ["search-sort-panel", "advanced-filters"],
+  "search-sort-panel": ["search-presets-panel"],
+  "advanced-filters": ["search-presets-panel"],
+};
+
+function normalizeSearchToolPanelId(panelId) {
+  if (!panelId) return null;
+  return panelId.startsWith("#") ? panelId.slice(1) : panelId;
+}
+
+function closeSearchToolPanels(exceptDetailsId = null) {
+  const exceptId = normalizeSearchToolPanelId(exceptDetailsId);
+  const targets = exceptId
+    ? SEARCH_TOOL_PANEL_CLOSE_TARGETS[exceptId] ?? SEARCH_TOOL_PANELS.filter((id) => id !== exceptId)
+    : SEARCH_TOOL_PANELS;
+  for (const id of targets) {
+    if (id === exceptId) continue;
+    const details = $(`#${id}`);
+    if (details?.open) details.open = false;
+  }
+}
+
+function bindSearchToolPanel(toggleSelector, detailsId, { onUserToggle } = {}) {
+  bindDetailsPanelToggle($(toggleSelector), $(detailsId), {
+    beforeToggle: (willOpen) => {
+      if (willOpen) closeSearchToolPanels(detailsId);
+    },
+    onUserToggle,
+  });
+}
+
+function syncSearchSortToggleLabel() {
+  syncSortToggleLabel({
+    select: $("#search-sort"),
+    dirBtn: $("#search-sort-dir"),
+    labelEl: $("#search-sort-toggle-label"),
+    dirIconEl: $("#search-sort-toggle-dir"),
+    toggle: $("#search-sort-toggle"),
+    subject: "results",
+  });
+}
+
+function syncCollectionTableHeaderSort() {
+  syncTableHeaderSort(
+    $("#collection-table"),
+    $("#collection-sort")?.value || "set_code",
+    readSortDir($("#collection-sort-dir"))
+  );
+}
+
+function syncSearchPresetToggleLabel() {
+  const toggle = $("#search-preset-toggle");
+  const label = $("#search-preset-toggle-label");
+  if (!toggle) return;
+  const active = state.searchPresets.find((p) => p.id === state.activePresetId);
+  toggle.setAttribute(
+    "aria-label",
+    active ? `Search presets (${active.name} active)` : "Search presets"
+  );
+  toggle.setAttribute("data-tooltip", active ? active.name : "Presets");
+  if (label) {
+    label.textContent = active ? active.name : "Presets";
+    label.classList.remove("hidden");
+  }
+}
+
+const PRESET_RENAME_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+const PRESET_DELETE_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
+
+function renderSearchPresetList() {
+  const list = $("#search-preset-list");
+  const emptyEl = $("#search-preset-empty");
+  if (!list) return;
+  const activeId = state.activePresetId;
+  if (!state.searchPresets.length) {
+    list.innerHTML = "";
+    emptyEl?.classList.remove("hidden");
+  } else {
+    emptyEl?.classList.add("hidden");
+    list.innerHTML = state.searchPresets
+      .map((p) => {
+        const activeClass = p.id === activeId ? " search-preset-row--active" : "";
+        const safeName = escapeHtml(p.name);
+        return `<div class="search-preset-row${activeClass}" role="listitem" data-preset-id="${p.id}">
+          <button type="button" class="search-preset-row-name" data-preset-load="${p.id}">${safeName}</button>
+          <div class="search-preset-row-actions">
+            <button type="button" class="icon-btn secondary search-preset-rename-btn" data-preset-rename="${p.id}" aria-label="Rename ${safeName}" data-tooltip="Rename">${PRESET_RENAME_ICON}</button>
+            <button type="button" class="icon-btn secondary search-preset-delete-btn preset-menu-danger" data-preset-delete="${p.id}" aria-label="Delete ${safeName}" data-tooltip="Delete">${PRESET_DELETE_ICON}</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+  syncSearchPresetToggleLabel();
+}
+
+const COLLECTION_TOOLBAR_MENUS = [
+  ["collection-manage-menu", "collection-manage-menu-btn"],
+  ["collection-trade-menu", "collection-trade-menu-btn"],
+];
+
+function closeCollectionToolbarMenus() {
+  for (const [menuId, btnId] of COLLECTION_TOOLBAR_MENUS) {
+    const menu = $(`#${menuId}`);
+    const btn = $(`#${btnId}`);
+    if (!menu || menu.hidden) continue;
+    menu.hidden = true;
+    btn?.setAttribute("aria-expanded", "false");
+  }
+}
+
+function closeAccountSettingsMenu() {
+  const menu = $("#account-settings-menu");
+  const btn = $("#account-settings-btn");
   if (!menu || menu.hidden) return;
   menu.hidden = true;
   btn?.setAttribute("aria-expanded", "false");
 }
 
-function syncSearchPresetControls() {
-  const select = $("#search-preset-select");
-  const menuBtn = $("#search-preset-menu-btn");
-  if (!select || !menuBtn) return;
-  const hasPreset = Boolean(select.value);
-  menuBtn.disabled = !hasPreset;
-  menuBtn.title = hasPreset ? "" : "Select a preset first";
-  if (!hasPreset) closePresetMenu();
+function toggleAccountSettingsMenu() {
+  const menu = $("#account-settings-menu");
+  const btn = $("#account-settings-btn");
+  if (!menu || !btn) return;
+  const isOpen = !menu.hidden;
+  closeAccountSettingsMenu();
+  closeCollectionToolbarMenus();
+  closeSearchToolPanels();
+  closeAllCollectionRowMenus();
+  closeAllCollectionFolderMenus();
+  closeAllDeckTileMenus();
+  if (isOpen) return;
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
 }
 
-function togglePresetMenu() {
-  const menu = $("#search-preset-menu");
-  const btn = $("#search-preset-menu-btn");
-  if (!menu || !btn || btn.disabled) return;
-  if (!menu.hidden) {
-    closePresetMenu();
-    return;
-  }
+function toggleCollectionToolbarMenu(menuId, btnId) {
+  const menu = $(`#${menuId}`);
+  const btn = $(`#${btnId}`);
+  if (!menu || !btn) return;
+  const isOpen = !menu.hidden;
+  closeCollectionToolbarMenus();
+  closeAccountSettingsMenu();
+  closeSearchToolPanels();
+  closeAllCollectionRowMenus();
+  closeAllDeckTileMenus();
+  if (isOpen) return;
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
 }
@@ -2025,11 +2214,27 @@ function closeAllCollectionRowMenus() {
   });
 }
 
+function closeAllCollectionFolderMenus() {
+  document.querySelectorAll(".collection-folder-menu").forEach((menu) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    menu.classList.remove("collection-folder-menu--fixed");
+    menu.style.top = "";
+    menu.style.left = "";
+  });
+  document.querySelectorAll(".collection-folder-menu-btn").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
 function openCollectionRowMenu(btn) {
   const wrap = btn.closest(".collection-row-menu-wrap");
   const menu = wrap?.querySelector(".collection-row-menu");
   if (!menu) return;
   closeAllCollectionRowMenus();
+  closeAllCollectionFolderMenus();
+  closeCollectionToolbarMenus();
+  closeSearchToolPanels();
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   menu.classList.add("collection-row-menu--fixed");
@@ -2049,6 +2254,35 @@ function toggleCollectionRowMenu(btn) {
     return;
   }
   openCollectionRowMenu(btn);
+}
+
+function openCollectionFolderMenu(btn) {
+  const wrap = btn.closest(".collection-folder-menu-wrap");
+  const menu = wrap?.querySelector(".collection-folder-menu");
+  if (!menu) return;
+  closeAllCollectionFolderMenus();
+  closeAllCollectionRowMenus();
+  closeCollectionToolbarMenus();
+  closeDeleteFolderPopover();
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  menu.classList.add("collection-folder-menu--fixed");
+  const rect = btn.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth;
+  const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, left)}px`;
+}
+
+function toggleCollectionFolderMenu(btn) {
+  const wrap = btn.closest(".collection-folder-menu-wrap");
+  const menu = wrap?.querySelector(".collection-folder-menu");
+  if (!menu) return;
+  if (!menu.hidden) {
+    closeAllCollectionFolderMenus();
+    return;
+  }
+  openCollectionFolderMenu(btn);
 }
 
 function buildSearchParams() {
@@ -2122,10 +2356,10 @@ function buildSearchParams() {
     if (pointsMin) params.set("points_min", pointsMin);
     if (pointsMax) params.set("points_max", pointsMax);
   }
-  const searchSort = $("#search-sort")?.value || "name";
-  if (searchSort !== "name") params.set("sort", searchSort);
-  const searchSortDir = $("#search-sort-dir")?.value || "asc";
-  if (searchSortDir !== "asc") params.set("sort_dir", searchSortDir);
+  const searchSort = $("#search-sort")?.value || "";
+  if (searchSort) params.set("sort", searchSort);
+  const searchSortDir = readSortDir($("#search-sort-dir"));
+  if (searchSort && searchSortDir !== "asc") params.set("sort_dir", searchSortDir);
   return params;
 }
 
@@ -2222,39 +2456,22 @@ function applySearchParams(snapshot) {
     if (el) el.value = s.sort;
   }
   if (s.sort_dir) {
-    const el = $("#search-sort-dir");
-    if (el) el.value = s.sort_dir;
+    setSortDir($("#search-sort-dir"), s.sort_dir);
   }
+  syncSearchSortToggleLabel();
   renderActiveSearchFilters();
 }
 
 function clearActivePreset() {
   state.activePresetId = null;
-  const select = $("#search-preset-select");
-  if (select) select.value = "";
-  syncSearchPresetControls();
-}
-
-function renderSearchPresetSelect() {
-  const select = $("#search-preset-select");
-  if (!select) return;
-  const activeId = state.activePresetId;
-  select.innerHTML =
-    '<option value="">No preset</option>' +
-    state.searchPresets
-      .map(
-        (p) =>
-          `<option value="${p.id}"${p.id === activeId ? " selected" : ""}>${escapeHtml(p.name)}</option>`
-      )
-      .join("");
-  syncSearchPresetControls();
+  renderSearchPresetList();
 }
 
 async function loadSearchPresets() {
   if (!state.token) {
     state.searchPresets = [];
     state.activePresetId = null;
-    renderSearchPresetSelect();
+    renderSearchPresetList();
     return;
   }
   try {
@@ -2265,10 +2482,10 @@ async function loadSearchPresets() {
     ) {
       state.activePresetId = null;
     }
-    renderSearchPresetSelect();
+    renderSearchPresetList();
   } catch {
     state.searchPresets = [];
-    renderSearchPresetSelect();
+    renderSearchPresetList();
   }
 }
 
@@ -2290,7 +2507,9 @@ async function loadSearchPresetById(presetId) {
   if (!preset) return;
   applySearchParams(preset.params);
   state.activePresetId = preset.id;
-  renderSearchPresetSelect();
+  renderSearchPresetList();
+  const panel = $("#search-presets-panel");
+  if (panel?.open) panel.open = false;
   await runSearch();
 }
 
@@ -2585,8 +2804,7 @@ async function runCollectionImport(file, replace) {
 async function finishPresetSave(preset) {
   state.activePresetId = preset.id;
   await loadSearchPresets();
-  renderSearchPresetSelect();
-  $("#search-preset-select").value = String(preset.id);
+  renderSearchPresetList();
   showToast("Preset saved.");
 }
 
@@ -2612,7 +2830,14 @@ async function createSearchPresetByName(snapshot, name) {
       showToast(err.message, { variant: "error", durationMs: 5000 });
       return;
     }
-    if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) {
+    if (
+      !(await appConfirm({
+        title: "Overwrite preset",
+        message: `A preset named "${name}" already exists. Overwrite it?`,
+        confirmLabel: "Overwrite",
+        danger: true,
+      }))
+    ) {
       return;
     }
     const preset = await api("/search-presets", {
@@ -2651,12 +2876,11 @@ async function saveSearchPreset() {
   await createSearchPresetByName(snapshot, name.trim());
 }
 
-async function renameSearchPreset() {
+async function renameSearchPreset(presetId) {
   if (!state.token) {
     showToast("Log in to rename presets.", { variant: "error" });
     return;
   }
-  const presetId = Number($("#search-preset-select")?.value);
   if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
   const newName = await promptPresetName({
@@ -2674,8 +2898,7 @@ async function renameSearchPreset() {
     });
     state.activePresetId = preset.id;
     await loadSearchPresets();
-    renderSearchPresetSelect();
-    $("#search-preset-select").value = String(preset.id);
+    renderSearchPresetList();
     showToast("Preset renamed.");
   } catch (err) {
     showToast(
@@ -2685,15 +2908,23 @@ async function renameSearchPreset() {
   }
 }
 
-async function deleteSearchPreset() {
+async function deleteSearchPreset(presetId) {
   if (!state.token) {
     showToast("Log in to delete presets.", { variant: "error" });
     return;
   }
-  const presetId = Number($("#search-preset-select")?.value);
   if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
-  if (!confirm(`Delete preset "${current?.name || presetId}"?`)) return;
+  if (
+    !(await appConfirm({
+      title: "Delete preset",
+      message: `Delete preset "${current?.name || presetId}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    }))
+  ) {
+    return;
+  }
 
   await api(`/search-presets/${presetId}`, { method: "DELETE" });
   if (state.activePresetId === presetId) state.activePresetId = null;
@@ -2915,6 +3146,7 @@ function isModalVisible(id) {
 
 function syncModalOpenClass() {
   if (
+    isAppDialogOpen() ||
     isModalVisible("#card-modal") ||
     isModalVisible("#card-errata-modal") ||
     isModalVisible("#card-tips-modal") ||
@@ -2923,8 +3155,15 @@ function syncModalOpenClass() {
     isModalVisible("#export-collection-modal") ||
     isModalVisible("#search-preset-save-modal") ||
     isModalVisible("#search-preset-name-modal") ||
+    isModalVisible("#import-mode-modal") ||
+    isModalVisible("#import-progress-modal") ||
     isModalVisible("#collection-add-modal") ||
-    isModalVisible("#collection-edit-modal")
+    isModalVisible("#collection-edit-modal") ||
+    isModalVisible("#bulk-collection-modal") ||
+    isModalVisible("#collection-stats-modal") ||
+    isModalVisible("#delete-account-modal") ||
+    isModalVisible("#trade-settings-modal") ||
+    isModalVisible("#trade-locks-modal")
   ) {
     document.body.classList.add("modal-open");
   } else {
@@ -3120,6 +3359,50 @@ function initCollectionAddResize(panel) {
   initResizablePanel(panel, {
     storageKey: COLLECTION_ADD_SIZE_KEY,
     limits: collectionAddLimits(),
+  });
+}
+
+const TRADE_LOCKS_SIZE_KEY = "ygo_trade_locks_size";
+const TRADE_LOCKS_MIN_W = 480;
+const TRADE_LOCKS_MIN_H = 280;
+const TRADE_LOCKS_DEFAULT_W = 640;
+const TRADE_LOCKS_VIEWPORT_MARGIN_PX = 32;
+const TRADE_LOCKS_MAX_H_RATIO = 0.9;
+
+function tradeLocksMaxWidth() {
+  return Math.max(TRADE_LOCKS_MIN_W, window.innerWidth - TRADE_LOCKS_VIEWPORT_MARGIN_PX);
+}
+
+function tradeLocksMaxHeight() {
+  return Math.max(TRADE_LOCKS_MIN_H, window.innerHeight * TRADE_LOCKS_MAX_H_RATIO);
+}
+
+function tradeLocksDefaultHeight() {
+  return Math.max(TRADE_LOCKS_MIN_H, Math.min(window.innerHeight * 0.7, 420));
+}
+
+function tradeLocksLimits() {
+  return {
+    minW: TRADE_LOCKS_MIN_W,
+    minH: TRADE_LOCKS_MIN_H,
+    maxW: tradeLocksMaxWidth(),
+    maxH: tradeLocksMaxHeight(),
+  };
+}
+
+function applyTradeLocksPanelSize(panel) {
+  const size = getResizablePanelDefaultSize(
+    TRADE_LOCKS_SIZE_KEY,
+    tradeLocksLimits(),
+    () => ({ width: TRADE_LOCKS_DEFAULT_W, height: tradeLocksDefaultHeight() })
+  );
+  applyResizablePanelSize(panel, size.width, size.height, tradeLocksLimits());
+}
+
+function initTradeLocksResize(panel) {
+  initResizablePanel(panel, {
+    storageKey: TRADE_LOCKS_SIZE_KEY,
+    limits: tradeLocksLimits(),
   });
 }
 
@@ -3796,6 +4079,14 @@ function formatDisplayDate(isoDate) {
   }).format(dt);
 }
 
+function formatNumericDate(isoDate) {
+  if (!isoDate) return "";
+  const parts = String(isoDate).split("-");
+  if (parts.length !== 3) return isoDate;
+  const [year, month, day] = parts;
+  return `${day.padStart(2, "0")}.${month.padStart(2, "0")}.${year}`;
+}
+
 function resetModalSupplements() {
   const supplements = $("#modal-supplements");
   const errataOpen = $("#modal-errata-open");
@@ -3941,9 +4232,166 @@ function closeCardTipsModal() {
   $("#modal-tips-trigger")?.focus();
 }
 
+function loadCurrencyPreference() {
+  try {
+    const stored = localStorage.getItem(CURRENCY_STORAGE_KEY);
+    if (stored === "HUF" || stored === "EUR") return stored;
+  } catch {
+    /* ignore */
+  }
+  return "EUR";
+}
+
+function saveCurrencyPreference(currency) {
+  try {
+    localStorage.setItem(CURRENCY_STORAGE_KEY, currency);
+  } catch {
+    /* ignore */
+  }
+}
+
+function getSelectedCurrency() {
+  return state.currency === "HUF" ? "HUF" : "EUR";
+}
+
+function getEurHufRate() {
+  const rate = Number(state.publicConfig?.eur_huf_rate);
+  return Number.isFinite(rate) && rate > 0 ? rate : 390;
+}
+
+function formatDisplayPrice(eurValue) {
+  if (eurValue == null || Number.isNaN(Number(eurValue))) return "—";
+  const eur = Number(eurValue);
+  if (getSelectedCurrency() === "HUF") {
+    return `${Math.round(eur * getEurHufRate()).toLocaleString("hu-HU")} HUF`;
+  }
+  return `${eur.toFixed(2).replace(".", ",")} €`;
+}
+
+function displayInputValue(eurValue) {
+  if (eurValue === "" || eurValue == null) return "";
+  const num = Number(eurValue);
+  if (Number.isNaN(num)) return "";
+  if (getSelectedCurrency() === "HUF") {
+    return String(Math.round(num * getEurHufRate()));
+  }
+  return String(num);
+}
+
+function priceInputStep() {
+  return getSelectedCurrency() === "HUF" ? "1" : "0.01";
+}
+
+function parsePriceInput(raw, currency = getSelectedCurrency()) {
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed === "") return 0;
+  const num = Number(trimmed);
+  if (Number.isNaN(num) || num < 0) return Number.NaN;
+  if (currency === "HUF") {
+    return Math.round((num / getEurHufRate()) * 100) / 100;
+  }
+  return num;
+}
+
+function updateCurrencyRateHint() {
+  const hint = $("#app-currency-rate");
+  if (!hint) return;
+  if (getSelectedCurrency() !== "HUF") {
+    hint.textContent = "";
+    hint.classList.add("hidden");
+    hint.setAttribute("aria-hidden", "true");
+    return;
+  }
+  const source = state.publicConfig?.eur_huf_rate_source;
+  const rateText = getEurHufRate().toFixed(2);
+  let message = `1 EUR = ${rateText} HUF`;
+  if (source === "fallback") {
+    message += " · fallback";
+  }
+  hint.textContent = message;
+  hint.classList.remove("hidden");
+  hint.removeAttribute("aria-hidden");
+}
+
+function syncCurrencySelect() {
+  const select = $("#app-currency");
+  if (select) select.value = getSelectedCurrency();
+  updateCurrencyRateHint();
+}
+
+function syncPriceInputFields() {
+  const code = getSelectedCurrency();
+  document.querySelectorAll("[data-currency-suffix]").forEach((el) => {
+    el.textContent = code;
+  });
+  const addPrice = $("#collection-add-price-bought");
+  const editSell = $("#collection-edit-sell-price");
+  if (addPrice) addPrice.step = priceInputStep();
+  if (editSell) editSell.step = priceInputStep();
+}
+
+function refreshPriceSurfaces() {
+  if (Array.isArray(state.collectionLastItems)) {
+    renderCollectionTable(state.collectionLastItems);
+  }
+  if (collectionDetailStatsCache && isModalVisible("#collection-stats-modal")) {
+    renderCollectionDetailStats(collectionDetailStatsCache);
+  }
+  if (state.currentCard && isModalVisible("#card-modal")) {
+    renderModalCard(state.currentCard);
+  }
+  if (isModalVisible("#collection-add-modal")) {
+    syncAddCollectionPrintingFields();
+  }
+  refreshBulkCollectionCurrency();
+}
+
+function setCurrency(currency) {
+  const prevCurrency = getSelectedCurrency();
+  let addPriceEur = null;
+  let editSellEur = null;
+
+  if (isModalVisible("#collection-add-modal")) {
+    addPriceEur = parsePriceInput($("#collection-add-price-bought")?.value, prevCurrency);
+  }
+  if (isModalVisible("#collection-edit-modal")) {
+    editSellEur = parsePriceInput($("#collection-edit-sell-price")?.value, prevCurrency);
+  }
+
+  const next = currency === "HUF" ? "HUF" : "EUR";
+  state.currency = next;
+  saveCurrencyPreference(next);
+  syncCurrencySelect();
+  syncPriceInputFields();
+
+  if (addPriceEur != null && !Number.isNaN(addPriceEur)) {
+    const input = $("#collection-add-price-bought");
+    if (input) input.value = displayInputValue(addPriceEur);
+  }
+  if (editSellEur != null && !Number.isNaN(editSellEur)) {
+    const input = $("#collection-edit-sell-price");
+    if (input) input.value = displayInputValue(editSellEur);
+  }
+
+  refreshPriceSurfaces();
+}
+
+async function loadPublicConfig() {
+  try {
+    const res = await fetch(`${API}/public/config`);
+    if (res.ok) {
+      state.publicConfig = await res.json();
+    }
+  } catch {
+    /* keep defaults */
+  }
+  syncCurrencySelect();
+  syncPriceInputFields();
+  refreshPriceSurfaces();
+}
+
 function formatMarketPrice(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
-  return `${Number(value).toFixed(2).replace(".", ",")} €`;
+  return formatDisplayPrice(value);
 }
 
 function resolvedCollectionSellPrice(item) {
@@ -3984,8 +4432,12 @@ function formatMarketPrices(p, { showUnavailable = true } = {}) {
 function formatPrintingOwnershipBadges(p) {
   const parts = [];
   if (p.owned_quantity > 0) {
+    const variantHint =
+      p.collection_variant_count > 1
+        ? ` · ${p.collection_variant_count} entries`
+        : "";
     parts.push(
-      `<span class="badge badge-owned printing-owned-qty" aria-label="Owned: ${p.owned_quantity}">×${p.owned_quantity}</span>`
+      `<span class="badge badge-owned printing-owned-qty" aria-label="Owned: ${p.owned_quantity}${variantHint}">×${p.owned_quantity}${variantHint ? `<span class="printing-variant-hint">${escapeHtml(variantHint)}</span>` : ""}</span>`
     );
   }
   if (p.trade_quantity > 0) {
@@ -4144,10 +4596,15 @@ function renderModalPrintingsList(printings, selectedKey) {
       const key = collectionPrintingKey(p);
       const selected = selectedKey === key ? " printing-row--selected" : "";
       const owned = p.owned_quantity > 0;
+      const hasVariants = owned && (p.collection_variant_count || 0) > 1;
       const canEdit = owned && p.collection_item_id;
       const rowAction = canEdit
         ? "Edit collection entry"
-        : "Select for add to collection";
+        : hasVariants
+          ? "View entries in My Collection"
+          : owned
+            ? "Select for add to collection"
+            : "Select for add to collection";
       const priceCell = hasAnyPrices
         ? `<span class="printing-col printing-col-prices muted">${
             formatMarketPrices(p, { showUnavailable: false }) || "—"
@@ -4156,15 +4613,17 @@ function renderModalPrintingsList(printings, selectedKey) {
       return `
       <div class="printing-row printing-row--selectable printing-row--grid${selected}${
         owned ? " owned" : ""
-      }${canEdit ? " printing-row--editable" : ""}"
+      }${canEdit || hasVariants ? " printing-row--editable" : ""}"
         data-printing-key="${escapeHtml(key)}"
         data-collection-item-id="${p.collection_item_id ?? ""}"
+        data-set-code="${escapeHtml(p.set_code)}"
+        data-collection-variant-count="${p.collection_variant_count ?? 0}"
         role="button" tabindex="0"
         title="${escapeHtml(rowAction)}"
         aria-label="${escapeHtml(`${p.set_code} ${p.set_rarity || ""}. ${rowAction}`)}">
         <span class="printing-col printing-col-main">
           <span class="set-code">${escapeHtml(p.set_code)}</span>
-          <span class="rarity">${escapeHtml(p.set_rarity)}</span>
+          <span class="rarity">${rarityBadgeHtml({ set_rarity: p.set_rarity, set_rarity_code: p.set_rarity_code })}</span>
           ${formatPrintingOwnershipBadges(p)}
         </span>
         ${priceCell}
@@ -4261,17 +4720,30 @@ async function refreshOwnedSearchState() {
   }
 }
 
-function buildCollectionParams(offset = 0) {
+function buildCollectionFilterParams() {
   const params = new URLSearchParams();
+  if (state.collectionFolder) params.set("folder", state.collectionFolder);
+  const cardName = collectionFilterComboboxes?.cardName?.resolveValue();
+  if (cardName) params.set("card_name", cardName);
+  const setCode = collectionFilterComboboxes?.setCode?.resolveValue();
+  if (setCode) params.set("set_code", setCode);
+  const setName = collectionFilterComboboxes?.setName?.resolveValue();
+  if (setName) params.set("set_name", setName);
+  const rarity = $("#collection-rarity")?.value;
+  if (rarity) params.set("rarity", rarity);
+  const edition = $("#collection-edition")?.value;
+  if (edition) params.set("edition", edition);
+  const condition = $("#collection-condition")?.value;
+  if (condition) params.set("condition", condition);
+  return params;
+}
+
+function buildCollectionParams(offset = 0) {
+  const params = buildCollectionFilterParams();
   params.set("limit", String(COLLECTION_PAGE_SIZE));
   params.set("offset", String(offset));
-  if (state.collectionFolder) params.set("folder", state.collectionFolder);
-  const q = $("#collection-q")?.value.trim();
-  if (q) params.set("q", q);
-  const setCode = $("#collection-set-code")?.value.trim();
-  if (setCode) params.set("set_code", setCode);
   params.set("sort", $("#collection-sort")?.value || "set_code");
-  const collectionSortDir = $("#collection-sort-dir")?.value || "asc";
+  const collectionSortDir = readSortDir($("#collection-sort-dir"));
   if (collectionSortDir !== "asc") params.set("sort_dir", collectionSortDir);
   return params;
 }
@@ -4297,10 +4769,12 @@ function renderCollectionTableSkeletonRow() {
       </td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton collection-skel-cell"></div></td>
       <td><div class="skeleton collection-skel-cell"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
       <td><div class="skeleton skeleton-line collection-skel-line--notes"></div></td>
       <td><div class="skeleton collection-skel-actions"></div></td>
     </tr>`;
@@ -4310,7 +4784,7 @@ function renderCollectionTableLoadingSkeleton() {
   const rows = Array.from({ length: COLLECTION_TABLE_SKELETON_ROWS }, () =>
     renderCollectionTableSkeletonRow()
   ).join("");
-  return `<tr class="collection-skel-sr-only"><td colspan="10"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
+  return `<tr class="collection-skel-sr-only"><td colspan="12"><p class="sr-only" role="status">Loading collection…</p></td></tr>${rows}`;
 }
 
 function showCollectionTableLoading() {
@@ -4322,11 +4796,319 @@ function showCollectionTableLoading() {
   setCollectionBusy(true);
 }
 
+const collectionSuggestionCache = {
+  card_name: [],
+  set_code: [],
+  set_name: [],
+};
+
+let collectionFilterComboboxes = null;
+let collectionStatsRequestSeq = 0;
+let collectionStatsTrigger = null;
+let collectionDetailStatsCache = null;
+
+function makeSuggestionCombobox(field, inputSel, listSel, placeholders) {
+  return createFilterCombobox({
+    inputSel,
+    listSel,
+    allLabel: placeholders.all,
+    emptyMessage: placeholders.empty,
+    optionClass: "collection-filter-option",
+    getOptions: () =>
+      collectionSuggestionCache[field].map((value) => ({ value, label: value })),
+    getLabel: (row) => row.label,
+    getValue: (row) => row.value,
+    filterOptions: (query) => {
+      const q = (query || "").trim().toLowerCase();
+      const rows = collectionSuggestionCache[field].map((value) => ({
+        value,
+        label: value,
+      }));
+      if (!q) return rows;
+      return rows.filter((row) => row.label.toLowerCase().includes(q));
+    },
+    resolveValue: (text, stored) => {
+      const trimmed = (text || "").trim();
+      if (!trimmed) return "";
+      if (stored && collectionSuggestionCache[field].includes(stored)) return stored;
+      const exact = collectionSuggestionCache[field].find(
+        (value) => value.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (exact) return exact;
+      const partial = collectionSuggestionCache[field].filter((value) =>
+        value.toLowerCase().includes(trimmed.toLowerCase())
+      );
+      if (partial.length === 1) return partial[0];
+      return trimmed;
+    },
+    onSearch: async (query) => {
+      const params = buildCollectionFilterParams();
+      params.set("field", field);
+      if (query?.trim()) params.set("q", query.trim());
+      params.delete(field === "card_name" ? "card_name" : field === "set_code" ? "set_code" : "set_name");
+      const data = await api(`/collection/suggestions?${params}`);
+      collectionSuggestionCache[field] = data.values || [];
+    },
+  });
+}
+
+function initCollectionFilterComboboxes() {
+  if (collectionFilterComboboxes) return collectionFilterComboboxes;
+  collectionFilterComboboxes = {
+    cardName: makeSuggestionCombobox(
+      "card_name",
+      "#collection-card-name",
+      "#collection-card-name-list",
+      { all: "All cards", empty: "No matching cards" }
+    ),
+    setCode: makeSuggestionCombobox(
+      "set_code",
+      "#collection-set-code",
+      "#collection-set-code-list",
+      { all: "All set codes", empty: "No matching set codes" }
+    ),
+    setName: makeSuggestionCombobox(
+      "set_name",
+      "#collection-set-name",
+      "#collection-set-name-list",
+      { all: "All set names", empty: "No matching set names" }
+    ),
+  };
+  collectionFilterComboboxes.cardName.bindEvents();
+  collectionFilterComboboxes.setCode.bindEvents();
+  collectionFilterComboboxes.setName.bindEvents();
+  return collectionFilterComboboxes;
+}
+
+function closeCollectionFilterComboboxes() {
+  collectionFilterComboboxes?.cardName?.close();
+  collectionFilterComboboxes?.setCode?.close();
+  collectionFilterComboboxes?.setName?.close();
+}
+
+function syncCollectionSelectOptions(selectId, values, allLabel) {
+  const select = $(selectId);
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>`;
+  for (const value of values) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  }
+  if (current && values.includes(current)) select.value = current;
+  else select.value = "";
+}
+
+async function loadCollectionFilterOptions() {
+  if (!state.token) return;
+  try {
+    const data = await api(`/collection/filters?${buildCollectionFilterParams()}`);
+    const raritySelect = $("#collection-rarity");
+    if (raritySelect) {
+      const current = raritySelect.value;
+      raritySelect.innerHTML = '<option value="">All rarities</option>';
+      for (const row of data.rarities || []) {
+        const opt = document.createElement("option");
+        opt.value = row.rarity_code;
+        opt.textContent = row.rarity_name || row.rarity_code;
+        raritySelect.appendChild(opt);
+      }
+      if (current && (data.rarities || []).some((row) => row.rarity_code === current)) {
+        raritySelect.value = current;
+      } else {
+        raritySelect.value = "";
+      }
+    }
+    syncCollectionSelectOptions("#collection-edition", data.editions || [], "All editions");
+    syncCollectionSelectOptions("#collection-condition", data.conditions || [], "All conditions");
+  } catch {
+    /* ignore filter option errors */
+  }
+}
+
+function formatCollectionStatPrice(value) {
+  return formatDisplayPrice(value);
+}
+
+const COLLECTION_STAT_VALUE_IDS = [
+  "collection-stat-printings",
+  "collection-stat-cards",
+  "collection-stat-sum-low",
+  "collection-stat-sum-avg",
+  "collection-stat-sum-trend",
+];
+
+function renderCollectionStatsMaxSkeletonRow() {
+  return `
+    <tr class="collection-row collection-row--skeleton" aria-hidden="true">
+      <td class="collection-thumb"><div class="skeleton collection-skel-thumb"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton collection-skel-cell"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton collection-skel-badge"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--narrow"></div></td>
+      <td><div class="skeleton skeleton-line collection-skel-line--notes"></div></td>
+    </tr>`;
+}
+
+function showCollectionDetailStatsLoading() {
+  const body = $("#collection-stats-body");
+  body?.setAttribute("aria-busy", "true");
+  for (const id of COLLECTION_STAT_VALUE_IDS) {
+    const el = $(`#${id}`);
+    if (el) {
+      el.innerHTML = '<span class="skeleton collection-stat-value-skeleton" aria-hidden="true"></span>';
+    }
+  }
+  $("#collection-stats-max-empty")?.classList.add("hidden");
+  $("#collection-stats-max-wrap")?.classList.remove("hidden");
+  const tbody = $("#collection-stats-max-tbody");
+  if (tbody) {
+    tbody.innerHTML = `<tr class="collection-skel-sr-only"><td colspan="11"><p class="sr-only" role="status">Loading statistics…</p></td></tr>${renderCollectionStatsMaxSkeletonRow()}`;
+  }
+}
+
+function resetCollectionDetailStats() {
+  $("#collection-stats-body")?.removeAttribute("aria-busy");
+  for (const id of COLLECTION_STAT_VALUE_IDS) {
+    const el = $(`#${id}`);
+    if (el) el.textContent = "—";
+  }
+  const tbody = $("#collection-stats-max-tbody");
+  if (tbody) tbody.innerHTML = "";
+  $("#collection-stats-max-wrap")?.classList.add("hidden");
+  $("#collection-stats-max-empty")?.classList.remove("hidden");
+}
+
+function renderCollectionStatsFolderOptions(selectedFolder = state.collectionFolder) {
+  const select = $("#collection-stats-folder");
+  if (!select || !state.collectionStats) return;
+  const s = state.collectionStats;
+  const parts = [`<option value="">All</option>`];
+  if (s.no_folder_count > 0) {
+    parts.push(`<option value="${NO_FOLDER}">No Folder</option>`);
+  }
+  for (const folder of s.folders) {
+    parts.push(
+      `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`
+    );
+  }
+  select.innerHTML = parts.join("");
+  select.value = selectedFolder ?? "";
+}
+
+function renderCollectionDetailStats(data) {
+  collectionDetailStatsCache = data;
+  $("#collection-stats-body")?.removeAttribute("aria-busy");
+  $("#collection-stat-printings")?.replaceChildren(
+    document.createTextNode((data.unique_printings ?? 0).toLocaleString())
+  );
+  $("#collection-stat-cards")?.replaceChildren(
+    document.createTextNode((data.total_quantity ?? 0).toLocaleString())
+  );
+  $("#collection-stat-sum-low")?.replaceChildren(
+    document.createTextNode(formatCollectionStatPrice(data.sum_low_price))
+  );
+  $("#collection-stat-sum-avg")?.replaceChildren(
+    document.createTextNode(formatCollectionStatPrice(data.sum_avg_price))
+  );
+  $("#collection-stat-sum-trend")?.replaceChildren(
+    document.createTextNode(formatCollectionStatPrice(data.sum_trend_price))
+  );
+
+  const tbody = $("#collection-stats-max-tbody");
+  const wrap = $("#collection-stats-max-wrap");
+  const emptyEl = $("#collection-stats-max-empty");
+  const item = data.max_value_item;
+  if (!tbody) return;
+
+  if (!item) {
+    tbody.innerHTML = "";
+    wrap?.classList.add("hidden");
+    emptyEl?.classList.remove("hidden");
+    return;
+  }
+
+  emptyEl?.classList.add("hidden");
+  wrap?.classList.remove("hidden");
+  tbody.innerHTML = `
+    <tr class="collection-row collection-stats-max-row" data-card-id="${item.card_id ?? ""}">
+      <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
+      <td>${escapeHtml(item.card_name || "—")}</td>
+      <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
+      ${collectionFolderCell(item)}
+      <td>${rarityBadgeHtml(item)}</td>
+      <td>${editionBadgeHtml(item.printing || item.edition)}</td>
+      <td class="collection-qty-cell">${item.quantity}</td>
+      <td class="collection-qty-cell collection-col-trade-qty">${item.trade_quantity ?? 0}</td>
+      <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
+      <td>${conditionBadgeHtml(item.condition)}</td>
+      ${collectionReleaseDateCell(item)}
+      ${collectionNotesCell(item)}
+    </tr>`;
+
+  tbody.querySelector(".collection-thumb")?.addEventListener("click", () => {
+    if (item.card_id) openCardModal(item.card_id);
+  });
+}
+
+async function loadCollectionDetailStats(folder = state.collectionFolder) {
+  const seq = ++collectionStatsRequestSeq;
+  showCollectionDetailStatsLoading();
+  const params = new URLSearchParams();
+  if (folder) params.set("folder", folder);
+  try {
+    const data = await api(`/collection/stats/detail?${params}`);
+    if (seq !== collectionStatsRequestSeq) return;
+    renderCollectionDetailStats(data);
+  } catch (err) {
+    if (seq !== collectionStatsRequestSeq) return;
+    resetCollectionDetailStats();
+    showToast(err.message || "Could not load statistics", { variant: "error" });
+  }
+}
+
+function openCollectionStatsModal() {
+  const modal = $("#collection-stats-modal");
+  const trigger = $("#collection-stats-btn");
+  if (!modal) return;
+  collectionStatsTrigger = trigger;
+  renderCollectionStatsFolderOptions(state.collectionFolder);
+  modal.hidden = false;
+  trigger?.setAttribute("aria-expanded", "true");
+  syncModalOpenClass();
+  loadCollectionDetailStats($("#collection-stats-folder")?.value || state.collectionFolder);
+  $("#collection-stats-folder")?.focus();
+}
+
+function closeCollectionStatsModal() {
+  const modal = $("#collection-stats-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (collectionStatsTrigger ?? $("#collection-stats-btn"))?.setAttribute("aria-expanded", "false");
+  (collectionStatsTrigger ?? $("#collection-stats-btn"))?.focus();
+  collectionStatsTrigger = null;
+}
+
 function showCollectionStatsLoading() {
-  const el = $("#collection-stats-line");
-  if (!el) return;
-  el.innerHTML =
-    '<div class="skeleton skeleton-line collection-skel-stats" aria-hidden="true"></div>';
+  const btn = $("#collection-stats-btn");
+  if (!btn) return;
+  btn.setAttribute("aria-busy", "true");
+}
+
+function clearCollectionStatsLoading() {
+  $("#collection-stats-btn")?.removeAttribute("aria-busy");
+}
+
+function renderCollectionStatsLine() {
+  clearCollectionStatsLoading();
 }
 
 function renderCollectionSidebarLoadingSkeleton() {
@@ -4344,14 +5126,6 @@ function showCollectionViewLoading() {
   renderCollectionSidebarLoadingSkeleton();
   showCollectionTableLoading();
   $("#collection-pagination")?.classList.add("hidden");
-}
-
-function renderCollectionStatsLine() {
-  const el = $("#collection-stats-line");
-  if (!el || !state.collectionStats) return;
-  const s = state.collectionStats;
-  const folderLabel = s.folders.length + (s.no_folder_count > 0 ? 1 : 0);
-  el.textContent = `${s.unique_printings.toLocaleString()} printings · ${s.total_quantity.toLocaleString()} cards · ${folderLabel} folder${folderLabel === 1 ? "" : "s"}`;
 }
 
 function itemTotalQuantity(item) {
@@ -4395,30 +5169,37 @@ function openFolderAllocationEditor(item, itemId) {
   const totalQty = itemTotalQuantity(item);
   const folders = state.collectionStats?.folders || [];
   const current = new Map(
-    (item.folders || []).map((row) => [row.folder_id ?? "none", row.quantity])
+    (item.folders || [])
+      .filter((row) => row.folder_id != null)
+      .map((row) => [row.folder_id, row.quantity])
   );
+  const hasLegacyNoFolder = (item.folders || []).some((row) => row.folder_id == null);
 
   const popover = document.createElement("div");
   popover.className = "folder-allocation-popover";
   popover.dataset.itemId = String(itemId);
   popover.innerHTML = `
     <p class="folder-allocation-title">Assign folders (total: ${totalQty})</p>
+    ${
+      hasLegacyNoFolder
+        ? '<p class="folder-allocation-hint muted">Assign all copies to a folder.</p>'
+        : ""
+    }
     <div class="folder-allocation-options">
-      <label class="folder-allocation-option">
-        <input type="checkbox" data-folder-id="" ${current.has("none") ? "checked" : ""} />
-        <span>No Folder</span>
-        <input type="number" class="folder-allocation-qty" min="1" max="${totalQty}" value="${current.get("none") || 1}" ${current.has("none") ? "" : "disabled"} />
-      </label>
-      ${folders
-        .map(
-          (folder) => `
+      ${
+        folders.length
+          ? folders
+              .map(
+                (folder) => `
         <label class="folder-allocation-option">
           <input type="checkbox" data-folder-id="${folder.id}" ${current.has(folder.id) ? "checked" : ""} />
           <span>${escapeHtml(folder.name)}</span>
           <input type="number" class="folder-allocation-qty" min="1" max="${totalQty}" value="${current.get(folder.id) || 1}" ${current.has(folder.id) ? "" : "disabled"} />
         </label>`
-        )
-        .join("")}
+              )
+              .join("")
+          : '<p class="muted">Create a folder first.</p>'
+      }
     </div>
     <div class="folder-allocation-actions">
       <button type="button" class="secondary folder-allocation-cancel">Cancel</button>
@@ -4449,18 +5230,23 @@ function openFolderAllocationEditor(item, itemId) {
       if (!checkbox?.checked) return;
       const qty = Math.max(1, Number(row.querySelector(".folder-allocation-qty")?.value) || 1);
       const rawId = checkbox.dataset.folderId;
+      if (!rawId) return;
       selected.push({
-        folder_id: rawId === "" ? null : Number(rawId),
+        folder_id: Number(rawId),
         quantity: qty,
       });
     });
     if (!selected.length) {
-      alert("Select at least one folder.");
+      showToast("Folder is required. Select at least one folder.", { variant: "error" });
+      return;
+    }
+    if (selected.some((row) => row.folder_id == null || Number.isNaN(row.folder_id))) {
+      showToast("Folder is required.", { variant: "error" });
       return;
     }
     const sum = selected.reduce((acc, row) => acc + row.quantity, 0);
     if (sum !== totalQty) {
-      alert(`Quantities must sum to ${totalQty} (currently ${sum}).`);
+      showToast(`Quantities must sum to ${totalQty} (currently ${sum}).`, { variant: "error" });
       return;
     }
     try {
@@ -4468,7 +5254,7 @@ function openFolderAllocationEditor(item, itemId) {
       closeFolderAllocationPopover();
       await loadCollectionPage(state.collectionPage);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, { variant: "error" });
     }
   });
 
@@ -4508,15 +5294,12 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
   const available = item.quantity;
 
   const targets = [];
-  if (state.collectionFolder !== NO_FOLDER) {
-    targets.push({ id: null, name: "No Folder" });
-  }
   for (const folder of state.collectionStats?.folders || []) {
     if (folder.id === currentFolderId) continue;
     targets.push({ id: folder.id, name: folder.name });
   }
   if (!targets.length) {
-    alert("No other folder available. Create a folder first.");
+    showToast("No other folder available. Create a folder first.", { variant: "error" });
     return;
   }
 
@@ -4572,7 +5355,11 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
       return;
     }
     const targetRaw = popover.querySelector(".move-copy-target")?.value ?? "";
-    const targetFolderId = targetRaw === "" ? null : Number(targetRaw);
+    if (!targetRaw) {
+      showError("Folder is required.");
+      return;
+    }
+    const targetFolderId = Number(targetRaw);
 
     const allocs = (item.folders || []).map((row) => ({
       folder_id: row.folder_id ?? null,
@@ -4594,6 +5381,10 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
       allocs.push({ folder_id: targetFolderId, quantity: qty });
     }
     const updated = allocs.filter((row) => row.quantity > 0);
+    if (updated.some((row) => row.folder_id == null)) {
+      showError("Folder is required. Move all unfiled copies to a folder.");
+      return;
+    }
     const body = { folder_allocations: updated };
     if (!isMove) {
       body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
@@ -4615,7 +5406,11 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
 }
 
 async function createCollectionFolder() {
-  const name = prompt("New folder name:");
+  const name = await appPrompt({
+    title: "New folder",
+    label: "Folder name",
+    submitLabel: "Create",
+  });
   if (!name?.trim()) return;
   try {
     await api("/collection/folders", {
@@ -4627,8 +5422,134 @@ async function createCollectionFolder() {
     renderCollectionStatsLine();
     renderCollectionSidebar();
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, { variant: "error" });
   }
+}
+
+function closeDeleteFolderPopover() {
+  document.querySelector(".delete-folder-popover")?.remove();
+}
+
+function openDeleteFolderPopover(folderId, folderName, count, qty, anchor) {
+  closeDeleteFolderPopover();
+  closeAllCollectionFolderMenus();
+  closeFolderAllocationPopover();
+  closeMoveCopyPopover();
+
+  const destinations = (state.collectionStats?.folders || []).filter(
+    (folder) => folder.id !== folderId
+  );
+  const canMove = destinations.length > 0;
+  const defaultMode = canMove ? "move" : "remove";
+
+  const popover = document.createElement("div");
+  popover.className = "folder-allocation-popover delete-folder-popover";
+  popover.innerHTML = `
+    <p class="folder-allocation-title">Delete "${escapeHtml(folderName)}"</p>
+    <p class="muted">${count} card row(s) (${qty} copies) are in this folder.</p>
+    <fieldset class="delete-folder-mode-fieldset">
+      <legend class="sr-only">What should happen to the cards?</legend>
+      <label class="delete-folder-mode${canMove ? "" : " delete-folder-mode--disabled"}">
+        <input type="radio" name="delete-folder-mode" value="move" ${defaultMode === "move" ? "checked" : ""} ${canMove ? "" : "disabled"} />
+        <span>Move cards to another folder</span>
+      </label>
+      <label class="delete-folder-mode">
+        <input type="radio" name="delete-folder-mode" value="remove" ${defaultMode === "remove" ? "checked" : ""} />
+        <span>Remove cards from collection</span>
+      </label>
+    </fieldset>
+    <label class="move-copy-field delete-folder-move-field${canMove && defaultMode === "move" ? "" : " hidden"}">
+      <span>Move cards to</span>
+      <select class="delete-folder-target" ${canMove ? "" : "disabled"}>
+        <option value="" disabled selected>Select a folder…</option>
+        ${destinations
+          .map(
+            (folder) =>
+              `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`
+          )
+          .join("")}
+      </select>
+    </label>
+    <p class="delete-folder-remove-warning muted${defaultMode === "remove" ? "" : " hidden"}">
+      All copies in this folder will be removed from your collection. Cards in other folders are not affected.
+    </p>
+    <p class="move-copy-error hidden"></p>
+    <div class="folder-allocation-actions">
+      <button type="button" class="secondary delete-folder-cancel">Cancel</button>
+      <button type="button" class="delete-folder-confirm">Delete</button>
+    </div>`;
+
+  document.body.appendChild(popover);
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    popover.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - popover.offsetWidth - 8)}px`;
+  }
+
+  const errorEl = popover.querySelector(".move-copy-error");
+  const moveField = popover.querySelector(".delete-folder-move-field");
+  const removeWarning = popover.querySelector(".delete-folder-remove-warning");
+
+  function selectedMode() {
+    return popover.querySelector('input[name="delete-folder-mode"]:checked')?.value || "remove";
+  }
+
+  function syncModeUi() {
+    const mode = selectedMode();
+    moveField?.classList.toggle("hidden", mode !== "move");
+    removeWarning?.classList.toggle("hidden", mode !== "remove");
+    errorEl.classList.add("hidden");
+  }
+
+  popover.querySelectorAll('input[name="delete-folder-mode"]').forEach((input) => {
+    input.addEventListener("change", syncModeUi);
+  });
+  popover.querySelector(".delete-folder-cancel")?.addEventListener("click", closeDeleteFolderPopover);
+  popover.querySelector(".delete-folder-confirm")?.addEventListener("click", async () => {
+    errorEl.classList.add("hidden");
+    const mode = selectedMode();
+    let url = `/collection/folders/${folderId}`;
+    if (mode === "remove") {
+      url += "?remove_cards=true";
+    } else {
+      const targetRaw = popover.querySelector(".delete-folder-target")?.value ?? "";
+      if (!targetRaw) {
+        errorEl.textContent = "Folder is required.";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+      url += `?target_folder_id=${Number(targetRaw)}`;
+    }
+    try {
+      await api(url, { method: "DELETE" });
+      if (state.collectionFolder === String(folderId)) {
+        state.collectionFolder = null;
+      }
+      closeDeleteFolderPopover();
+      await loadCollectionStats();
+      renderCollectionStatsLine();
+      renderCollectionSidebar();
+      await loadCollectionPage(state.collectionPage);
+    } catch (err) {
+      errorEl.textContent = err.message || "Could not delete folder.";
+      errorEl.classList.remove("hidden");
+    }
+  });
+
+  setTimeout(() => {
+    document.addEventListener(
+      "click",
+      (e) => {
+        if (
+          !popover.contains(e.target) &&
+          !e.target.closest(".collection-folder-menu-wrap")
+        ) {
+          closeDeleteFolderPopover();
+        }
+      },
+      { once: true }
+    );
+  }, 0);
 }
 
 function renderCollectionSidebar() {
@@ -4665,7 +5586,17 @@ function renderCollectionSidebar() {
       <span class="collection-folder-label">${escapeHtml(e.label)}</span>
       <span class="collection-folder-actions">
         <span class="collection-folder-count muted">${e.count}</span>
-        ${e.deletable ? '<button type="button" class="collection-folder-delete" title="Delete folder">×</button>' : ""}
+        ${
+          e.deletable
+            ? `<div class="collection-folder-menu-wrap preset-menu-wrap">
+          <button type="button" class="icon-btn secondary collection-folder-menu-btn preset-menu-btn" aria-label="Folder actions" title="Folder actions" aria-haspopup="menu" aria-expanded="false">⋮</button>
+          <div class="collection-folder-menu preset-menu" hidden role="menu">
+            <button type="button" role="menuitem" class="collection-folder-rename-btn">Rename</button>
+            <button type="button" role="menuitem" class="collection-folder-delete-btn preset-menu-danger">Delete</button>
+          </div>
+        </div>`
+            : ""
+        }
       </span>
     </li>`
     )
@@ -4673,63 +5604,97 @@ function renderCollectionSidebar() {
 
   list.querySelectorAll("li").forEach((li) => {
     li.addEventListener("click", async (e) => {
-      if (e.target.closest(".collection-folder-delete")) return;
+      if (e.target.closest(".collection-folder-menu-wrap")) return;
       const raw = li.dataset.folder;
       state.collectionFolder = raw === "" ? null : decodeURIComponent(raw);
       state.collectionPage = 0;
       renderCollectionSidebar();
       syncRouteHash();
+      closeCollectionFilterComboboxes();
+      await loadCollectionFilterOptions();
       await loadCollectionPage(0);
     });
 
-    li.querySelector(".collection-folder-delete")?.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const folderId = Number(li.dataset.folderId);
-      const folderName = li.querySelector(".collection-folder-label")?.textContent || "folder";
-      const folderStats = s.folders.find((row) => row.id === folderId);
-      const qty = folderStats?.quantity ?? 0;
-      const count = folderStats?.item_count ?? 0;
-      if (
-        !confirm(
-          `Delete "${folderName}"? ${count} card row(s) (${qty} copies) will move to No Folder.`
-        )
-      ) {
-        return;
-      }
+    const folderId = li.dataset.folderId ? Number(li.dataset.folderId) : null;
+    const folderName = () =>
+      li.querySelector(".collection-folder-label")?.textContent || "folder";
+
+    async function renameFolder() {
+      if (!folderId) return;
+      const fromName = folderName();
+      const toName = await appPrompt({
+        title: "Rename folder",
+        label: "Folder name",
+        defaultValue: fromName,
+        submitLabel: "Rename",
+      });
+      if (!toName?.trim() || toName.trim() === fromName) return;
       try {
-        await api(`/collection/folders/${folderId}`, { method: "DELETE" });
-        if (state.collectionFolder === String(folderId)) {
-          state.collectionFolder = null;
-        }
+        await api(`/collection/folders/${folderId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: toName.trim() }),
+        });
         await loadCollectionStats();
-        renderCollectionStatsLine();
         renderCollectionSidebar();
         await loadCollectionPage(state.collectionPage);
       } catch (err) {
-        alert(err.message);
+        showToast(err.message, { variant: "error" });
       }
-    });
+    }
 
-    if (li.dataset.folderId) {
-      li.addEventListener("dblclick", async (e) => {
-        if (e.target.closest(".collection-folder-delete")) return;
-        e.preventDefault();
-        const folderId = Number(li.dataset.folderId);
-        const fromName = li.querySelector(".collection-folder-label")?.textContent || "";
-        const toName = prompt("Rename folder:", fromName);
-        if (!toName?.trim() || toName.trim() === fromName) return;
+    async function deleteFolder(anchor) {
+      if (!folderId) return;
+      const name = folderName();
+      const folderStats = s.folders.find((row) => row.id === folderId);
+      const qty = folderStats?.quantity ?? 0;
+      const count = folderStats?.item_count ?? 0;
+      if (count === 0 && qty === 0) {
+        const ok = await appConfirm({
+          title: "Delete folder",
+          message: `Delete empty folder "${name}"?`,
+          confirmLabel: "Delete",
+          danger: true,
+        });
+        if (!ok) return;
         try {
-          await api(`/collection/folders/${folderId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: toName.trim() }),
-          });
+          await api(`/collection/folders/${folderId}`, { method: "DELETE" });
+          if (state.collectionFolder === String(folderId)) {
+            state.collectionFolder = null;
+          }
           await loadCollectionStats();
+          renderCollectionStatsLine();
           renderCollectionSidebar();
           await loadCollectionPage(state.collectionPage);
         } catch (err) {
-          alert(err.message);
+          showToast(err.message, { variant: "error" });
         }
+        return;
+      }
+      openDeleteFolderPopover(folderId, name, count, qty, anchor);
+    }
+
+    li.querySelector(".collection-folder-menu-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleCollectionFolderMenu(e.currentTarget);
+    });
+    li.querySelector(".collection-folder-rename-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      closeAllCollectionFolderMenus();
+      await renameFolder();
+    });
+    li.querySelector(".collection-folder-delete-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const menuBtn = li.querySelector(".collection-folder-menu-btn");
+      closeAllCollectionFolderMenus();
+      await deleteFolder(menuBtn);
+    });
+
+    if (folderId) {
+      li.addEventListener("dblclick", async (e) => {
+        if (e.target.closest(".collection-folder-menu-wrap")) return;
+        e.preventDefault();
+        await renameFolder();
       });
     }
   });
@@ -4778,7 +5743,15 @@ async function patchCollectionItem(itemId, body) {
 }
 
 async function removeCollectionItem(itemId, { confirm: askConfirm = true } = {}) {
-  if (askConfirm && !confirm("Remove this printing from your collection?")) return false;
+  if (askConfirm) {
+    const ok = await appConfirm({
+      title: "Remove printing",
+      message: "Remove this printing from your collection?",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return false;
+  }
   await api(`/collection/${itemId}`, { method: "DELETE" });
   await loadCollectionStats();
   renderCollectionStatsLine();
@@ -4810,13 +5783,15 @@ function populateAddCollectionFolderSelect() {
   const folders = state.collectionStats?.folders || [];
   const current = sel.value;
   sel.innerHTML = [
-    '<option value="">No Folder</option>',
+    '<option value="" disabled>Select a folder…</option>',
     ...folders.map(
       (f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`
     ),
   ].join("");
   if (current && [...sel.options].some((o) => o.value === current)) {
     sel.value = current;
+  } else {
+    sel.value = "";
   }
 }
 
@@ -4853,7 +5828,10 @@ function syncAddCollectionPrintingFields() {
 
   const rarityEl = $("#collection-add-rarity");
   if (rarityEl) {
-    rarityEl.textContent = printing.set_rarity || printing.set_rarity_code || "";
+    rarityEl.innerHTML = rarityBadgeHtml({
+      set_rarity: printing.set_rarity,
+      set_rarity_code: printing.set_rarity_code,
+    });
   }
 
   const staticEl = $("#collection-add-card-number-static");
@@ -4937,8 +5915,10 @@ async function openAddCollectionModal(card, { printingKey: preselectKey = null }
   $("#collection-add-condition").value = "NearMint";
   $("#collection-add-edition").value = "Unlimited";
   $("#collection-add-language").value = "English";
-  $("#collection-add-price-bought").value = "0";
+  $("#collection-add-price-bought").value = displayInputValue(0);
+  syncPriceInputFields();
   $("#collection-add-date-bought").value = todayIsoDate();
+  $("#collection-add-notes").value = "";
   $("#collection-add-folder").value = "";
   resetAddCollectionNewFolderRow();
 
@@ -5007,14 +5987,18 @@ async function submitAddCollection() {
     return;
   }
 
-  const priceBought = Number($("#collection-add-price-bought").value);
-  if (!Number.isFinite(priceBought) || priceBought < 0) {
+  const priceBought = parsePriceInput($("#collection-add-price-bought").value);
+  if (Number.isNaN(priceBought) || priceBought < 0) {
     showToast("Price bought must be 0 or greater.", { variant: "error" });
     return;
   }
 
   const folderVal = $("#collection-add-folder").value;
-  const folderId = folderVal ? Number(folderVal) : null;
+  if (!folderVal) {
+    showToast("Folder is required.", { variant: "error" });
+    return;
+  }
+  const folderId = Number(folderVal);
   const card = addCollectionContext.card;
 
   const body = {
@@ -5032,6 +6016,11 @@ async function submitAddCollection() {
     price_bought: priceBought,
     date_bought: $("#collection-add-date-bought").value || todayIsoDate(),
   };
+
+  const notesVal = ($("#collection-add-notes")?.value || "").trim();
+  if (notesVal) {
+    body.notes = notesVal;
+  }
 
   const btn = $("#collection-add-submit");
   try {
@@ -5064,13 +6053,29 @@ function selectModalPrintingRow(key) {
   renderModalCard(state.currentCard);
 }
 
+async function openCollectionForPrinting(setCode) {
+  const setCodeInput = $("#collection-set-code");
+  if (setCodeInput) setCodeInput.value = setCode;
+  state.collectionPage = 0;
+  closeCardModalOverlay();
+  await switchView("collection");
+  await loadCollectionPage(0);
+}
+
 async function activateModalPrintingRow(row) {
   const key = row?.dataset.printingKey;
   if (!key) return;
   const itemId = Number(row.dataset.collectionItemId);
+  const variantCount = Number(row.dataset.collectionVariantCount || 0);
+  const setCode = row.dataset.setCode || "";
   const printing = (state.currentCard?.printings || []).find(
     (p) => collectionPrintingKey(p) === key
   );
+  if (printing?.owned_quantity > 0 && variantCount > 1 && !itemId) {
+    await openCollectionForPrinting(setCode);
+    showToast("Multiple editions/conditions — pick the row to edit in My Collection.");
+    return;
+  }
   if (printing?.owned_quantity > 0 && itemId) {
     try {
       const item = await api(`/collection/${itemId}`);
@@ -5139,15 +6144,32 @@ async function openCollectionEditModal(item, itemId) {
   ].join("");
   condSel.value = currentCondition;
 
+  const editionSel = $("#collection-edit-edition");
+  const currentEdition = item.printing || item.edition || "Unlimited";
+  const isKnownEdition = COLLECTION_EDITIONS.includes(currentEdition);
+  editionSel.innerHTML = [
+    ...(currentEdition && !isKnownEdition
+      ? [
+          `<option value="${escapeHtml(currentEdition)}">${escapeHtml(currentEdition)}</option>`,
+        ]
+      : []),
+    ...COLLECTION_EDITIONS.map(
+      (e) => `<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`
+    ),
+  ].join("");
+  editionSel.value = currentEdition;
+
   $("#collection-edit-quantity").value = String(item.quantity);
   $("#collection-edit-trade-quantity").value = String(item.trade_quantity ?? 0);
   const sellDefault = resolvedCollectionSellPrice(item);
-  $("#collection-edit-sell-price").value = String(sellDefault);
+  $("#collection-edit-sell-price").value = displayInputValue(sellDefault);
+  syncPriceInputFields();
+  $("#collection-edit-notes").value = item.notes || "";
 
   const setSel = $("#collection-edit-set");
   const raritySel = $("#collection-edit-rarity");
-  const note = $("#collection-edit-note");
-  note.classList.add("hidden");
+  const hint = $("#collection-edit-hint");
+  hint.classList.add("hidden");
   setSel.disabled = true;
   raritySel.disabled = true;
   setSel.innerHTML = `<option value="${escapeHtml(item.set_code)}">${escapeHtml(item.set_code)}</option>`;
@@ -5158,9 +6180,9 @@ async function openCollectionEditModal(item, itemId) {
   $("#collection-edit-close")?.focus();
 
   if (!item.card_id) {
-    note.textContent =
+    hint.textContent =
       "This row isn't matched to the catalog, so Set and Rarity can't be changed here.";
-    note.classList.remove("hidden");
+    hint.classList.remove("hidden");
     return;
   }
   try {
@@ -5179,8 +6201,8 @@ async function openCollectionEditModal(item, itemId) {
     raritySel.disabled = false;
   } catch (err) {
     if (!collectionEditContext || collectionEditContext.itemId !== itemId) return;
-    note.textContent = `Could not load printings: ${err.message}`;
-    note.classList.remove("hidden");
+    hint.textContent = `Could not load printings: ${err.message}`;
+    hint.classList.remove("hidden");
   }
 }
 
@@ -5190,19 +6212,19 @@ async function saveCollectionEdit() {
 
   const qty = Number($("#collection-edit-quantity").value);
   if (!Number.isInteger(qty) || qty < 1) {
-    alert("Quantity must be a whole number of at least 1.");
+    showToast("Quantity must be a whole number of at least 1.", { variant: "error" });
     return;
   }
 
   const tradeQty = Number($("#collection-edit-trade-quantity").value);
   if (!Number.isInteger(tradeQty) || tradeQty < 0) {
-    alert("Trade quantity must be a whole number of 0 or more.");
+    showToast("Trade quantity must be a whole number of 0 or more.", { variant: "error" });
     return;
   }
 
-  const sellPrice = Number($("#collection-edit-sell-price").value);
-  if (!Number.isFinite(sellPrice) || sellPrice < 0) {
-    alert("Sell price must be 0 or greater.");
+  const sellPrice = parsePriceInput($("#collection-edit-sell-price").value);
+  if (Number.isNaN(sellPrice) || sellPrice < 0) {
+    showToast("Sell price must be 0 or greater.", { variant: "error" });
     return;
   }
 
@@ -5217,27 +6239,40 @@ async function saveCollectionEdit() {
     }
   }
 
-  const condVal = $("#collection-edit-condition").value;
+  const condVal = normalizeConditionValue($("#collection-edit-condition").value);
+  const currentCondition = normalizeConditionValue(item.condition || "");
   const condCanonical = COLLECTION_CONDITIONS.some((c) => c.value === condVal);
-  if (condVal !== (item.condition || "") && condCanonical) {
+  if (condVal !== currentCondition && condCanonical) {
     body.condition = condVal;
+  }
+
+  const editionVal = normalizeEditionValue($("#collection-edit-edition")?.value);
+  const currentEdition = normalizeEditionValue(item.printing || item.edition || "Unlimited");
+  if (editionVal && editionVal !== currentEdition) {
+    body.printing = editionVal;
   }
 
   if (qty !== item.quantity) {
     const folderFilter = state.collectionFolder;
-    if (!folderFilter) {
+    // All / No Folder views: total quantity only (legacy No Folder rows keep
+    // their null allocation until reassigned via the folder picker).
+    if (!folderFilter || folderFilter === NO_FOLDER) {
       body.quantity = qty;
     } else {
-      const folderId = folderFilter === NO_FOLDER ? null : Number(folderFilter);
+      const folderId = Number(folderFilter);
       const allocs = (item.folders || []).map((row) => ({
         folder_id: row.folder_id,
         quantity: row.quantity,
       }));
-      const updated = allocs.map((row) =>
-        (row.folder_id === folderId || (row.folder_id == null && folderId == null))
-          ? { ...row, quantity: qty }
-          : row
-      );
+      const updated = allocs
+        .map((row) =>
+          row.folder_id === folderId ? { ...row, quantity: qty } : row
+        )
+        .filter((row) => row.quantity > 0);
+      if (updated.some((row) => row.folder_id == null)) {
+        showToast("Folder is required. Assign all unfiled copies to a folder first.", { variant: "error" });
+        return;
+      }
       body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
       body.folder_allocations = updated;
     }
@@ -5252,6 +6287,12 @@ async function saveCollectionEdit() {
     body.sell_price = sellPrice;
   }
 
+  const notesVal = ($("#collection-edit-notes")?.value || "").trim();
+  const currentNotes = (item.notes || "").trim();
+  if (notesVal !== currentNotes) {
+    body.notes = notesVal || null;
+  }
+
   if (!Object.keys(body).length) {
     closeCollectionEditModal();
     return;
@@ -5264,7 +6305,7 @@ async function saveCollectionEdit() {
       await refreshModalCard();
     }
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, { variant: "error" });
   }
 }
 
@@ -5301,12 +6342,15 @@ function renderCollectionTable(items) {
       <td class="collection-thumb">${cardImgTag(item.image_url_small, 'class="collection-thumb-img"')}</td>
       <td>${escapeHtml(item.card_name || "—")}</td>
       <td><span class="set-code">${escapeHtml(item.set_code)}</span></td>
-      <td>${escapeHtml(item.rarity_display || item.rarity_code)}</td>
+      ${collectionFolderCell(item)}
+      <td>${rarityBadgeHtml(item)}</td>
+      <td>${editionBadgeHtml(item.printing || item.edition)}</td>
       <td class="collection-qty-cell">${item.quantity}</td>
-      <td class="collection-qty-cell">${item.trade_quantity ?? 0}</td>
+      <td class="collection-qty-cell collection-col-trade-qty">${item.trade_quantity ?? 0}</td>
       <td>${formatMarketPrice(resolvedCollectionSellPrice(item))}</td>
       <td>${conditionBadgeHtml(item.condition)}</td>
-      <td class="collection-notes">${escapeHtml(item.notes || "")}</td>
+      ${collectionReleaseDateCell(item)}
+      ${collectionNotesCell(item)}
       <td class="collection-row-actions-col">
         <div class="collection-row-actions-wrap">
           <button type="button" class="icon-btn collection-folder-picker collection-folder-icon-btn${hasNamedFolderAssignment(item.folders) ? " collection-folder-icon-btn--assigned" : ""}" aria-label="Edit folder assignments: ${escapeHtml(formatFolderAllocationsLabel(item.folders))}" title="${escapeHtml(formatFolderAllocationsLabel(item.folders))}" aria-haspopup="dialog" aria-expanded="false">
@@ -5382,7 +6426,7 @@ function setupCollectionTableDelegation() {
       try {
         await removeCollectionItem(itemId);
       } catch (err) {
-        alert(err.message);
+        showToast(err.message, { variant: "error" });
       }
       return;
     }
@@ -5408,6 +6452,7 @@ async function loadCollectionPage(pageIndex) {
     const page = await api(`/collection?${buildCollectionParams(offset)}`);
     if (seq !== collectionRequestSeq) return;
     state.collectionTotal = page.total;
+    syncCollectionTableHeaderSort();
     renderCollectionTable(page.items);
     renderCollectionPagination();
     state.collectionViewCache = {
@@ -5421,7 +6466,7 @@ async function loadCollectionPage(pageIndex) {
     if (seq !== collectionRequestSeq) return;
     setCollectionBusy(false);
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -5433,6 +6478,7 @@ function applyCollectionViewCache(cache) {
   state.collectionPage = cache.page;
   renderCollectionStatsLine();
   renderCollectionSidebar();
+  syncCollectionTableHeaderSort();
   renderCollectionTable(cache.items);
   renderCollectionPagination();
   return true;
@@ -5449,7 +6495,7 @@ async function loadCollectionView({ background = false } = {}) {
       setCollectionBusy(false);
       const tbody = $("#collection-tbody");
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
       }
     });
     return;
@@ -5461,7 +6507,7 @@ async function loadCollectionView({ background = false } = {}) {
     setCollectionBusy(false);
     const tbody = $("#collection-tbody");
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="10" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" class="empty-msg">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -5471,6 +6517,8 @@ async function loadCollectionViewFresh() {
   await loadCollectionStats();
   renderCollectionStatsLine();
   renderCollectionSidebar();
+  initCollectionFilterComboboxes();
+  await loadCollectionFilterOptions();
   await loadCollectionPage(state.collectionPage);
 }
 
@@ -5485,13 +6533,31 @@ function downloadRejectedCsv(csvText) {
 }
 
 function downloadCsvBlob(csvText, filename) {
-  const blob = new Blob(["\ufeff", csvText], { type: "text/csv;charset=utf-8" });
+  downloadBlob(new Blob(["\ufeff", csvText], { type: "text/csv;charset=utf-8" }), filename);
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function filenameFromContentDisposition(header) {
+  if (!header) return null;
+  const utfMatch = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1].trim());
+    } catch {
+      /* fall through */
+    }
+  }
+  const plainMatch = /filename\s*=\s*"([^"]+)"/i.exec(header)
+    || /filename\s*=\s*([^;]+)/i.exec(header);
+  return plainMatch?.[1]?.trim() || null;
 }
 
 async function loadExportFormats() {
@@ -5635,7 +6701,7 @@ function closeExportCollectionModal() {
 }
 
 async function downloadCollectionExport(formatId, folderIds = null) {
-  const headers = { Accept: "text/csv" };
+  const headers = {};
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
   const params = new URLSearchParams({ format: formatId });
   if (folderIds) {
@@ -5648,10 +6714,12 @@ async function downloadCollectionExport(formatId, folderIds = null) {
   }
   const formats = state.exportFormats || [];
   const fmt = formats.find((f) => f.id === formatId);
-  const filename = fmt?.filename || "collection_export.csv";
-  const csvText = await res.text();
-  const body = csvText.startsWith("\ufeff") ? csvText.slice(1) : csvText;
-  downloadCsvBlob(body, filename);
+  const filename =
+    filenameFromContentDisposition(res.headers.get("Content-Disposition"))
+    || fmt?.filename
+    || "collection_export.bin";
+  const blob = await res.blob();
+  downloadBlob(blob, filename);
 }
 
 function decksListCacheKey() {
@@ -5754,7 +6822,7 @@ function openDeckTileMenu(btn) {
   const menu = wrap?.querySelector(".deck-tile-menu");
   if (!menu) return;
   closeAllDeckTileMenus();
-  closePresetMenu();
+  closeSearchToolPanels();
   closeAllCollectionRowMenus();
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
@@ -5778,7 +6846,12 @@ function toggleDeckTileMenu(btn) {
 }
 
 async function renameDeckFromList(deckId, currentName) {
-  const newName = prompt("Rename deck:", currentName);
+  const newName = await appPrompt({
+    title: "Rename deck",
+    label: "Deck name",
+    defaultValue: currentName,
+    submitLabel: "Rename",
+  });
   if (!newName?.trim() || newName.trim() === currentName) return;
   try {
     await api(`/decks/${deckId}`, {
@@ -5803,7 +6876,13 @@ async function renameDeckFromList(deckId, currentName) {
 }
 
 async function deleteDeckFromList(deckId, label) {
-  if (!confirm(`Delete deck "${label}"? This cannot be undone.`)) return;
+  const ok = await appConfirm({
+    title: "Delete deck",
+    message: `Delete deck "${label}"? This cannot be undone.`,
+    confirmLabel: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api(`/decks/${deckId}`, { method: "DELETE" });
     if (state.activeDeckId === deckId) {
@@ -6084,9 +7163,14 @@ function addCardToActiveDraft(cardId, zone, cardMeta) {
   return true;
 }
 
-function confirmLeaveDeck() {
+async function confirmLeaveDeck() {
   if (!state.deckDirty) return true;
-  return confirm("You have unsaved changes. Leave without saving?");
+  return appConfirm({
+    title: "Unsaved changes",
+    message: "You have unsaved changes. Leave without saving?",
+    confirmLabel: "Leave",
+    danger: true,
+  });
 }
 
 function runDraftValidationPreview() {
@@ -6585,7 +7669,7 @@ async function openDeckDetail(deckId, { fromRouter = false } = {}) {
     return;
   }
   if (state.decksDetailOpen && state.deckDirty) {
-    if (!confirmLeaveDeck()) {
+    if (!(await confirmLeaveDeck())) {
       if (!fromRouter) syncRouteHash();
       return;
     }
@@ -6627,7 +7711,12 @@ async function renameDeck() {
     return;
   }
   const currentName = state.deckDraft.name;
-  const newName = prompt("Rename deck:", currentName);
+  const newName = await appPrompt({
+    title: "Rename deck",
+    label: "Deck name",
+    defaultValue: currentName,
+    submitLabel: "Rename",
+  });
   if (!newName?.trim() || newName.trim() === currentName) return;
   state.deckDraft.name = newName.trim();
   markDeckDirty();
@@ -6640,6 +7729,31 @@ async function selectDeck(deckId) {
 }
 
 function wireEvents() {
+  initAppDialogs({ syncModalOpenClass });
+  initBulkCollection({
+    $,
+    API,
+    showToast,
+    appConfirm,
+    readNdjsonStream,
+    isLoggedIn: () => Boolean(state.token && state.user),
+    authHeaders: () => (state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+    onSaved: () => {
+      state.collectionViewCache = null;
+      refreshCollectionIfActive();
+      loadCollectionStats();
+    },
+    closeCollectionToolbarMenus,
+    formatDisplayPrice,
+    parsePriceInput,
+    displayInputValue,
+    getSelectedCurrency,
+  });
+
+  $("#app-currency")?.addEventListener("change", (e) => {
+    setCurrency(e.target.value);
+  });
+
   setupSearchResultsDelegation();
   setupSearchFilterChipDelegation();
   setupCollectionTableDelegation();
@@ -6647,12 +7761,12 @@ function wireEvents() {
   setupDeckZoneInfoDelegation();
 
   document.querySelectorAll(".tab[data-view]").forEach((tab) => {
-    tab.addEventListener("click", () => {
+    tab.addEventListener("click", async () => {
       if (isModalVisible("#card-modal")) {
         closeCardModalOverlay({ fromRouter: true });
       }
       if (state.decksDetailOpen) {
-        if (!confirmLeaveDeck()) return;
+        if (!(await confirmLeaveDeck())) return;
         closeDeckDetail({ fromRouter: true });
       }
       switchView(tab.dataset.view);
@@ -6673,52 +7787,76 @@ function wireEvents() {
     await runSearch();
   });
   $("#search-sort")?.addEventListener("change", () => {
+    syncSearchSortToggleLabel();
     runSearch().catch((err) => showToast(err.message, { variant: "error" }));
   });
-  $("#search-sort-dir")?.addEventListener("change", () => {
+  bindSortDirToggle($("#search-sort-dir"), () => {
+    syncSearchSortToggleLabel();
     runSearch().catch((err) => showToast(err.message, { variant: "error" }));
   });
-  $("#search-clear-filters")?.addEventListener("click", async () => {
-    resetSearchFilters();
-    clearActivePreset();
-    await runSearch();
+  bindSearchToolPanel("#search-preset-toggle", "#search-presets-panel");
+  bindSearchToolPanel("#search-sort-toggle", "#search-sort-panel");
+  bindSearchToolPanel("#advanced-filters-toggle", "#advanced-filters", {
+    onUserToggle(willOpen) {
+      advancedFiltersUserCollapsed = !willOpen;
+    },
   });
-  $("#search-preset-select")?.addEventListener("change", async () => {
-    const presetId = Number($("#search-preset-select")?.value);
-    syncSearchPresetControls();
-    if (presetId) await loadSearchPresetById(presetId);
-    else clearActivePreset();
+  syncSearchSortToggleLabel();
+  $("#search-preset-list")?.addEventListener("click", (e) => {
+    const loadBtn = e.target.closest("[data-preset-load]");
+    if (loadBtn) {
+      const presetId = Number(loadBtn.dataset.presetLoad);
+      if (presetId) {
+        if (presetId === state.activePresetId) {
+          clearActivePreset();
+        } else {
+          loadSearchPresetById(presetId).catch((err) =>
+            showToast(err.message, { variant: "error", durationMs: 5000 })
+          );
+        }
+      }
+      return;
+    }
+    const renameBtn = e.target.closest("[data-preset-rename]");
+    if (renameBtn) {
+      const presetId = Number(renameBtn.dataset.presetRename);
+      renameSearchPreset(presetId).catch((err) =>
+        showToast(err.message, { variant: "error", durationMs: 5000 })
+      );
+      return;
+    }
+    const deleteBtn = e.target.closest("[data-preset-delete]");
+    if (deleteBtn) {
+      const presetId = Number(deleteBtn.dataset.presetDelete);
+      deleteSearchPreset(presetId).catch((err) =>
+        showToast(err.message, { variant: "error", durationMs: 5000 })
+      );
+    }
   });
   $("#search-preset-save")?.addEventListener("click", () => {
     saveSearchPreset().catch((err) =>
       showToast(err.message, { variant: "error", durationMs: 5000 })
     );
   });
-  $("#search-preset-menu-btn")?.addEventListener("click", (e) => {
+  $("#collection-manage-menu-btn")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    togglePresetMenu();
+    toggleCollectionToolbarMenu("collection-manage-menu", "collection-manage-menu-btn");
   });
-  $("#search-preset-rename")?.addEventListener("click", () => {
-    closePresetMenu();
-    renameSearchPreset().catch((err) =>
-      showToast(err.message, { variant: "error", durationMs: 5000 })
-    );
-  });
-  $("#search-preset-delete")?.addEventListener("click", () => {
-    closePresetMenu();
-    deleteSearchPreset().catch((err) =>
-      showToast(err.message, { variant: "error", durationMs: 5000 })
-    );
+  $("#collection-trade-menu-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCollectionToolbarMenu("collection-trade-menu", "collection-trade-menu-btn");
   });
   document.addEventListener("click", (e) => {
     if (
       !e.target.closest(
-        ".preset-menu-wrap:not(.collection-row-menu-wrap):not(.deck-tile-menu-wrap)"
+        ".collection-sidebar-menu-wrap"
       )
     ) {
-      closePresetMenu();
+      closeCollectionToolbarMenus();
     }
+    if (!e.target.closest(".account-settings-wrap")) closeAccountSettingsMenu();
     if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
+    if (!e.target.closest(".collection-folder-menu-wrap")) closeAllCollectionFolderMenus();
     if (!e.target.closest(".deck-tile-menu-wrap")) closeAllDeckTileMenus();
   });
   $("#auth-tab-login")?.addEventListener("click", () => {
@@ -6811,19 +7949,43 @@ function wireEvents() {
     $("#register-email")?.focus();
   });
 
-  $("#auth-logout")?.addEventListener("click", logout);
+  $("#auth-logout")?.addEventListener("click", confirmLogout);
+
+  $("#account-settings-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleAccountSettingsMenu();
+  });
+  $("#account-export-btn")?.addEventListener("click", () => {
+    closeAccountSettingsMenu();
+    void exportAccountData();
+  });
+  $("#account-delete-btn")?.addEventListener("click", () => {
+    closeAccountSettingsMenu();
+    openDeleteAccountModal();
+  });
+  $("#delete-account-close")?.addEventListener("click", closeDeleteAccountModal);
+  $("#delete-account-cancel")?.addEventListener("click", closeDeleteAccountModal);
+  $("#delete-account-confirm")?.addEventListener("click", () => {
+    void confirmDeleteAccount();
+  });
+  $("#delete-account-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#delete-account-modal")) closeDeleteAccountModal();
+  });
+  $("#storage-notice-dismiss")?.addEventListener("click", dismissStorageNotice);
 
   $("#import-collection-btn")?.addEventListener("click", () => {
+    closeCollectionToolbarMenus();
     if (!state.token) {
-      alert("Log in first.");
+      showToast("Log in first.", { variant: "error" });
       return;
     }
     $("#collection-csv-file")?.click();
   });
 
   $("#export-collection-btn")?.addEventListener("click", async () => {
+    closeCollectionToolbarMenus();
     if (!state.token) {
-      alert("Log in first.");
+      showToast("Log in first.", { variant: "error" });
       return;
     }
     try {
@@ -6832,7 +7994,7 @@ function wireEvents() {
         api("/collection/stats"),
       ]);
       if (!formats.length) {
-        alert("No export formats available.");
+        showToast("No export formats available.", { variant: "error" });
         return;
       }
       state.collectionStats = stats;
@@ -6840,8 +8002,72 @@ function wireEvents() {
       renderExportFolderOptions(stats);
       openExportCollectionModal();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, { variant: "error" });
     }
+  });
+
+  $("#copy-trade-link-btn")?.addEventListener("click", () => {
+    closeCollectionToolbarMenus();
+    copyTradeLink();
+  });
+
+  $("#trade-settings-btn")?.addEventListener("click", async () => {
+    closeCollectionToolbarMenus();
+    if (!state.token) {
+      showToast("Log in first.", { variant: "error" });
+      return;
+    }
+    await loadTradeSettings();
+    openTradeSettingsModal();
+  });
+  $("#trade-settings-close")?.addEventListener("click", closeTradeSettingsModal);
+  $("#trade-settings-cancel")?.addEventListener("click", closeTradeSettingsModal);
+  $("#trade-settings-save")?.addEventListener("click", saveTradeSettings);
+  $("#trade-settings-slug")?.addEventListener("input", () => {
+    const url = $("#trade-settings-url");
+    const slug = $("#trade-settings-slug")?.value.trim();
+    if (url && slug) {
+      url.textContent = `Public link: ${window.location.origin}/trade/${slug}`;
+    }
+  });
+
+  $("#manage-locked-quantities-btn")?.addEventListener("click", async () => {
+    closeCollectionToolbarMenus();
+    if (!state.token) {
+      showToast("Log in first.", { variant: "error" });
+      return;
+    }
+    await openTradeLocksModal();
+  });
+  $("#trade-locks-close")?.addEventListener("click", closeTradeLocksModal);
+  $("#trade-locks-done")?.addEventListener("click", closeTradeLocksModal);
+  $("#trade-locks-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#trade-locks-modal")) closeTradeLocksModal();
+  });
+  $("#trade-locks-release-selected")?.addEventListener("click", () => {
+    void applyTradeLockAction("release", getSelectedTradeLockLines());
+  });
+  $("#trade-locks-remove-selected")?.addEventListener("click", () => {
+    void applyTradeLockAction("remove", getSelectedTradeLockLines());
+  });
+  $("#trade-locks-body")?.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.matches(".trade-locks-select") || target.matches(".trade-locks-qty-input")) {
+      syncTradeLocksBulkButtons();
+    }
+  });
+  $("#trade-locks-body")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-trade-lock-action]");
+    if (!btn) return;
+    const row = btn.closest("tr[data-line-id]");
+    if (!row) return;
+    const lineId = Number(row.dataset.lineId);
+    const qtyInput = row.querySelector(".trade-locks-qty-input");
+    const quantity = Number(qtyInput?.value || 0);
+    const action = btn.getAttribute("data-trade-lock-action");
+    if (!lineId || !action) return;
+    void applyTradeLockAction(action, [{ line_id: lineId, quantity }]);
   });
 
   $("#export-collection-cancel")?.addEventListener("click", closeExportCollectionModal);
@@ -6936,7 +8162,7 @@ function wireEvents() {
   $("#export-collection-confirm")?.addEventListener("click", async () => {
     const selected = document.querySelector('input[name="export-format"]:checked');
     if (!selected) {
-      alert("Choose an export format.");
+      showToast("Choose an export format.", { variant: "error" });
       return;
     }
     const confirmBtn = $("#export-collection-confirm");
@@ -6946,7 +8172,7 @@ function wireEvents() {
       await downloadCollectionExport(selected.value, folderIds);
       closeExportCollectionModal();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, { variant: "error" });
     } finally {
       if (confirmBtn) confirmBtn.disabled = false;
     }
@@ -6965,16 +8191,48 @@ function wireEvents() {
 
   $("#collection-filter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    collectionFilterComboboxes?.cardName?.resolveValue();
+    collectionFilterComboboxes?.setCode?.resolveValue();
+    collectionFilterComboboxes?.setName?.resolveValue();
+    closeCollectionFilterComboboxes();
     state.collectionPage = 0;
+    await loadCollectionFilterOptions();
     await loadCollectionPage(0);
   });
-  $("#collection-sort")?.addEventListener("change", async () => {
-    state.collectionPage = 0;
-    await loadCollectionPage(0);
+  setSortDir($("#collection-sort-dir"), readSortDir($("#collection-sort-dir")));
+  bindTableHeaderSort($("#collection-table"), {
+    getSort: () => $("#collection-sort")?.value || "set_code",
+    getDir: () => readSortDir($("#collection-sort-dir")),
+    onSort: async (sort, dir) => {
+      const select = $("#collection-sort");
+      if (select) select.value = sort;
+      setSortDir($("#collection-sort-dir"), dir);
+      syncCollectionTableHeaderSort();
+      state.collectionPage = 0;
+      await loadCollectionPage(0);
+    },
   });
-  $("#collection-sort-dir")?.addEventListener("change", async () => {
-    state.collectionPage = 0;
-    await loadCollectionPage(0);
+  syncCollectionTableHeaderSort();
+
+  initCollectionFilterComboboxes();
+
+  $("#collection-stats-btn")?.addEventListener("click", () => {
+    closeCollectionToolbarMenus();
+    openCollectionStatsModal();
+  });
+  $("#collection-stats-close")?.addEventListener("click", closeCollectionStatsModal);
+  $("#collection-stats-modal")?.addEventListener("click", (e) => {
+    if (e.target === $("#collection-stats-modal")) closeCollectionStatsModal();
+  });
+  $("#collection-stats-folder")?.addEventListener("change", (e) => {
+    const folder = e.target.value || null;
+    loadCollectionDetailStats(folder);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".collection-filter-combobox")) {
+      closeCollectionFilterComboboxes();
+    }
   });
 
   $("#modal-close").addEventListener("click", closeCardModalOverlay);
@@ -7010,12 +8268,25 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (cancelAppDialog()) {
+      return;
+    }
     if (document.querySelector(".folder-allocation-popover:not(.move-copy-popover)")) {
       closeFolderAllocationPopover();
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
+    else if (document.querySelector(".collection-folder-menu:not([hidden])")) closeAllCollectionFolderMenus();
     else if (document.querySelector(".deck-tile-menu:not([hidden])")) closeAllDeckTileMenus();
-    else if (!$("#search-preset-menu")?.hidden) closePresetMenu();
-    else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
+    else if (document.querySelector("#collection-manage-menu:not([hidden]), #collection-trade-menu:not([hidden])")) {
+      closeCollectionToolbarMenus();
+    } else if (document.querySelector("#account-settings-menu:not([hidden])")) {
+      closeAccountSettingsMenu();
+    } else if (
+      $("#search-presets-panel")?.open ||
+      $("#search-sort-panel")?.open ||
+      $("#advanced-filters")?.open
+    ) {
+      closeSearchToolPanels();
+    } else if (isModalVisible("#search-preset-name-modal")) closeSearchPresetNameModal(null);
     else if (isModalVisible("#search-preset-save-modal")) closeSearchPresetSaveModal(null);
     else if (isModalVisible("#import-mode-modal")) closeImportModeModal(null);
     else if (isModalVisible("#import-progress-modal") && importProgressCanClose) {
@@ -7023,18 +8294,25 @@ function wireEvents() {
     }
     else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
+    else if (isModalVisible("#bulk-collection-modal") && !isBulkCollectionSaving()) {
+      void closeBulkCollectionModal();
+    }
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
+    else if (isModalVisible("#delete-account-modal")) closeDeleteAccountModal();
+    else if (isModalVisible("#trade-settings-modal")) closeTradeSettingsModal();
+    else if (isModalVisible("#trade-locks-modal")) closeTradeLocksModal();
     else if (isModalVisible("#card-tips-modal")) closeCardTipsModal();
     else if (isModalVisible("#card-errata-modal")) closeCardErrataModal();
+    else if (isModalVisible("#card-modal")) closeCardModalOverlay();
+    else if (isModalVisible("#collection-stats-modal")) closeCollectionStatsModal();
     else if (isSearchHelpOpen()) closeSearchHelp();
     else if (isDeckZoneInfoOpen()) closeDeckZoneInfo();
     else if (isModalVisible("#formats-info-modal")) closeFormatsInfoModal();
-    else if (isModalVisible("#card-modal")) closeCardModalOverlay();
   });
 
   $("#modal-favorite").addEventListener("click", async () => {
     if (!state.token) {
-      alert("Log in to use favorites.");
+      showToast("Log in to use favorites.", { variant: "error" });
       return;
     }
     const btn = $("#modal-favorite");
@@ -7064,7 +8342,7 @@ function wireEvents() {
 
   $("#tag-add-btn").addEventListener("click", async () => {
     if (!state.token) {
-      alert("Log in to add tags.");
+      showToast("Log in to add tags.", { variant: "error" });
       return;
     }
     const tag = $("#tag-input").value.trim();
@@ -7107,7 +8385,7 @@ function wireEvents() {
     const removeBtn = e.target.closest(".tag-remove");
     if (removeBtn) {
       if (!state.token) {
-        alert("Log in to manage tags.");
+        showToast("Log in to manage tags.", { variant: "error" });
         return;
       }
       const tagEl = removeBtn.closest(".tag");
@@ -7228,8 +8506,8 @@ function wireEvents() {
     }
   });
 
-  $("#decks-back-btn")?.addEventListener("click", () => {
-    if (!confirmLeaveDeck()) return;
+  $("#decks-back-btn")?.addEventListener("click", async () => {
+    if (!(await confirmLeaveDeck())) return;
     closeDeckDetail();
     loadDecks({ background: true });
   });
@@ -7237,9 +8515,15 @@ function wireEvents() {
   $("#deck-save-btn")?.addEventListener("click", () => {
     saveDeck().catch((err) => showToast(err.message, { variant: "error" }));
   });
-  $("#deck-discard-btn")?.addEventListener("click", () => {
+  $("#deck-discard-btn")?.addEventListener("click", async () => {
     if (!state.deckDirty) return;
-    if (!confirm("Discard unsaved changes?")) return;
+    const ok = await appConfirm({
+      title: "Discard changes",
+      message: "Discard unsaved changes?",
+      confirmLabel: "Discard",
+      danger: true,
+    });
+    if (!ok) return;
     discardDeckChanges();
   });
 
@@ -7266,7 +8550,11 @@ function wireEvents() {
   });
 
   $("#new-deck-btn").addEventListener("click", async () => {
-    const name = prompt("Deck name:");
+    const name = await appPrompt({
+      title: "New deck",
+      label: "Deck name",
+      submitLabel: "Create",
+    });
     if (!name?.trim()) return;
     const deck = await api("/decks", {
       method: "POST",
@@ -7301,7 +8589,7 @@ function wireEvents() {
   $("#deck-genesys-list")?.addEventListener("change", applyDraftFormatSettings);
 
   window.addEventListener("beforeunload", (e) => {
-    if (!state.deckDirty) return;
+    if (!state.deckDirty && !isBulkCollectionSaving()) return;
     e.preventDefault();
     e.returnValue = "";
   });
@@ -7607,8 +8895,444 @@ function closeFormatsInfoModal() {
   formatsInfoTrigger = null;
 }
 
+let tradeSettingsTrigger = null;
+
+function tradePageUrl(settings) {
+  if (!settings?.trade_url) return "";
+  if (settings.trade_url.startsWith("http")) return settings.trade_url;
+  return `${window.location.origin}${settings.trade_url}`;
+}
+
+function renderTradeSettingsModal() {
+  const settings = state.tradeSettings;
+  if (!settings) return;
+  const displayName = $("#trade-settings-display-name");
+  const slug = $("#trade-settings-slug");
+  const url = $("#trade-settings-url");
+  if (displayName) displayName.value = settings.display_name || "";
+  if (slug) slug.value = settings.slug || "";
+  if (url) url.textContent = `Public link: ${tradePageUrl(settings)}`;
+}
+
+async function loadTradeSettings() {
+  if (!state.token) return;
+  try {
+    state.tradeSettings = await api("/collection/trade-settings");
+  } catch {
+    state.tradeSettings = null;
+  }
+}
+
+function openTradeSettingsModal() {
+  const modal = $("#trade-settings-modal");
+  const trigger = $("#trade-settings-btn");
+  if (!modal) return;
+  tradeSettingsTrigger = trigger;
+  renderTradeSettingsModal();
+  $("#trade-settings-error")?.classList.add("hidden");
+  modal.hidden = false;
+  syncModalOpenClass();
+  $("#trade-settings-display-name")?.focus();
+}
+
+function closeTradeSettingsModal() {
+  const modal = $("#trade-settings-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (tradeSettingsTrigger ?? $("#trade-settings-btn"))?.focus();
+  tradeSettingsTrigger = null;
+}
+
+async function saveTradeSettings() {
+  const errorEl = $("#trade-settings-error");
+  errorEl?.classList.add("hidden");
+  const displayName = $("#trade-settings-display-name")?.value.trim() || null;
+  const slug = $("#trade-settings-slug")?.value.trim();
+  if (!slug) {
+    errorEl.textContent = "Slug is required.";
+    errorEl?.classList.remove("hidden");
+    return;
+  }
+  try {
+    state.tradeSettings = await api("/collection/trade-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        display_name: displayName,
+      }),
+    });
+    renderTradeSettingsModal();
+    closeTradeSettingsModal();
+    showToast("Trade settings saved.");
+  } catch (err) {
+    errorEl.textContent = err.message || "Could not save trade settings.";
+    errorEl?.classList.remove("hidden");
+  }
+}
+
+async function copyTradeLink() {
+  if (!state.tradeSettings) {
+    await loadTradeSettings();
+  }
+  const url = tradePageUrl(state.tradeSettings);
+  if (!url) {
+    showToast("Trade link is not available yet.", { variant: "error" });
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast("Trade link copied.");
+  } catch {
+    showToast("Could not copy link.", { variant: "error" });
+  }
+}
+
+let tradeLocksTrigger = null;
+let tradeLocksBusy = false;
+
+function formatTradeLockDate(value) {
+  if (!value) return "";
+  try {
+    const dt = new Date(value.endsWith("Z") ? value : `${value}Z`);
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
+function tradeLockBuyerLabel(order) {
+  const parts = [];
+  if (order.buyer_name) parts.push(order.buyer_name);
+  if (order.buyer_email) parts.push(order.buyer_email);
+  if (order.buyer_phone) parts.push(order.buyer_phone);
+  return parts.length ? parts.join(" · ") : "Anonymous buyer";
+}
+
+function renderTradeLocksModal(orders) {
+  const body = $("#trade-locks-body");
+  if (!body) return;
+  if (!orders?.length) {
+    body.innerHTML = `<p class="empty-msg trade-locks-empty">No locked quantities right now.</p>`;
+    syncTradeLocksBulkButtons();
+    return;
+  }
+  body.innerHTML = orders
+    .map((order) => {
+      const rows = (order.lines || [])
+        .map((line) => {
+          const maxQty = Number(line.quantity) || 1;
+          const rarity = escapeHtml(line.rarity_display || line.rarity_code || "");
+          const condition = escapeHtml(line.condition || "—");
+          const comment = line.comment
+            ? `<div class="muted">${escapeHtml(line.comment)}</div>`
+            : "";
+          return `
+            <tr data-line-id="${line.line_id}" data-max-qty="${maxQty}">
+              <td class="trade-locks-check">
+                <input type="checkbox" class="trade-locks-select" aria-label="Select locked line" />
+              </td>
+              <td>
+                <div><strong>${escapeHtml(line.card_name || "Unknown card")}</strong></div>
+                <div class="muted">${escapeHtml(line.set_code || "")}${line.set_name ? ` · ${escapeHtml(line.set_name)}` : ""}</div>
+                ${comment}
+              </td>
+              <td>${rarity}</td>
+              <td>${condition}</td>
+              <td class="trade-locks-qty">
+                <input type="number" class="trade-locks-qty-input" min="1" max="${maxQty}" value="${maxQty}" aria-label="Quantity to release or remove" />
+                <span class="muted trade-locks-qty-max">/ ${maxQty}</span>
+              </td>
+              <td>
+                <div class="trade-locks-row-actions">
+                  <button type="button" class="secondary" data-trade-lock-action="release" title="Release back to trade if the deal fell through" aria-label="Release back to trade if the deal fell through">Release</button>
+                  <button type="button" class="btn-danger" data-trade-lock-action="remove" title="Remove from collection after a successful sale" aria-label="Remove from collection after a successful sale">Remove</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+      return `
+        <section class="trade-locks-order" data-order-id="${order.order_id}">
+          <header class="trade-locks-order-header">
+            <strong>${escapeHtml(tradeLockBuyerLabel(order))}</strong>
+            <span class="muted trade-locks-order-meta">${escapeHtml(formatTradeLockDate(order.created_at))}</span>
+          </header>
+          <table class="trade-locks-table">
+            <thead>
+              <tr>
+                <th class="trade-locks-check" scope="col"><span class="sr-only">Select</span></th>
+                <th scope="col">Card</th>
+                <th scope="col">Rarity</th>
+                <th scope="col">Condition</th>
+                <th scope="col">Qty</th>
+                <th scope="col" class="trade-locks-row-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </section>
+      `;
+    })
+    .join("");
+  syncTradeLocksBulkButtons();
+}
+
+function syncTradeLocksBulkButtons() {
+  const selected = getSelectedTradeLockLines();
+  const releaseBtn = $("#trade-locks-release-selected");
+  const removeBtn = $("#trade-locks-remove-selected");
+  const disabled = tradeLocksBusy || selected.length === 0;
+  if (releaseBtn) releaseBtn.disabled = disabled;
+  if (removeBtn) removeBtn.disabled = disabled;
+}
+
+function getSelectedTradeLockLines() {
+  const body = $("#trade-locks-body");
+  if (!body) return [];
+  const lines = [];
+  body.querySelectorAll("tr[data-line-id]").forEach((row) => {
+    const checkbox = row.querySelector(".trade-locks-select");
+    if (!(checkbox instanceof HTMLInputElement) || !checkbox.checked) return;
+    const lineId = Number(row.dataset.lineId);
+    const qtyInput = row.querySelector(".trade-locks-qty-input");
+    const quantity = Number(qtyInput?.value || 0);
+    if (!lineId || quantity < 1) return;
+    lines.push({ line_id: lineId, quantity });
+  });
+  return lines;
+}
+
+async function loadTradeLocks() {
+  return api("/collection/trade-locks");
+}
+
+async function openTradeLocksModal() {
+  const modal = $("#trade-locks-modal");
+  if (!modal) return;
+  tradeLocksTrigger = $("#manage-locked-quantities-btn");
+  const errorEl = $("#trade-locks-error");
+  errorEl?.classList.add("hidden");
+  const body = $("#trade-locks-body");
+  if (body) body.innerHTML = `<p class="muted trade-locks-empty">Loading…</p>`;
+  modal.hidden = false;
+  syncModalOpenClass();
+  const modalCard = modal.querySelector(".trade-locks-modal-card");
+  if (modalCard) {
+    applyTradeLocksPanelSize(modalCard);
+    initTradeLocksResize(modalCard);
+  }
+  syncTradeLocksBulkButtons();
+  try {
+    const payload = await loadTradeLocks();
+    renderTradeLocksModal(payload.orders || []);
+    $("#trade-locks-done")?.focus();
+  } catch (err) {
+    if (body) {
+      body.innerHTML = `<p class="empty-msg trade-locks-empty">Could not load locked quantities.</p>`;
+    }
+    if (errorEl) {
+      errorEl.textContent = err.message || "Could not load locked quantities.";
+      errorEl.classList.remove("hidden");
+    }
+  }
+}
+
+function closeTradeLocksModal() {
+  const modal = $("#trade-locks-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (tradeLocksTrigger ?? $("#manage-locked-quantities-btn"))?.focus();
+  tradeLocksTrigger = null;
+}
+
+async function applyTradeLockAction(action, lines) {
+  const errorEl = $("#trade-locks-error");
+  errorEl?.classList.add("hidden");
+  if (!lines?.length) {
+    showToast("Select at least one line.", { variant: "error" });
+    return;
+  }
+  for (const line of lines) {
+    if (!line.line_id || !(line.quantity >= 1)) {
+      showToast("Enter a valid quantity for each selected line.", { variant: "error" });
+      return;
+    }
+  }
+  if (action === "remove") {
+    const ok = await appConfirm({
+      title: "Remove locked quantity",
+      message:
+        "Remove the selected locked quantity from your collection? Use this only after a successful sale.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  const path =
+    action === "release"
+      ? "/collection/trade-locks/release"
+      : "/collection/trade-locks/remove";
+  tradeLocksBusy = true;
+  syncTradeLocksBulkButtons();
+  try {
+    await api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lines }),
+    });
+    const payload = await loadTradeLocks();
+    renderTradeLocksModal(payload.orders || []);
+    showToast(action === "release" ? "Released to trade." : "Removed from collection.");
+    if (typeof loadCollectionView === "function") {
+      try {
+        await loadCollectionView({ background: true });
+      } catch {
+        /* ignore refresh errors */
+      }
+    }
+  } catch (err) {
+    if (errorEl) {
+      errorEl.textContent = err.message || "Could not update locked quantities.";
+      errorEl.classList.remove("hidden");
+    }
+    showToast(err.message || "Could not update locked quantities.", { variant: "error" });
+  } finally {
+    tradeLocksBusy = false;
+    syncTradeLocksBulkButtons();
+  }
+}
+
+const STORAGE_NOTICE_KEY = "ygo_storage_notice_dismissed";
+let deleteAccountTrigger = null;
+
+function initStorageNotice() {
+  const banner = $("#storage-notice");
+  if (!banner) return;
+  if (localStorage.getItem(STORAGE_NOTICE_KEY) === "1") {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+}
+
+function dismissStorageNotice() {
+  localStorage.setItem(STORAGE_NOTICE_KEY, "1");
+  const banner = $("#storage-notice");
+  if (banner) banner.hidden = true;
+}
+
+async function exportAccountData() {
+  if (!state.token) {
+    showToast("Log in first.", { variant: "error" });
+    return;
+  }
+  const btn = $("#account-export-btn");
+  setButtonBusy(btn, true, { busyLabel: "Exporting…" });
+  try {
+    const headers = { Accept: "application/json" };
+    if (state.token) headers.Authorization = `Bearer ${state.token}`;
+    const res = await fetch(`${API}/auth/data-export`, { headers });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail;
+      throw new Error(typeof detail === "string" ? detail : "Export failed.");
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") || "";
+    const match = /filename="([^"]+)"/i.exec(disposition);
+    const filename = match?.[1] || "ygo-account-export.json";
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast("Account data downloaded.");
+  } catch (err) {
+    showToast(err.message || "Could not export data.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+  } finally {
+    setButtonBusy(btn, false);
+  }
+}
+
+function openDeleteAccountModal() {
+  if (!state.token || !state.user) {
+    showToast("Log in first.", { variant: "error" });
+    return;
+  }
+  deleteAccountTrigger = $("#account-settings-btn");
+  const modal = $("#delete-account-modal");
+  if (!modal) return;
+  const errorEl = $("#delete-account-error");
+  errorEl?.classList.add("hidden");
+  errorEl.textContent = "";
+  const passwordField = $("#delete-account-password-field");
+  const emailField = $("#delete-account-email-field");
+  const passwordInput = $("#delete-account-password");
+  const emailInput = $("#delete-account-email");
+  if (passwordInput) passwordInput.value = "";
+  if (emailInput) emailInput.value = "";
+  const hasPassword = Boolean(state.user.has_password);
+  passwordField.hidden = !hasPassword;
+  emailField.hidden = hasPassword;
+  modal.hidden = false;
+  syncModalOpenClass();
+  if (hasPassword) passwordInput?.focus();
+  else emailInput?.focus();
+}
+
+function closeDeleteAccountModal() {
+  const modal = $("#delete-account-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  syncModalOpenClass();
+  (deleteAccountTrigger ?? $("#account-settings-btn"))?.focus();
+  deleteAccountTrigger = null;
+}
+
+async function confirmDeleteAccount() {
+  if (!state.user) return;
+  const errorEl = $("#delete-account-error");
+  errorEl?.classList.add("hidden");
+  const btn = $("#delete-account-confirm");
+  const body = state.user.has_password
+    ? { password: $("#delete-account-password")?.value || "" }
+    : { confirm_email: $("#delete-account-email")?.value || "" };
+  setButtonBusy(btn, true, { busyLabel: "Deleting…" });
+  try {
+    await api("/auth/account", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    closeDeleteAccountModal();
+    logout();
+    showToast("Your account has been deleted.");
+  } catch (err) {
+    errorEl.textContent = err.message || "Could not delete account.";
+    errorEl?.classList.remove("hidden");
+    showToast(err.message || "Could not delete account.", {
+      variant: "error",
+      durationMs: 5000,
+    });
+  } finally {
+    setButtonBusy(btn, false);
+  }
+}
+
 async function init() {
   wireEvents();
+  initStorageNotice();
   await loadAuthConfig();
   updateAuthUI();
   try {
@@ -7629,6 +9353,7 @@ async function init() {
     if (state.token && state.user) {
       setAuthenticatedShell(true);
       updateAuthUI();
+      await loadTradeSettings();
       await bootstrapAuthenticatedApp();
     } else {
       setAuthenticatedShell(false);

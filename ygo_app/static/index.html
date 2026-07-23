@@ -5,14 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
+  <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=98" />
+  <link rel="stylesheet" href="/static/css/style.css?v=137" />
+  <link rel="stylesheet" href="/static/css/bulk-collection.css?v=6" />
+  <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
 <body>
+  <div id="storage-notice" class="storage-notice" role="region" aria-label="Storage notice" hidden>
+    <p>
+      This app stores essential data in your browser (sign-in token and preferences; trade cart on trade pages).
+      No marketing cookies.
+      See the <a href="/legal/privacy">Privacy Policy</a>.
+    </p>
+    <button type="button" id="storage-notice-dismiss" class="secondary">Got it</button>
+  </div>
   <header class="app-header">
     <div class="brand">
-      <span class="brand-mark">YGO</span>
+      <img class="brand-mark" src="/static/img/app-icon.png?v=1" width="48" height="48" alt="YGO Collection & Deck Builder" />
       <div>
         <h1>Collection & Deck Builder</h1>
         <p id="status-line" class="app-shell hidden" aria-hidden="true">Loading…</p>
@@ -25,8 +37,35 @@
       <button type="button" class="tab" role="tab" id="tab-decks" data-view="decks" aria-selected="false" aria-controls="view-decks" tabindex="-1">Decks</button>
     </nav>
     <div id="auth-panel" class="auth-panel app-shell hidden" aria-hidden="true">
-      <span id="auth-user" class="auth-user hidden"></span>
+      <div class="app-currency-group">
+        <div class="sort-controls sort-controls--field-only app-currency-control">
+          <span class="sort-controls-label sort-controls-label--icon-only" id="app-currency-label" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+          </span>
+          <select id="app-currency" aria-label="Currency">
+            <option value="EUR">EUR (€)</option>
+            <option value="HUF">HUF (Ft)</option>
+          </select>
+        </div>
+        <span id="app-currency-rate" class="app-currency-rate hidden" aria-live="polite"></span>
+      </div>
+      <span class="auth-panel-divider" aria-hidden="true"></span>
       <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
+      <div id="account-settings-wrap" class="preset-menu-wrap account-settings-wrap hidden">
+        <button type="button" id="account-settings-btn" class="icon-btn secondary"
+          aria-label="Account settings"
+          aria-haspopup="menu" aria-expanded="false" aria-controls="account-settings-menu">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+        <div id="account-settings-menu" class="preset-menu account-settings-menu" hidden role="menu">
+          <span id="auth-user" class="auth-user account-settings-email"></span>
+          <button type="button" role="menuitem" id="account-export-btn">Export my data</button>
+          <button type="button" role="menuitem" id="account-delete-btn" class="preset-menu-danger">Delete account</button>
+        </div>
+      </div>
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
     </div>
   </header>
@@ -126,54 +165,60 @@
               <label class="check"><input type="checkbox" id="for-trade-only" /> Trade</label>
               <label class="check"><input type="checkbox" id="favorites-only" /> Favourites</label>
             </div>
+            <div class="search-presets-bar hidden" id="search-presets-bar">
+              <button type="button" id="search-preset-toggle" class="secondary advanced-filters-toggle search-tool-toggle" aria-label="Search presets" aria-expanded="false" aria-controls="search-presets-panel" data-tooltip="Presets">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+                <span id="search-preset-toggle-label">Presets</span>
+                <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+              </button>
+            </div>
+            <button type="button" id="advanced-filters-toggle" class="secondary advanced-filters-toggle search-tool-toggle" aria-label="Advanced filters" aria-expanded="false" aria-controls="advanced-filters" data-tooltip="Advanced filters">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></svg>
+              <span id="advanced-filters-toggle-label">Filters</span>
+              <span id="advanced-filters-count" class="filter-count-badge hidden" aria-hidden="true"></span>
+              <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+            </button>
+            <button type="button" id="search-sort-toggle" class="secondary advanced-filters-toggle search-tool-toggle" aria-label="Sort results" aria-expanded="false" aria-controls="search-sort-panel" data-tooltip="Sort">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+              <span id="search-sort-toggle-label">Sort</span>
+              <span id="search-sort-toggle-dir" class="search-sort-toggle-dir hidden" aria-hidden="true"></span>
+              <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
+            </button>
             <div class="search-buttons">
-              <select id="search-sort" aria-label="Sort search results">
-                <option value="name">Sort: Name</option>
-                <option value="passcode">Sort: Passcode</option>
-                <option value="release_date">Sort: Latest release</option>
-                <option value="owned_quantity">Sort: Owned quantity</option>
-                <option value="trade_quantity">Sort: Trade quantity</option>
-                <option value="total_quantity">Sort: Total quantity</option>
-              </select>
-              <select id="search-sort-dir" aria-label="Sort direction">
-                <option value="asc">Ascending</option>
-                <option value="desc">Descending</option>
-              </select>
-              <button type="button" id="search-reset" class="secondary">Clear all</button>
+              <button type="button" id="search-reset" class="secondary" data-tooltip="Clear all">Clear all</button>
               <button type="submit">Search</button>
             </div>
           </div>
-        </div>
-        <div class="search-secondary">
-          <div class="search-presets-bar hidden" id="search-presets-bar">
-            <div class="search-presets-controls">
-              <label for="search-preset-select" class="search-presets-label">Search presets</label>
-              <select id="search-preset-select" aria-label="Search presets"><option value="">No preset</option></select>
-              <div class="search-presets-actions">
-                <button type="button" id="search-preset-save" class="secondary" aria-label="Save current search as preset">Save preset</button>
-                <div class="preset-menu-wrap">
-                  <button type="button" id="search-preset-menu-btn" class="icon-btn secondary preset-menu-btn" aria-label="Search preset options" aria-haspopup="menu" aria-expanded="false" aria-controls="search-preset-menu" disabled title="Select a preset first">⋯</button>
-                  <div id="search-preset-menu" class="preset-menu" hidden role="menu">
-                    <button type="button" role="menuitem" id="search-preset-rename">Rename</button>
-                    <button type="button" role="menuitem" id="search-preset-delete" class="preset-menu-danger">Delete</button>
-                  </div>
-                </div>
+          <details id="search-presets-panel" class="search-tool-panel">
+            <summary class="visually-hidden">Search presets</summary>
+            <div class="search-tool-panel-body search-presets-panel-body">
+              <div id="search-preset-list" class="search-preset-list" role="list"></div>
+              <p id="search-preset-empty" class="search-preset-empty muted hidden">No saved presets yet.</p>
+              <div class="search-tool-panel-footer">
+                <button type="button" id="search-preset-save">Save current search</button>
               </div>
             </div>
-          </div>
-          <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
-            <span class="search-active-filters-label">Active filters</span>
-            <div id="search-active-filters-chips" class="search-filter-chips"></div>
-            <button type="button" id="search-clear-filters" class="secondary search-clear-filters">Clear all</button>
-          </div>
+          </details>
+          <details id="search-sort-panel" class="search-tool-panel">
+            <summary class="visually-hidden">Sort results</summary>
+            <div class="search-tool-panel-body search-sort-panel-body">
+              <div class="search-sort-panel-row">
+                <label for="search-sort" class="search-sort-panel-label">Sort by</label>
+                <select id="search-sort" aria-label="Sort search results">
+                  <option value="">—</option>
+                  <option value="name">Name</option>
+                  <option value="passcode">Passcode</option>
+                  <option value="release_date">Latest release</option>
+                  <option value="owned_quantity">Owned quantity</option>
+                  <option value="trade_quantity">Trade quantity</option>
+                  <option value="total_quantity">Total quantity</option>
+                </select>
+                <button type="button" id="search-sort-dir" class="icon-btn sort-dir-toggle" data-sort-dir="asc" aria-pressed="false" aria-label="Sort ascending" data-tooltip="Sort ascending"></button>
+              </div>
+            </div>
+          </details>
           <details id="advanced-filters" class="advanced-filters">
-            <summary class="advanced-filters-summary">
-              <span class="advanced-filters-summary-label">Advanced filters</span>
-              <span class="advanced-filters-summary-meta">
-                <span id="advanced-filters-count" class="filter-count-badge hidden" aria-hidden="true"></span>
-                <span class="advanced-filters-chevron" aria-hidden="true">▸</span>
-              </span>
-            </summary>
+            <summary class="visually-hidden">Advanced filters</summary>
             <div class="advanced-filters-body">
             <div class="search-format-context">
               <div class="search-format-bar">
@@ -361,11 +406,19 @@
               </div>
             </div>
           </div>
-        </details>
+          </details>
+        </div>
+        <div class="search-secondary">
+          <div id="search-active-filters" class="search-active-filters hidden" aria-live="polite">
+            <span class="search-active-filters-label">Active filters</span>
+            <div id="search-active-filters-chips" class="search-filter-chips"></div>
+          </div>
         </div>
       </form>
-      <p id="search-results-summary" class="stats-bar search-results-summary hidden" aria-live="polite"></p>
-      <div id="search-pagination" class="search-pagination hidden" data-search-pagination></div>
+      <div class="search-results-toolbar">
+        <p id="search-results-summary" class="search-results-summary hidden" aria-live="polite"></p>
+        <div id="search-pagination" class="search-pagination hidden" data-search-pagination></div>
+      </div>
       <div id="search-results" class="card-grid"></div>
       <div id="search-pagination-bottom" class="search-pagination search-pagination--bottom hidden" data-search-pagination></div>
     </section>
@@ -383,42 +436,110 @@
             <span class="collection-new-folder-icon" aria-hidden="true">+</span>
             New folder
           </button>
+          <div id="collection-toolbar-actions" class="collection-sidebar-actions hidden" aria-label="Collection actions">
+            <button type="button" id="collection-stats-btn" class="collection-sidebar-action-btn" aria-label="Collection statistics" aria-haspopup="dialog" aria-controls="collection-stats-modal" aria-expanded="false">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 3v18h18" />
+                <path d="M7 16V9" />
+                <path d="M12 16V5" />
+                <path d="M17 16v-3" />
+              </svg>
+              <span>Statistics</span>
+            </button>
+            <div class="preset-menu-wrap collection-sidebar-menu-wrap">
+              <button type="button" id="collection-manage-menu-btn" class="collection-sidebar-action-btn"
+                aria-label="Manage collection"
+                aria-haspopup="menu" aria-expanded="false" aria-controls="collection-manage-menu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>Manage</span>
+                <span class="collection-sidebar-action-chevron" aria-hidden="true">▾</span>
+              </button>
+              <div id="collection-manage-menu" class="preset-menu" hidden role="menu">
+                <button type="button" role="menuitem" id="import-collection-btn">Import</button>
+                <button type="button" role="menuitem" id="export-collection-btn">Export</button>
+                <button type="button" role="menuitem" id="bulk-collection-btn">Bulk Collection</button>
+              </div>
+            </div>
+            <div class="preset-menu-wrap collection-sidebar-menu-wrap">
+              <button type="button" id="collection-trade-menu-btn" class="collection-sidebar-action-btn"
+                aria-label="Trade options"
+                aria-haspopup="menu" aria-expanded="false" aria-controls="collection-trade-menu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m16 3 4 4-4 4" />
+                  <path d="M20 7H4" />
+                  <path d="m8 21-4-4 4-4" />
+                  <path d="M4 17h16" />
+                </svg>
+                <span>Trade</span>
+                <span class="collection-sidebar-action-chevron" aria-hidden="true">▾</span>
+              </button>
+              <div id="collection-trade-menu" class="preset-menu" hidden role="menu">
+                <button type="button" role="menuitem" id="copy-trade-link-btn">Copy trade link</button>
+                <button type="button" role="menuitem" id="trade-settings-btn">Trade settings</button>
+                <button type="button" role="menuitem" id="manage-locked-quantities-btn">Manage locked quantities</button>
+              </div>
+            </div>
+          </div>
           <ul id="collection-folder-list" class="collection-folder-list"></ul>
         </aside>
         <div class="collection-panel">
-          <form id="collection-filter-form" class="collection-toolbar">
-            <input type="search" id="collection-q" placeholder="Search name or set…" autocomplete="off" />
-            <input type="text" id="collection-set-code" placeholder="Set code" />
-            <select id="collection-sort" aria-label="Sort collection">
-              <option value="set_code">Sort: Set code</option>
-              <option value="card_name">Sort: Name</option>
-              <option value="folder_name">Sort: Folder</option>
-              <option value="quantity">Sort: Quantity</option>
-              <option value="trade_quantity">Sort: Trade quantity</option>
-              <option value="passcode">Sort: Passcode</option>
-              <option value="release_date">Sort: Release date</option>
-            </select>
-            <select id="collection-sort-dir" aria-label="Sort direction">
-              <option value="asc">Ascending</option>
-              <option value="desc">Descending</option>
-            </select>
-            <button type="submit">Apply</button>
-            <button type="button" id="import-collection-btn" class="secondary hidden">Import</button>
-            <button type="button" id="export-collection-btn" class="secondary hidden">Export</button>
-          </form>
-          <p id="collection-stats-line" class="stats-bar"></p>
+          <div class="collection-toolbar">
+            <form id="collection-filter-form" class="collection-toolbar-filters">
+              <div class="collection-filter-row">
+                <div class="collection-filter-combobox" id="collection-card-name-combobox">
+                  <input type="search" id="collection-card-name" placeholder="Card name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collection-card-name-list" aria-label="Filter by card name" />
+                  <div id="collection-card-name-list" class="collection-filter-list" role="listbox" hidden></div>
+                </div>
+                <div class="collection-filter-combobox" id="collection-set-code-combobox">
+                  <input type="text" id="collection-set-code" placeholder="Set code" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collection-set-code-list" aria-label="Filter by set code" />
+                  <div id="collection-set-code-list" class="collection-filter-list" role="listbox" hidden></div>
+                </div>
+                <div class="collection-filter-combobox" id="collection-set-name-combobox">
+                  <input type="text" id="collection-set-name" placeholder="Set name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collection-set-name-list" aria-label="Filter by set name" />
+                  <div id="collection-set-name-list" class="collection-filter-list" role="listbox" hidden></div>
+                </div>
+              </div>
+              <div class="collection-filter-row collection-filter-row--controls">
+                <select id="collection-rarity" aria-label="Filter by rarity">
+                  <option value="">All rarities</option>
+                </select>
+                <select id="collection-edition" aria-label="Filter by edition">
+                  <option value="">All editions</option>
+                </select>
+                <select id="collection-condition" aria-label="Filter by condition">
+                  <option value="">All conditions</option>
+                </select>
+                <button type="submit">Apply</button>
+              </div>
+              <select id="collection-sort" class="visually-hidden" aria-hidden="true" tabindex="-1">
+                <option value="set_code" selected>Set code</option>
+                <option value="card_name">Name</option>
+                <option value="folder_name">Folder</option>
+                <option value="quantity">Quantity</option>
+                <option value="trade_quantity">Trade quantity</option>
+                <option value="release_date">Release date</option>
+              </select>
+              <button type="button" id="collection-sort-dir" class="visually-hidden" tabindex="-1" aria-hidden="true" data-sort-dir="asc"></button>
+            </form>
+          </div>
           <div class="collection-table-wrap">
             <table id="collection-table">
               <thead>
                 <tr>
                   <th scope="col"></th>
-                  <th scope="col">Card</th>
-                  <th scope="col">Set</th>
+                  <th scope="col" data-sort="card_name" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Card">Card</button></th>
+                  <th scope="col" data-sort="set_code" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Set">Set</button></th>
+                  <th scope="col" class="collection-col-folder" data-sort="folder_name" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Folder">Folder</button></th>
                   <th scope="col">Rarity</th>
-                  <th scope="col">Quantity</th>
-                  <th scope="col">Trade Qty</th>
+                  <th scope="col">Edition</th>
+                  <th scope="col" data-sort="quantity" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Quantity">Quantity</button></th>
+                  <th scope="col" class="collection-col-trade-qty" data-sort="trade_quantity" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Trade quantity">Trade Qty</button></th>
                   <th scope="col">Sell Price</th>
                   <th scope="col">Condition</th>
+                  <th scope="col" data-sort="release_date" aria-sort="none"><button type="button" class="th-sort-btn" data-sort-label="Release date">Release Date</button></th>
                   <th scope="col">Notes</th>
                   <th scope="col"></th>
                 </tr>
@@ -427,7 +548,7 @@
             </table>
           </div>
           <div id="collection-pagination" class="search-pagination hidden"></div>
-          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Import</strong> above to get started.</p>
+          <p id="collection-empty" class="empty-msg hidden">No items in this view. Use <strong>Manage → Import</strong> to get started.</p>
         </div>
       </div>
     </section>
@@ -436,11 +557,16 @@
       <div id="decks-list-view">
         <div class="decks-toolbar">
           <input type="search" id="decks-q" placeholder="Search decks or cards…" autocomplete="off" aria-label="Search decks" />
-          <select id="decks-sort" aria-label="Sort decks">
-            <option value="updated_at">Sort: Last modified</option>
-            <option value="created_at">Sort: Created</option>
-            <option value="name">Sort: Name</option>
-          </select>
+          <div class="sort-controls sort-controls--field-only">
+            <span class="sort-controls-label sort-controls-label--icon-only" id="decks-sort-label" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+            </span>
+            <select id="decks-sort" aria-label="Sort decks">
+              <option value="updated_at">Last modified</option>
+              <option value="created_at">Created</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
           <button type="button" id="new-deck-btn" class="primary">+ New deck</button>
         </div>
         <div id="decks-grid" class="decks-grid"></div>
@@ -609,6 +735,58 @@
     </article>
   </div>
 
+  <div id="trade-settings-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="trade-settings-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="trade-settings-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="trade-settings-title">Trade list settings</h2>
+        <p class="muted">Your public trade page lists cards with trade quantity greater than zero.</p>
+      </header>
+      <label class="collection-edit-field" for="trade-settings-display-name">
+        <span>Display name (public)</span>
+        <input type="text" id="trade-settings-display-name" maxlength="128" autocomplete="off" placeholder="Optional public title" />
+      </label>
+      <label class="collection-edit-field" for="trade-settings-slug">
+        <span>Share link slug</span>
+        <input type="text" id="trade-settings-slug" maxlength="64" autocomplete="off" spellcheck="false" />
+      </label>
+      <p id="trade-settings-url" class="muted"></p>
+      <p id="trade-settings-error" class="auth-error hidden" role="alert"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="trade-settings-cancel" class="secondary">Cancel</button>
+        <button type="button" id="trade-settings-save">Save</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="trade-locks-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="trade-locks-title" hidden>
+    <article class="modal-card modal-card--wide trade-locks-modal-card">
+      <button type="button" id="trade-locks-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="trade-locks-title">Manage locked quantities</h2>
+        <p class="muted">Quantities reserved by open order requests. Release them back to trade if a deal fell through, or remove them after a successful sale.</p>
+      </header>
+      <div id="trade-locks-body" class="trade-locks-body" aria-live="polite"></div>
+      <p id="trade-locks-error" class="auth-error hidden" role="alert"></p>
+      <div class="export-collection-actions trade-locks-actions">
+        <button type="button" id="trade-locks-release-selected" class="secondary" disabled title="Release back to trade if the deal fell through">Release selected</button>
+        <button type="button" id="trade-locks-remove-selected" class="btn-danger" disabled title="Remove from collection after a successful sale">Remove selected</button>
+        <button type="button" id="trade-locks-done" class="secondary">Close</button>
+      </div>
+      <div class="search-help-resize-handle" role="separator" aria-orientation="both" aria-label="Resize locked quantities panel" tabindex="-1"></div>
+    </article>
+  </div>
+
   <div id="export-collection-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="export-collection-title" hidden>
     <article class="modal-card modal-card--narrow">
       <button type="button" id="export-collection-close" class="modal-close" aria-label="Close">
@@ -631,6 +809,73 @@
       <div class="export-collection-actions">
         <button type="button" id="export-collection-cancel" class="secondary">Cancel</button>
         <button type="button" id="export-collection-confirm">Export</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="collection-stats-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-stats-title" hidden>
+    <article class="modal-card modal-card--wide collection-stats-modal-card">
+      <button type="button" id="collection-stats-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="collection-stats-header">
+        <h2 id="collection-stats-title">Collection statistics</h2>
+        <label class="collection-stats-folder-label" for="collection-stats-folder">
+          <span>Folder</span>
+          <select id="collection-stats-folder" aria-label="Statistics folder"></select>
+        </label>
+      </header>
+      <div id="collection-stats-body" class="collection-stats-body" aria-live="polite">
+        <div class="collection-stats-grid" id="collection-stats-grid">
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Printings</span>
+            <span class="collection-stat-value" id="collection-stat-printings">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Cards</span>
+            <span class="collection-stat-value" id="collection-stat-cards">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Sum low price</span>
+            <span class="collection-stat-value" id="collection-stat-sum-low">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Sum avg price</span>
+            <span class="collection-stat-value" id="collection-stat-sum-avg">—</span>
+          </div>
+          <div class="collection-stat-card">
+            <span class="collection-stat-label">Sum trend price</span>
+            <span class="collection-stat-value" id="collection-stat-sum-trend">—</span>
+          </div>
+        </div>
+        <section class="collection-stats-max-section">
+          <h3 class="collection-stats-max-title">Highest trend value</h3>
+          <div id="collection-stats-max-wrap" class="collection-table-wrap collection-stats-max-wrap">
+            <table class="collection-stats-max-table" id="collection-stats-max-table">
+              <thead>
+                <tr>
+                  <th scope="col"></th>
+                  <th scope="col">Card</th>
+                  <th scope="col">Set</th>
+                  <th scope="col" class="collection-col-folder">Folder</th>
+                  <th scope="col">Rarity</th>
+                  <th scope="col">Edition</th>
+                  <th scope="col">Quantity</th>
+                  <th scope="col" class="collection-col-trade-qty">Trade Qty</th>
+                  <th scope="col">Sell Price</th>
+                  <th scope="col">Condition</th>
+                  <th scope="col">Release Date</th>
+                  <th scope="col">Notes</th>
+                </tr>
+              </thead>
+              <tbody id="collection-stats-max-tbody"></tbody>
+            </table>
+          </div>
+          <p id="collection-stats-max-empty" class="empty-msg hidden">No priced cards in this folder.</p>
+        </section>
       </div>
     </article>
   </div>
@@ -716,6 +961,47 @@
     </article>
   </div>
 
+  <div id="app-confirm-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="app-confirm-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="app-confirm-title">Confirm</h2>
+      </header>
+      <p id="app-confirm-message" class="app-confirm-message"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="app-confirm-cancel" class="secondary">Cancel</button>
+        <button type="button" id="app-confirm-ok">Confirm</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="app-prompt-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="app-prompt-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="app-prompt-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="app-prompt-title">Enter a value</h2>
+      </header>
+      <form id="app-prompt-form" class="search-preset-name-form">
+        <label id="app-prompt-label" for="app-prompt-input">Name</label>
+        <input type="text" id="app-prompt-input" maxlength="128" autocomplete="off" required />
+        <div class="export-collection-actions">
+          <button type="button" id="app-prompt-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="app-prompt-submit">OK</button>
+        </div>
+      </form>
+    </article>
+  </div>
+
   <div id="collection-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-add-title" hidden>
     <article class="modal-card modal-card--narrow modal-card--collection-add">
       <button type="button" id="collection-add-close" class="modal-close" aria-label="Close">
@@ -730,10 +1016,10 @@
       </header>
       <div class="collection-add-form collection-edit-form">
         <label class="collection-edit-field">
-          <span>Folder</span>
+          <span>Folder <span class="required-mark" aria-hidden="true">*</span></span>
           <div class="collection-add-folder-row">
-            <select id="collection-add-folder">
-              <option value="">No Folder</option>
+            <select id="collection-add-folder" required>
+              <option value="" disabled selected>Select a folder…</option>
             </select>
             <button type="button" id="collection-add-new-folder-toggle" class="secondary collection-add-folder-new-btn">+ New folder</button>
           </div>
@@ -810,12 +1096,16 @@
           </select>
         </label>
         <label class="collection-edit-field" for="collection-add-price-bought">
-          <span>Price bought (€)</span>
+          <span>Price bought (<span data-currency-suffix>EUR</span>)</span>
           <input type="number" id="collection-add-price-bought" min="0" step="0.01" value="0" />
         </label>
         <label class="collection-edit-field" for="collection-add-date-bought">
           <span>Date bought</span>
           <input type="date" id="collection-add-date-bought" />
+        </label>
+        <label class="collection-edit-field collection-edit-field--notes" for="collection-add-notes">
+          <span>Notes</span>
+          <textarea id="collection-add-notes" rows="2" maxlength="500" placeholder="Optional"></textarea>
         </label>
       </div>
       <div class="collection-edit-actions">
@@ -856,14 +1146,26 @@
           <input type="number" id="collection-edit-trade-quantity" min="0" value="0" />
         </label>
         <label class="collection-edit-field">
-          <span>Sell price (€)</span>
+          <span>Sell price (<span data-currency-suffix>EUR</span>)</span>
           <input type="number" id="collection-edit-sell-price" min="0" step="0.01" value="0" />
         </label>
         <label class="collection-edit-field">
           <span>Condition</span>
           <select id="collection-edit-condition"></select>
         </label>
-        <p id="collection-edit-note" class="muted collection-edit-note hidden"></p>
+        <label class="collection-edit-field" for="collection-edit-edition">
+          <span>Edition</span>
+          <select id="collection-edit-edition">
+            <option value="Unlimited">Unlimited</option>
+            <option value="1st Edition">1st Edition</option>
+            <option value="Limited Edition">Limited Edition</option>
+          </select>
+        </label>
+        <label class="collection-edit-field collection-edit-field--notes" for="collection-edit-notes">
+          <span>Notes</span>
+          <textarea id="collection-edit-notes" rows="2" maxlength="500" placeholder="Optional"></textarea>
+        </label>
+        <p id="collection-edit-hint" class="muted collection-edit-hint hidden"></p>
       </div>
       <div class="collection-edit-actions">
         <button type="button" id="collection-edit-cancel" class="secondary">Cancel</button>
@@ -916,6 +1218,94 @@
 
   <div id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/js/app.js?v=158" type="module"></script>
+  <div id="delete-account-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" hidden>
+    <article class="modal-card delete-account-card">
+      <button type="button" id="delete-account-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="delete-account-title">Delete account</h2>
+      </header>
+      <p class="muted">This permanently deletes your account, collection, decks, and related data. This cannot be undone.</p>
+      <label class="collection-edit-field" id="delete-account-password-field" for="delete-account-password" hidden>
+        <span>Confirm with your password</span>
+        <input type="password" id="delete-account-password" autocomplete="current-password" />
+      </label>
+      <label class="collection-edit-field" id="delete-account-email-field" for="delete-account-email" hidden>
+        <span>Type your account email to confirm</span>
+        <input type="email" id="delete-account-email" autocomplete="email" />
+      </label>
+      <p id="delete-account-error" class="auth-error hidden" role="alert"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="delete-account-cancel" class="secondary">Cancel</button>
+        <button type="button" id="delete-account-confirm" class="btn-danger">Delete permanently</button>
+      </div>
+    </article>
+  </div>
+
+  <footer class="site-footer">
+    <a href="/legal/privacy">Privacy</a>
+    <span aria-hidden="true">·</span>
+    <a href="/legal/imprint">Imprint</a>
+    <span aria-hidden="true">·</span>
+    <a href="/legal/terms">Terms</a>
+  </footer>
+
+  <div id="bulk-collection-modal" class="modal-overlay bulk-collection-overlay" role="dialog" aria-modal="true" aria-labelledby="bulk-collection-title" hidden>
+    <article class="modal-card bulk-collection-card">
+      <button type="button" id="bulk-collection-close" class="modal-close" aria-label="Close bulk collection">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="bulk-collection-header">
+        <div class="bulk-collection-header-main">
+          <h2 id="bulk-collection-title">Bulk Collection</h2>
+          <p id="bulk-collection-subtitle" class="muted">Enter a set code to load all printings for that expansion.</p>
+        </div>
+        <div class="bulk-collection-header-actions">
+          <button type="button" id="bulk-collection-save" class="primary" disabled>Save</button>
+        </div>
+      </header>
+      <div class="bulk-collection-toolbar">
+        <label class="bulk-collection-set-field" for="bulk-collection-set-code">
+          <span>Set Code</span>
+          <input type="text" id="bulk-collection-set-code" placeholder="RA03" autocomplete="off" />
+        </label>
+        <button type="button" id="bulk-collection-load" class="secondary">Load</button>
+        <button type="button" id="bulk-collection-duplicate-row" class="secondary" disabled title="Duplicate selected row">Duplicate row</button>
+        <div class="bulk-collection-column-menu-wrap">
+          <button type="button" id="bulk-collection-columns-btn" class="secondary" disabled aria-haspopup="true" aria-expanded="false">Hide Columns</button>
+          <div id="bulk-collection-columns-menu" class="bulk-collection-columns-menu hidden" role="menu"></div>
+        </div>
+        <span class="bulk-collection-toolbar-spacer" aria-hidden="true"></span>
+        <span id="bulk-collection-dirty" class="bulk-collection-dirty hidden" aria-live="polite">Unsaved changes</span>
+      </div>
+      <div id="bulk-collection-grid" class="bulk-collection-grid" aria-label="Bulk collection spreadsheet"></div>
+      <p id="bulk-collection-empty" class="empty-msg hidden">Enter a set code and click Load to begin.</p>
+      <p id="bulk-collection-loading" class="bulk-collection-loading hidden" role="status">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        Loading printings…
+      </p>
+      <div id="bulk-collection-save-overlay" class="bulk-collection-save-overlay hidden" aria-hidden="true">
+        <div class="bulk-collection-save-panel" role="status" aria-live="polite" aria-busy="true">
+          <h3 id="bulk-collection-save-title" class="bulk-collection-save-title">Saving collection</h3>
+          <p id="bulk-collection-save-phase" class="bulk-collection-save-phase">Preparing save…</p>
+          <progress id="bulk-collection-save-bar" class="import-progress-modal-bar bulk-collection-save-bar" max="100"></progress>
+          <div class="import-progress-meta bulk-collection-save-meta">
+            <span id="bulk-collection-save-percent" class="import-progress-percent"></span>
+            <span id="bulk-collection-save-eta" class="import-progress-eta muted"></span>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
+  <script src="/static/js/app.js?v=224" type="module"></script>
 </body>
 </html>

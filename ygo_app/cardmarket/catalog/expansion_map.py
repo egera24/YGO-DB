@@ -26,7 +26,6 @@ from ygo_app.cardmarket.catalog.normalize import (
 )
 from ygo_app.models import CardmarketExpansion, Printing, TcgSet
 
-
 @dataclass
 class ExpansionMapping:
     abbr: str

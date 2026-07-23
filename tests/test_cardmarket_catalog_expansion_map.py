@@ -196,7 +196,7 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
             {
                 "idProduct": 608124,
                 "name": "Absolute Powerforce 2-Pack Set",
-                "idExpansion": 4787,
+                "idExpansion": 1187,
             },
             {
                 "idProduct": 608128,
@@ -1209,6 +1209,41 @@ class TestCardmarketCatalogExpansionMap(unittest.TestCase):
         )
         self.assertEqual(mappings["SDK"].expansion_id, 1055)
         self.assertEqual(skipped, [])
+
+    def test_sdy_maps_when_promotional_pack_shares_expansion(self):
+        self._clear_default_sets()
+        self.session.add(
+            TcgSet(abbr="SDY", name="Starter Deck: Yugi", region="TCG")
+        )
+        self._seed_two_cards_for_set("SDY", card_id_start=3021)
+        nonsingles = [
+            {
+                "idProduct": 254275,
+                "name": "Starter Deck: Yugi",
+                "idExpansion": 1051,
+            },
+            {
+                "idProduct": 398069,
+                "name": "Starter Deck: Yugi: Promotional Pack",
+                "idExpansion": 1051,
+            },
+            {
+                "idProduct": 883374,
+                "name": "Starter Deck: Yugi (non-sealed)",
+                "idExpansion": 1051,
+            },
+            {
+                "idProduct": 254278,
+                "name": "Starter Deck: Yugi Evolution",
+                "idExpansion": 1075,
+            },
+        ]
+        mappings, skipped, rejections = map_expansions_from_nonsingles(
+            self.session, nonsingles, upsert=False
+        )
+        self.assertEqual(mappings["SDY"].expansion_id, 1051)
+        self.assertEqual(skipped, [])
+        self.assertEqual(rejections, [])
 
     def test_lc06_maps_base_expansion_only(self):
         self._clear_default_sets()

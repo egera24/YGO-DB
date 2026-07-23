@@ -179,7 +179,7 @@ def _run(argv: list[str] | None) -> int:
     source.add_argument(
         "--from-r2",
         action="store_true",
-        help="Download latest archives/cardmarket_prices_{ts}.zip from R2 then import",
+        help="Download latest archives/.../cardmarket_prices.zip from R2 then import",
     )
     parser.add_argument(
         "--download-path",

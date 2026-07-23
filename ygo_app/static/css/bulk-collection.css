@@ -1,0 +1,318 @@
+.bulk-collection-overlay {
+  padding: 0.75rem;
+}
+
+.bulk-collection-card {
+  position: relative;
+  width: min(100%, 100vw - 1.5rem);
+  height: min(100%, 100vh - 1.5rem);
+  max-width: none;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.bulk-collection-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-right: 2.75rem;
+}
+
+.bulk-collection-header-main {
+  min-width: 0;
+}
+
+.bulk-collection-header-main h2 {
+  margin: 0 0 0.25rem;
+}
+
+.bulk-collection-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.bulk-collection-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem 0.75rem;
+}
+
+.bulk-collection-toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 0.5rem;
+}
+
+.bulk-collection-set-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 8rem;
+}
+
+.bulk-collection-set-field input {
+  min-width: 8rem;
+}
+
+.bulk-collection-column-menu-wrap {
+  position: relative;
+}
+
+.bulk-collection-columns-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 20;
+  min-width: 12rem;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  scrollbar-width: auto;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--muted)) var(--bg);
+}
+
+.bulk-collection-columns-menu::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.bulk-collection-columns-menu::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 50%, var(--muted));
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+
+.bulk-collection-columns-menu::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+.bulk-collection-columns-menu label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.bulk-collection-dirty {
+  color: var(--accent);
+  font-size: 0.875rem;
+  margin-left: auto;
+}
+
+.bulk-collection-grid {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+  border-radius: var(--radius);
+}
+
+.bulk-collection-grid .tabulator {
+  background: var(--surface);
+  border: none;
+  font-size: 0.8125rem;
+}
+
+.bulk-collection-grid .tabulator-tableholder {
+  scrollbar-width: auto;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--muted)) var(--bg);
+}
+
+.bulk-collection-grid .tabulator-tableholder::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.bulk-collection-grid .tabulator-tableholder::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 50%, var(--muted));
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+
+.bulk-collection-grid .tabulator-tableholder::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+.bulk-collection-grid .tabulator-tableholder::-webkit-scrollbar-corner {
+  background: var(--bg);
+}
+
+.bulk-collection-grid .tabulator-header {
+  background: color-mix(in srgb, var(--bg) 70%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+}
+
+.bulk-collection-grid .tabulator-col-title {
+  white-space: nowrap;
+}
+
+.bulk-collection-grid .tabulator-header-filter input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 1.5rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.75rem;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  background: var(--bg);
+  color: inherit;
+}
+
+.bulk-collection-grid .tabulator-header-filter input::placeholder {
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+
+.bulk-collection-grid .tabulator-header-filter input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.bulk-collection-grid .tabulator-row.bulk-row-dirty {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+.bulk-collection-grid .tabulator-cell.bulk-cell-computed {
+  color: color-mix(in srgb, var(--muted) 85%, var(--surface));
+  font-style: italic;
+}
+
+.bulk-collection-card .tabulator-edit-list {
+  z-index: 30;
+}
+
+.bulk-collection-grid .tabulator-cell.tabulator-range-selected:not(.tabulator-range-only-cell-selected) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+.bulk-collection-grid .tabulator-cell.tabulator-range-selected.tabulator-range-only-cell-selected {
+  background: color-mix(in srgb, var(--accent) 20%, transparent) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.bulk-collection-fill-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border: 1px solid var(--bg);
+  cursor: crosshair;
+  z-index: 12;
+}
+
+.bulk-collection-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.bulk-collection-save-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.bulk-collection-save-overlay.hidden {
+  display: none;
+}
+
+.bulk-collection-save-panel {
+  width: min(100%, 24rem);
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar {
+  --import-progress-track: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar::-webkit-progress-bar {
+  background: var(--import-progress-track, var(--surface));
+  border-radius: var(--radius);
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar::-webkit-progress-value {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 75%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 35%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: import-progress-shimmer 1.4s ease-in-out infinite;
+}
+
+.bulk-collection-save-panel--indeterminate .bulk-collection-save-bar::-moz-progress-bar {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 75%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 35%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: import-progress-shimmer 1.4s ease-in-out infinite;
+}
+
+.bulk-collection-save-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.bulk-collection-save-phase {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.bulk-collection-save-bar {
+  width: 100%;
+  height: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.bulk-collection-save-meta {
+  margin: 0;
+}
+
+.bulk-collection-card.is-saving .bulk-collection-header-actions,
+.bulk-collection-card.is-saving .bulk-collection-toolbar,
+.bulk-collection-card.is-saving .bulk-collection-grid,
+.bulk-collection-card.is-saving .bulk-collection-empty,
+.bulk-collection-card.is-saving .bulk-collection-loading {
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (max-width: 720px) {
+  .bulk-collection-overlay {
+    padding: 0;
+  }
+
+  .bulk-collection-card {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+}

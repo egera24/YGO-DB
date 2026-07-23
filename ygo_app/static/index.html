@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
-  <link rel="stylesheet" href="/static/css/style.css?v=133" />
+  <link rel="stylesheet" href="/static/css/style.css?v=135" />
   <link rel="stylesheet" href="/static/css/bulk-collection.css?v=6" />
   <link rel="stylesheet" href="/static/vendor/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css?v=1" />
 </head>
@@ -50,10 +50,22 @@
         <span id="app-currency-rate" class="app-currency-rate hidden" aria-live="polite"></span>
       </div>
       <span class="auth-panel-divider" aria-hidden="true"></span>
-      <span id="auth-user" class="auth-user hidden"></span>
       <input type="file" id="collection-csv-file" accept=".csv" class="hidden" />
-      <button type="button" id="account-export-btn" class="secondary hidden">Export my data</button>
-      <button type="button" id="account-delete-btn" class="secondary hidden">Delete account</button>
+      <div id="account-settings-wrap" class="preset-menu-wrap account-settings-wrap hidden">
+        <button type="button" id="account-settings-btn" class="icon-btn secondary"
+          aria-label="Account settings"
+          aria-haspopup="menu" aria-expanded="false" aria-controls="account-settings-menu">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+        <div id="account-settings-menu" class="preset-menu account-settings-menu" hidden role="menu">
+          <span id="auth-user" class="auth-user account-settings-email"></span>
+          <button type="button" role="menuitem" id="account-export-btn">Export my data</button>
+          <button type="button" role="menuitem" id="account-delete-btn" class="preset-menu-danger">Delete account</button>
+        </div>
+      </div>
       <button type="button" id="auth-logout" class="secondary hidden">Log out</button>
     </div>
   </header>
@@ -925,6 +937,47 @@
     </article>
   </div>
 
+  <div id="app-confirm-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="app-confirm-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="app-confirm-title">Confirm</h2>
+      </header>
+      <p id="app-confirm-message" class="app-confirm-message"></p>
+      <div class="export-collection-actions">
+        <button type="button" id="app-confirm-cancel" class="secondary">Cancel</button>
+        <button type="button" id="app-confirm-ok">Confirm</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="app-prompt-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="app-prompt-title" hidden>
+    <article class="modal-card modal-card--narrow">
+      <button type="button" id="app-prompt-close" class="modal-close" aria-label="Close">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="m6 6 12 12" />
+        </svg>
+      </button>
+      <header class="export-collection-header">
+        <h2 id="app-prompt-title">Enter a value</h2>
+      </header>
+      <form id="app-prompt-form" class="search-preset-name-form">
+        <label id="app-prompt-label" for="app-prompt-input">Name</label>
+        <input type="text" id="app-prompt-input" maxlength="128" autocomplete="off" required />
+        <div class="export-collection-actions">
+          <button type="button" id="app-prompt-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="app-prompt-submit">OK</button>
+        </div>
+      </form>
+    </article>
+  </div>
+
   <div id="collection-add-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="collection-add-title" hidden>
     <article class="modal-card modal-card--narrow modal-card--collection-add">
       <button type="button" id="collection-add-close" class="modal-close" aria-label="Close">
@@ -1229,6 +1282,6 @@
   </div>
 
   <script src="/static/vendor/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=1"></script>
-  <script src="/static/js/app.js?v=219" type="module"></script>
+  <script src="/static/js/app.js?v=222" type="module"></script>
 </body>
 </html>

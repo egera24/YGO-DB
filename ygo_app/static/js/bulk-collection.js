@@ -1,6 +1,7 @@
 /** Bulk collection spreadsheet modal (Tabulator). */
 
 import { rarityBadgeHtml } from "./rarity-badges.js";
+import { isAppDialogOpen } from "./ui-dialogs.js";
 
 let deps = null;
 let table = null;
@@ -1055,10 +1056,16 @@ export function isBulkCollectionSaving() {
   return saveInProgress;
 }
 
-export function closeBulkCollectionModal(force = false) {
+export async function closeBulkCollectionModal(force = false) {
   if (saveInProgress) return;
   if (!force && hasUnsavedChanges()) {
-    if (!confirm("Discard unsaved bulk collection changes?")) return;
+    const ok = await (deps.appConfirm?.({
+      title: "Discard changes",
+      message: "Discard unsaved bulk collection changes?",
+      confirmLabel: "Discard",
+      danger: true,
+    }) ?? Promise.resolve(true));
+    if (!ok) return;
   }
   const dlg = $("#bulk-collection-modal");
   if (dlg) dlg.hidden = true;
@@ -1076,17 +1083,27 @@ export function initBulkCollection(options) {
     openBulkCollectionModal();
   });
 
-  $("#bulk-collection-close")?.addEventListener("click", () => closeBulkCollectionModal());
+  $("#bulk-collection-close")?.addEventListener("click", () => {
+    void closeBulkCollectionModal();
+  });
 
   $("#bulk-collection-modal")?.addEventListener("click", (e) => {
     if (saveInProgress) return;
-    if (e.target === $("#bulk-collection-modal")) closeBulkCollectionModal();
+    if (e.target === $("#bulk-collection-modal")) void closeBulkCollectionModal();
   });
 
-  $("#bulk-collection-load")?.addEventListener("click", () => {
+  $("#bulk-collection-load")?.addEventListener("click", async () => {
     if (saveInProgress) return;
     const code = $("#bulk-collection-set-code")?.value;
-    if (hasUnsavedChanges() && !confirm("Reload and discard unsaved changes?")) return;
+    if (hasUnsavedChanges()) {
+      const ok = await (deps.appConfirm?.({
+        title: "Reload grid",
+        message: "Reload and discard unsaved changes?",
+        confirmLabel: "Reload",
+        danger: true,
+      }) ?? Promise.resolve(true));
+      if (!ok) return;
+    }
     loadGrid(code);
   });
 
@@ -1122,7 +1139,8 @@ export function initBulkCollection(options) {
     if (dlg?.hidden) return;
     if (e.key === "Escape") {
       if (saveInProgress) return;
-      closeBulkCollectionModal();
+      if (isAppDialogOpen()) return;
+      void closeBulkCollectionModal();
       return;
     }
     onBulkGridKeydown(e);

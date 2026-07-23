@@ -202,6 +202,23 @@ body.modal-open {
   color: var(--accent);
   font-size: 0.85rem;
 }
+.account-settings-wrap .icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+.account-settings-menu {
+  min-width: 14rem;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+}
+.account-settings-email {
+  display: block;
+  padding: 0.45rem 0.6rem 0.55rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .auth-landing {
   display: flex;
@@ -629,6 +646,12 @@ main {
 }
 .search-preset-name-form input {
   width: 100%;
+}
+.app-confirm-message {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
 }
 .preset-menu-wrap {
   position: relative;

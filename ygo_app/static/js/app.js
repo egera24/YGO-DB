@@ -24,6 +24,13 @@ import {
   syncSortToggleLabel,
   syncTableHeaderSort,
 } from "./sort-controls.js";
+import {
+  appConfirm,
+  appPrompt,
+  cancelAppDialog,
+  initAppDialogs,
+  isAppDialogOpen,
+} from "./ui-dialogs.js";
 
 const API = "/api";
 const CURRENCY_STORAGE_KEY = "ygo-currency";
@@ -343,7 +350,7 @@ async function applyRouteFromHash({ initial = false } = {}) {
         route.invalid ||
         !route.deckId ||
         route.deckId !== state.activeDeckId);
-    if (!initial && leavingDirtyDeck && !confirmLeaveDeck()) {
+    if (!initial && leavingDirtyDeck && !(await confirmLeaveDeck())) {
       syncRouteHash({ replace: true });
       return;
     }
@@ -855,17 +862,14 @@ async function submitAuthForm(form, action, { busyLabel, successToast } = {}) {
 function updateAuthUI() {
   const loggedIn = Boolean(state.token && state.user);
   $("#auth-logout")?.classList.toggle("hidden", !loggedIn);
-  $("#account-export-btn")?.classList.toggle("hidden", !loggedIn);
-  $("#account-delete-btn")?.classList.toggle("hidden", !loggedIn);
+  $("#account-settings-wrap")?.classList.toggle("hidden", !loggedIn);
+  if (!loggedIn) closeAccountSettingsMenu();
   $("#collection-toolbar-actions")?.classList.toggle("hidden", !loggedIn);
   refreshBulkCollectionAuthVisibility(loggedIn);
   $("#search-presets-bar")?.classList.toggle("hidden", !loggedIn);
   const userEl = $("#auth-user");
-  if (loggedIn) {
-    userEl.textContent = state.user.email;
-    userEl.classList.remove("hidden");
-  } else {
-    userEl.classList.add("hidden");
+  if (userEl) {
+    userEl.textContent = loggedIn ? state.user.email : "";
   }
 }
 
@@ -985,6 +989,16 @@ function logout() {
     location.hash = "#/";
     suppressHashSync = false;
   }
+}
+
+async function confirmLogout() {
+  const ok = await appConfirm({
+    title: "Log out",
+    message: "Log out of your account?",
+    confirmLabel: "Log out",
+  });
+  if (!ok) return;
+  logout();
 }
 
 async function loadStatus() {
@@ -2147,12 +2161,37 @@ function closeCollectionToolbarMenus() {
   }
 }
 
+function closeAccountSettingsMenu() {
+  const menu = $("#account-settings-menu");
+  const btn = $("#account-settings-btn");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  btn?.setAttribute("aria-expanded", "false");
+}
+
+function toggleAccountSettingsMenu() {
+  const menu = $("#account-settings-menu");
+  const btn = $("#account-settings-btn");
+  if (!menu || !btn) return;
+  const isOpen = !menu.hidden;
+  closeAccountSettingsMenu();
+  closeCollectionToolbarMenus();
+  closeSearchToolPanels();
+  closeAllCollectionRowMenus();
+  closeAllCollectionFolderMenus();
+  closeAllDeckTileMenus();
+  if (isOpen) return;
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+
 function toggleCollectionToolbarMenu(menuId, btnId) {
   const menu = $(`#${menuId}`);
   const btn = $(`#${btnId}`);
   if (!menu || !btn) return;
   const isOpen = !menu.hidden;
   closeCollectionToolbarMenus();
+  closeAccountSettingsMenu();
   closeSearchToolPanels();
   closeAllCollectionRowMenus();
   closeAllDeckTileMenus();
@@ -2791,7 +2830,14 @@ async function createSearchPresetByName(snapshot, name) {
       showToast(err.message, { variant: "error", durationMs: 5000 });
       return;
     }
-    if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) {
+    if (
+      !(await appConfirm({
+        title: "Overwrite preset",
+        message: `A preset named "${name}" already exists. Overwrite it?`,
+        confirmLabel: "Overwrite",
+        danger: true,
+      }))
+    ) {
       return;
     }
     const preset = await api("/search-presets", {
@@ -2869,7 +2915,16 @@ async function deleteSearchPreset(presetId) {
   }
   if (!presetId) return;
   const current = state.searchPresets.find((p) => p.id === presetId);
-  if (!confirm(`Delete preset "${current?.name || presetId}"?`)) return;
+  if (
+    !(await appConfirm({
+      title: "Delete preset",
+      message: `Delete preset "${current?.name || presetId}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    }))
+  ) {
+    return;
+  }
 
   await api(`/search-presets/${presetId}`, { method: "DELETE" });
   if (state.activePresetId === presetId) state.activePresetId = null;
@@ -3091,6 +3146,7 @@ function isModalVisible(id) {
 
 function syncModalOpenClass() {
   if (
+    isAppDialogOpen() ||
     isModalVisible("#card-modal") ||
     isModalVisible("#card-errata-modal") ||
     isModalVisible("#card-tips-modal") ||
@@ -3099,6 +3155,8 @@ function syncModalOpenClass() {
     isModalVisible("#export-collection-modal") ||
     isModalVisible("#search-preset-save-modal") ||
     isModalVisible("#search-preset-name-modal") ||
+    isModalVisible("#import-mode-modal") ||
+    isModalVisible("#import-progress-modal") ||
     isModalVisible("#collection-add-modal") ||
     isModalVisible("#collection-edit-modal") ||
     isModalVisible("#bulk-collection-modal") ||
@@ -5134,16 +5192,16 @@ function openFolderAllocationEditor(item, itemId) {
       });
     });
     if (!selected.length) {
-      alert("Folder is required. Select at least one folder.");
+      showToast("Folder is required. Select at least one folder.", { variant: "error" });
       return;
     }
     if (selected.some((row) => row.folder_id == null || Number.isNaN(row.folder_id))) {
-      alert("Folder is required.");
+      showToast("Folder is required.", { variant: "error" });
       return;
     }
     const sum = selected.reduce((acc, row) => acc + row.quantity, 0);
     if (sum !== totalQty) {
-      alert(`Quantities must sum to ${totalQty} (currently ${sum}).`);
+      showToast(`Quantities must sum to ${totalQty} (currently ${sum}).`, { variant: "error" });
       return;
     }
     try {
@@ -5151,7 +5209,7 @@ function openFolderAllocationEditor(item, itemId) {
       closeFolderAllocationPopover();
       await loadCollectionPage(state.collectionPage);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, { variant: "error" });
     }
   });
 
@@ -5196,7 +5254,7 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
     targets.push({ id: folder.id, name: folder.name });
   }
   if (!targets.length) {
-    alert("No other folder available. Create a folder first.");
+    showToast("No other folder available. Create a folder first.", { variant: "error" });
     return;
   }
 
@@ -5303,7 +5361,11 @@ function openMoveCopyPopover(item, itemId, mode, anchor) {
 }
 
 async function createCollectionFolder() {
-  const name = prompt("New folder name:");
+  const name = await appPrompt({
+    title: "New folder",
+    label: "Folder name",
+    submitLabel: "Create",
+  });
   if (!name?.trim()) return;
   try {
     await api("/collection/folders", {
@@ -5315,7 +5377,7 @@ async function createCollectionFolder() {
     renderCollectionStatsLine();
     renderCollectionSidebar();
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, { variant: "error" });
   }
 }
 
@@ -5515,7 +5577,12 @@ function renderCollectionSidebar() {
     async function renameFolder() {
       if (!folderId) return;
       const fromName = folderName();
-      const toName = prompt("Rename folder:", fromName);
+      const toName = await appPrompt({
+        title: "Rename folder",
+        label: "Folder name",
+        defaultValue: fromName,
+        submitLabel: "Rename",
+      });
       if (!toName?.trim() || toName.trim() === fromName) return;
       try {
         await api(`/collection/folders/${folderId}`, {
@@ -5527,7 +5594,7 @@ function renderCollectionSidebar() {
         renderCollectionSidebar();
         await loadCollectionPage(state.collectionPage);
       } catch (err) {
-        alert(err.message);
+        showToast(err.message, { variant: "error" });
       }
     }
 
@@ -5538,7 +5605,13 @@ function renderCollectionSidebar() {
       const qty = folderStats?.quantity ?? 0;
       const count = folderStats?.item_count ?? 0;
       if (count === 0 && qty === 0) {
-        if (!confirm(`Delete empty folder "${name}"?`)) return;
+        const ok = await appConfirm({
+          title: "Delete folder",
+          message: `Delete empty folder "${name}"?`,
+          confirmLabel: "Delete",
+          danger: true,
+        });
+        if (!ok) return;
         try {
           await api(`/collection/folders/${folderId}`, { method: "DELETE" });
           if (state.collectionFolder === String(folderId)) {
@@ -5549,7 +5622,7 @@ function renderCollectionSidebar() {
           renderCollectionSidebar();
           await loadCollectionPage(state.collectionPage);
         } catch (err) {
-          alert(err.message);
+          showToast(err.message, { variant: "error" });
         }
         return;
       }
@@ -5625,7 +5698,15 @@ async function patchCollectionItem(itemId, body) {
 }
 
 async function removeCollectionItem(itemId, { confirm: askConfirm = true } = {}) {
-  if (askConfirm && !confirm("Remove this printing from your collection?")) return false;
+  if (askConfirm) {
+    const ok = await appConfirm({
+      title: "Remove printing",
+      message: "Remove this printing from your collection?",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return false;
+  }
   await api(`/collection/${itemId}`, { method: "DELETE" });
   await loadCollectionStats();
   renderCollectionStatsLine();
@@ -6086,19 +6167,19 @@ async function saveCollectionEdit() {
 
   const qty = Number($("#collection-edit-quantity").value);
   if (!Number.isInteger(qty) || qty < 1) {
-    alert("Quantity must be a whole number of at least 1.");
+    showToast("Quantity must be a whole number of at least 1.", { variant: "error" });
     return;
   }
 
   const tradeQty = Number($("#collection-edit-trade-quantity").value);
   if (!Number.isInteger(tradeQty) || tradeQty < 0) {
-    alert("Trade quantity must be a whole number of 0 or more.");
+    showToast("Trade quantity must be a whole number of 0 or more.", { variant: "error" });
     return;
   }
 
   const sellPrice = parsePriceInput($("#collection-edit-sell-price").value);
   if (Number.isNaN(sellPrice) || sellPrice < 0) {
-    alert("Sell price must be 0 or greater.");
+    showToast("Sell price must be 0 or greater.", { variant: "error" });
     return;
   }
 
@@ -6144,7 +6225,7 @@ async function saveCollectionEdit() {
         )
         .filter((row) => row.quantity > 0);
       if (updated.some((row) => row.folder_id == null)) {
-        alert("Folder is required. Assign all unfiled copies to a folder first.");
+        showToast("Folder is required. Assign all unfiled copies to a folder first.", { variant: "error" });
         return;
       }
       body.quantity = updated.reduce((sum, row) => sum + row.quantity, 0);
@@ -6179,7 +6260,7 @@ async function saveCollectionEdit() {
       await refreshModalCard();
     }
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, { variant: "error" });
   }
 }
 
@@ -6300,7 +6381,7 @@ function setupCollectionTableDelegation() {
       try {
         await removeCollectionItem(itemId);
       } catch (err) {
-        alert(err.message);
+        showToast(err.message, { variant: "error" });
       }
       return;
     }
@@ -6720,7 +6801,12 @@ function toggleDeckTileMenu(btn) {
 }
 
 async function renameDeckFromList(deckId, currentName) {
-  const newName = prompt("Rename deck:", currentName);
+  const newName = await appPrompt({
+    title: "Rename deck",
+    label: "Deck name",
+    defaultValue: currentName,
+    submitLabel: "Rename",
+  });
   if (!newName?.trim() || newName.trim() === currentName) return;
   try {
     await api(`/decks/${deckId}`, {
@@ -6745,7 +6831,13 @@ async function renameDeckFromList(deckId, currentName) {
 }
 
 async function deleteDeckFromList(deckId, label) {
-  if (!confirm(`Delete deck "${label}"? This cannot be undone.`)) return;
+  const ok = await appConfirm({
+    title: "Delete deck",
+    message: `Delete deck "${label}"? This cannot be undone.`,
+    confirmLabel: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api(`/decks/${deckId}`, { method: "DELETE" });
     if (state.activeDeckId === deckId) {
@@ -7026,9 +7118,14 @@ function addCardToActiveDraft(cardId, zone, cardMeta) {
   return true;
 }
 
-function confirmLeaveDeck() {
+async function confirmLeaveDeck() {
   if (!state.deckDirty) return true;
-  return confirm("You have unsaved changes. Leave without saving?");
+  return appConfirm({
+    title: "Unsaved changes",
+    message: "You have unsaved changes. Leave without saving?",
+    confirmLabel: "Leave",
+    danger: true,
+  });
 }
 
 function runDraftValidationPreview() {
@@ -7527,7 +7624,7 @@ async function openDeckDetail(deckId, { fromRouter = false } = {}) {
     return;
   }
   if (state.decksDetailOpen && state.deckDirty) {
-    if (!confirmLeaveDeck()) {
+    if (!(await confirmLeaveDeck())) {
       if (!fromRouter) syncRouteHash();
       return;
     }
@@ -7569,7 +7666,12 @@ async function renameDeck() {
     return;
   }
   const currentName = state.deckDraft.name;
-  const newName = prompt("Rename deck:", currentName);
+  const newName = await appPrompt({
+    title: "Rename deck",
+    label: "Deck name",
+    defaultValue: currentName,
+    submitLabel: "Rename",
+  });
   if (!newName?.trim() || newName.trim() === currentName) return;
   state.deckDraft.name = newName.trim();
   markDeckDirty();
@@ -7582,10 +7684,12 @@ async function selectDeck(deckId) {
 }
 
 function wireEvents() {
+  initAppDialogs({ syncModalOpenClass });
   initBulkCollection({
     $,
     API,
     showToast,
+    appConfirm,
     readNdjsonStream,
     isLoggedIn: () => Boolean(state.token && state.user),
     authHeaders: () => (state.token ? { Authorization: `Bearer ${state.token}` } : {}),
@@ -7612,12 +7716,12 @@ function wireEvents() {
   setupDeckZoneInfoDelegation();
 
   document.querySelectorAll(".tab[data-view]").forEach((tab) => {
-    tab.addEventListener("click", () => {
+    tab.addEventListener("click", async () => {
       if (isModalVisible("#card-modal")) {
         closeCardModalOverlay({ fromRouter: true });
       }
       if (state.decksDetailOpen) {
-        if (!confirmLeaveDeck()) return;
+        if (!(await confirmLeaveDeck())) return;
         closeDeckDetail({ fromRouter: true });
       }
       switchView(tab.dataset.view);
@@ -7705,6 +7809,7 @@ function wireEvents() {
     ) {
       closeCollectionToolbarMenus();
     }
+    if (!e.target.closest(".account-settings-wrap")) closeAccountSettingsMenu();
     if (!e.target.closest(".collection-row-menu-wrap")) closeAllCollectionRowMenus();
     if (!e.target.closest(".collection-folder-menu-wrap")) closeAllCollectionFolderMenus();
     if (!e.target.closest(".deck-tile-menu-wrap")) closeAllDeckTileMenus();
@@ -7799,12 +7904,20 @@ function wireEvents() {
     $("#register-email")?.focus();
   });
 
-  $("#auth-logout")?.addEventListener("click", logout);
+  $("#auth-logout")?.addEventListener("click", confirmLogout);
 
+  $("#account-settings-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleAccountSettingsMenu();
+  });
   $("#account-export-btn")?.addEventListener("click", () => {
+    closeAccountSettingsMenu();
     void exportAccountData();
   });
-  $("#account-delete-btn")?.addEventListener("click", openDeleteAccountModal);
+  $("#account-delete-btn")?.addEventListener("click", () => {
+    closeAccountSettingsMenu();
+    openDeleteAccountModal();
+  });
   $("#delete-account-close")?.addEventListener("click", closeDeleteAccountModal);
   $("#delete-account-cancel")?.addEventListener("click", closeDeleteAccountModal);
   $("#delete-account-confirm")?.addEventListener("click", () => {
@@ -7818,7 +7931,7 @@ function wireEvents() {
   $("#import-collection-btn")?.addEventListener("click", () => {
     closeCollectionToolbarMenus();
     if (!state.token) {
-      alert("Log in first.");
+      showToast("Log in first.", { variant: "error" });
       return;
     }
     $("#collection-csv-file")?.click();
@@ -7827,7 +7940,7 @@ function wireEvents() {
   $("#export-collection-btn")?.addEventListener("click", async () => {
     closeCollectionToolbarMenus();
     if (!state.token) {
-      alert("Log in first.");
+      showToast("Log in first.", { variant: "error" });
       return;
     }
     try {
@@ -7836,7 +7949,7 @@ function wireEvents() {
         api("/collection/stats"),
       ]);
       if (!formats.length) {
-        alert("No export formats available.");
+        showToast("No export formats available.", { variant: "error" });
         return;
       }
       state.collectionStats = stats;
@@ -7844,7 +7957,7 @@ function wireEvents() {
       renderExportFolderOptions(stats);
       openExportCollectionModal();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, { variant: "error" });
     }
   });
 
@@ -7856,7 +7969,7 @@ function wireEvents() {
   $("#trade-settings-btn")?.addEventListener("click", async () => {
     closeCollectionToolbarMenus();
     if (!state.token) {
-      alert("Log in first.");
+      showToast("Log in first.", { variant: "error" });
       return;
     }
     await loadTradeSettings();
@@ -7965,7 +8078,7 @@ function wireEvents() {
   $("#export-collection-confirm")?.addEventListener("click", async () => {
     const selected = document.querySelector('input[name="export-format"]:checked');
     if (!selected) {
-      alert("Choose an export format.");
+      showToast("Choose an export format.", { variant: "error" });
       return;
     }
     const confirmBtn = $("#export-collection-confirm");
@@ -7975,7 +8088,7 @@ function wireEvents() {
       await downloadCollectionExport(selected.value, folderIds);
       closeExportCollectionModal();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, { variant: "error" });
     } finally {
       if (confirmBtn) confirmBtn.disabled = false;
     }
@@ -8071,6 +8184,9 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (cancelAppDialog()) {
+      return;
+    }
     if (document.querySelector(".folder-allocation-popover:not(.move-copy-popover)")) {
       closeFolderAllocationPopover();
     } else if (document.querySelector(".collection-row-menu:not([hidden])")) closeAllCollectionRowMenus();
@@ -8078,6 +8194,8 @@ function wireEvents() {
     else if (document.querySelector(".deck-tile-menu:not([hidden])")) closeAllDeckTileMenus();
     else if (document.querySelector("#collection-manage-menu:not([hidden]), #collection-trade-menu:not([hidden])")) {
       closeCollectionToolbarMenus();
+    } else if (document.querySelector("#account-settings-menu:not([hidden])")) {
+      closeAccountSettingsMenu();
     } else if (
       $("#search-presets-panel")?.open ||
       $("#search-sort-panel")?.open ||
@@ -8093,7 +8211,7 @@ function wireEvents() {
     else if (isModalVisible("#collection-add-modal")) closeAddCollectionModal();
     else if (isModalVisible("#collection-edit-modal")) closeCollectionEditModal();
     else if (isModalVisible("#bulk-collection-modal") && !isBulkCollectionSaving()) {
-      closeBulkCollectionModal();
+      void closeBulkCollectionModal();
     }
     else if (isModalVisible("#export-collection-modal")) closeExportCollectionModal();
     else if (isModalVisible("#delete-account-modal")) closeDeleteAccountModal();
@@ -8109,7 +8227,7 @@ function wireEvents() {
 
   $("#modal-favorite").addEventListener("click", async () => {
     if (!state.token) {
-      alert("Log in to use favorites.");
+      showToast("Log in to use favorites.", { variant: "error" });
       return;
     }
     const btn = $("#modal-favorite");
@@ -8139,7 +8257,7 @@ function wireEvents() {
 
   $("#tag-add-btn").addEventListener("click", async () => {
     if (!state.token) {
-      alert("Log in to add tags.");
+      showToast("Log in to add tags.", { variant: "error" });
       return;
     }
     const tag = $("#tag-input").value.trim();
@@ -8182,7 +8300,7 @@ function wireEvents() {
     const removeBtn = e.target.closest(".tag-remove");
     if (removeBtn) {
       if (!state.token) {
-        alert("Log in to manage tags.");
+        showToast("Log in to manage tags.", { variant: "error" });
         return;
       }
       const tagEl = removeBtn.closest(".tag");
@@ -8303,8 +8421,8 @@ function wireEvents() {
     }
   });
 
-  $("#decks-back-btn")?.addEventListener("click", () => {
-    if (!confirmLeaveDeck()) return;
+  $("#decks-back-btn")?.addEventListener("click", async () => {
+    if (!(await confirmLeaveDeck())) return;
     closeDeckDetail();
     loadDecks({ background: true });
   });
@@ -8312,9 +8430,15 @@ function wireEvents() {
   $("#deck-save-btn")?.addEventListener("click", () => {
     saveDeck().catch((err) => showToast(err.message, { variant: "error" }));
   });
-  $("#deck-discard-btn")?.addEventListener("click", () => {
+  $("#deck-discard-btn")?.addEventListener("click", async () => {
     if (!state.deckDirty) return;
-    if (!confirm("Discard unsaved changes?")) return;
+    const ok = await appConfirm({
+      title: "Discard changes",
+      message: "Discard unsaved changes?",
+      confirmLabel: "Discard",
+      danger: true,
+    });
+    if (!ok) return;
     discardDeckChanges();
   });
 
@@ -8341,7 +8465,11 @@ function wireEvents() {
   });
 
   $("#new-deck-btn").addEventListener("click", async () => {
-    const name = prompt("Deck name:");
+    const name = await appPrompt({
+      title: "New deck",
+      label: "Deck name",
+      submitLabel: "Create",
+    });
     if (!name?.trim()) return;
     const deck = await api("/decks", {
       method: "POST",
@@ -8839,7 +8967,7 @@ function openDeleteAccountModal() {
     showToast("Log in first.", { variant: "error" });
     return;
   }
-  deleteAccountTrigger = $("#account-delete-btn");
+  deleteAccountTrigger = $("#account-settings-btn");
   const modal = $("#delete-account-modal");
   if (!modal) return;
   const errorEl = $("#delete-account-error");
@@ -8865,7 +8993,7 @@ function closeDeleteAccountModal() {
   if (!modal || modal.hidden) return;
   modal.hidden = true;
   syncModalOpenClass();
-  (deleteAccountTrigger ?? $("#account-delete-btn"))?.focus();
+  (deleteAccountTrigger ?? $("#account-settings-btn"))?.focus();
   deleteAccountTrigger = null;
 }
 

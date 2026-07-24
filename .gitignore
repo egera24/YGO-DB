@@ -28,6 +28,9 @@ yugipedia/image_small/
 *.png
 *.gif
 *.webp
+# Brand / favicon assets must ship with the app (override *.png above)
+!ygo_app/static/img/app-icon.png
+!ygo_app/static/img/favicon-32.png
 
 # Logs
 *.log

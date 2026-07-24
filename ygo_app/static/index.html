@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title>YGO Collection & Deck Builder</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=1" />
-  <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=1" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png?v=2" />
+  <link rel="apple-touch-icon" href="/static/img/app-icon.png?v=2" />
   <link rel="preconnect" href="https://ms.yugipedia.com" crossorigin />
   <link rel="dns-prefetch" href="https://ms.yugipedia.com" />
   <link rel="stylesheet" href="/static/css/style.css?v=137" />
@@ -24,7 +24,71 @@
   </div>
   <header class="app-header">
     <div class="brand">
-      <img class="brand-mark" src="/static/img/app-icon.png?v=1" width="48" height="48" alt="YGO Collection & Deck Builder" />
+      <img class="brand-mark" id="brand-mark" src="/static/img/app-icon.png?v=2" width="48" height="48" alt="YGO Collection & Deck Builder" />
+      <!-- #region agent log -->
+      <script>
+      (function () {
+        const endpoint = "http://127.0.0.1:7367/ingest/7f5f8718-6e23-436a-8207-46a7d2058bd3";
+        const send = (message, data, hypothesisId) => {
+          fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "6ebc4a" },
+            body: JSON.stringify({
+              sessionId: "6ebc4a",
+              runId: "post-fix",
+              hypothesisId,
+              location: "index.html:brand-mark",
+              message,
+              data,
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+        };
+        const img = document.getElementById("brand-mark");
+        if (!img) {
+          send("brand-mark element missing", {}, "E");
+          return;
+        }
+        const cs = window.getComputedStyle(img);
+        send(
+          "brand-mark init",
+          {
+            src: img.getAttribute("src"),
+            complete: img.complete,
+            naturalWidth: img.naturalWidth,
+            display: cs.display,
+            visibility: cs.visibility,
+            opacity: cs.opacity,
+            width: cs.width,
+            height: cs.height,
+          },
+          "C"
+        );
+        img.addEventListener("load", () => {
+          send(
+            "brand-mark load ok",
+            { naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, currentSrc: img.currentSrc },
+            "D"
+          );
+        });
+        img.addEventListener("error", () => {
+          send("brand-mark load error", { src: img.currentSrc || img.src }, "A");
+        });
+        fetch(img.getAttribute("src") || "/static/img/app-icon.png?v=2", { method: "HEAD", cache: "no-store" })
+          .then((r) =>
+            send(
+              "brand-mark HEAD",
+              { status: r.status, ok: r.ok, contentType: r.headers.get("content-type") },
+              "A"
+            )
+          )
+          .catch((e) => send("brand-mark HEAD network fail", { err: String(e) }, "B"));
+        fetch("/static/img/favicon-32.png?v=2", { method: "HEAD", cache: "no-store" })
+          .then((r) => send("favicon HEAD", { status: r.status, ok: r.ok }, "A"))
+          .catch((e) => send("favicon HEAD fail", { err: String(e) }, "B"));
+      })();
+      </script>
+      <!-- #endregion -->
       <div>
         <h1>Collection & Deck Builder</h1>
         <p id="status-line" class="app-shell hidden" aria-hidden="true">Loading…</p>

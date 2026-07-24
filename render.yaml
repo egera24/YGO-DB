@@ -42,5 +42,5 @@ services:
       - key: EMAIL_BACKEND
         value: brevo
       # Optional OAuth — set OAUTH_REDIRECT_BASE_URL to this service's public URL
-      # (e.g. https://ygo-app.onrender.com) plus provider client id/secret pairs.
+      # (e.g. https://ygo-app-jyek.onrender.com) plus provider client id/secret pairs.
     healthCheckPath: /api/health

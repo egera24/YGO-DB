@@ -25,7 +25,7 @@ jobs:
               print(f"Skip outside 08:00-22:00 Budapest: {now.isoformat()}")
               raise SystemExit(0)
 
-          url = "https://ygo-app.onrender.com/api/health"
+          url = "https://ygo-app-jyek.onrender.com/api/health"
           try:
               with urllib.request.urlopen(url, timeout=60) as r:
                   body = r.read().decode()

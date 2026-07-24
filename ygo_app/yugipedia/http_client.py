@@ -69,6 +69,13 @@ def _is_retryable_error(error_type: str, error_str: str) -> bool:
     )
 
 
+def _format_fetch_error(error_type: str, error_str: str, *, page_label: str) -> str:
+    """Format fetch errors without truncating mid-URL (avoids misleading page=C)."""
+    # requests.HTTPError: "502 Server Error: Bad Gateway for url: https://..."
+    short = error_str.split(" for url:", 1)[0].strip() or error_str[:80]
+    return f"{error_type}: {short} page={page_label}"
+
+
 def wiki_title_from_url(url: str) -> str | None:
     """Return a MediaWiki page title from a Yugipedia wiki URL, or None."""
     if not url:
@@ -172,7 +179,7 @@ def _fetch_via_parse(
                 )
                 time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
                 continue
-            return None, f"{error_type}: {error_str[:100]}"
+            return None, _format_fetch_error(error_type, error_str, page_label=label)
     return None, f"Failed after {retries} retry attempts"
 
 
@@ -226,7 +233,9 @@ def _fetch_via_wiki_url(
                 )
                 time.sleep(RETRY_DELAYS[attempt] + random.uniform(0, 2))
                 continue
-            return None, f"{error_type}: {error_str[:100]}"
+            return None, _format_fetch_error(
+                error_type, error_str, page_label=url[:60]
+            )
     return None, f"Failed after {retries} retry attempts"
 
 

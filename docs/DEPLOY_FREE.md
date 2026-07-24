@@ -90,10 +90,10 @@ python -m ygo_app.jobs.sync_card_images --manifest-only   # rebuild manifest fro
 
 Vendor migration later: `rclone sync` the bucket to any S3-compatible provider, change `S3_*` + `IMAGE_BASE_URL` secrets, re-run the import (or one SQL `UPDATE ... replace(...)`).
 
-### Optional: keep-alive workflows
+### Optional: keep-alive
 
-- **Neon DB keep-alive** — pings **production** and **dev** databases every few days (requires both secrets).
-- **Render prod keep-alive** — pings production `GET /api/health` every 10 minutes during **Europe/Budapest 08:00–22:00** so the free web service stays warm (~420 Free instance hours/month). Does **not** ping staging. Do **not** run a 24/7 keep-alive on free (shared 750-hour workspace quota; two always-on free services would exhaust it).
+- **Neon DB keep-alive** (GitHub Actions) — pings **production** and **dev** databases every few days (requires both secrets).
+- **Render prod keep-alive** ([cron-job.org](https://cron-job.org/en/)) — pings production `GET /api/health` every 10 minutes during **Europe/Budapest 08:00–22:00** so the free web service stays warm (~420 Free instance hours/month). Does **not** ping staging. Do **not** run a 24/7 keep-alive on free (shared 750-hour workspace quota; two always-on free services would exhaust it). Setup: **[render-keepalive.md](render-keepalive.md)**.
 
 See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → production workflow.
 

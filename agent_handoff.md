@@ -279,6 +279,7 @@ Tests: [`test_import_collection_csv.py`](tests/test_import_collection_csv.py), [
 | [`import-cardmarket-prices.yml`](.github/workflows/import-cardmarket-prices.yml) | Import Cardmarket prices | **Import only** — re-import latest `archives/.../cardmarket_prices.zip` from R2 bucket `ygo-cardmarket` |
 | [`db-keepalive.yml`](.github/workflows/db-keepalive.yml) | Neon DB keep-alive | Both secrets |
 
+- **Render prod keep-alive** is **not** a GHA workflow — use [cron-job.org](https://cron-job.org/en/) per [`docs/render-keepalive.md`](docs/render-keepalive.md) (every 10 min, Europe/Budapest 08:00–22:00).
 - Workflows only appear in the Actions UI when present on the **default branch (`main`)**. Running with branch `develop` uses **code from `develop`** (must include `ygo_app/yugipedia/`).
 - `test_mode` (workflow_dispatch): `--max-cards` on scrape, `--limit` on import; **dev only** (blocked on production); the `import` job uses `always()` so it runs even when batches 1–5 are skipped. Use **Run workflow** (new run) — **Re-run failed jobs** reuses the old commit and breaks fixes.
 - `import-catalog-yugipedia-dev.yml` is optional/not required — use the main workflow with branch `develop` + environment `dev`.

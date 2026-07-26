@@ -115,7 +115,7 @@ python -m ygo_app.jobs.import_catalog
 
 | Service | Purpose |
 |---------|---------|
-| **cron-job.org** (Render prod) | Pings production `/api/health` every 10 min during Europe/Budapest 08:00–22:00. Staging not pinged. See **[render-keepalive.md](render-keepalive.md)**. |
+| **Render prod keep-alive** | GHA **cold wake** ~07:50 Budapest + **cron-job.org** every 10 min 08:00–22:00. Staging not pinged. See **[render-keepalive.md](render-keepalive.md)**. |
 
 ---
 

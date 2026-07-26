@@ -1,0 +1,48 @@
+name: Render prod cold wake
+
+# Free Render spins down after ~15 min idle. The first ping after overnight sleep is a
+# cold start (~50–60s). cron-job.org times out at 30s and returns hibernate-wake-error,
+# so the service never wakes and every daytime ping fails until something retries long enough.
+# This job runs once each morning before the cron-job.org window with curl retries.
+# Daytime keep-alive remains on cron-job.org (see docs/render-keepalive.md).
+
+on:
+  schedule:
+    # 05:50 and 06:50 UTC cover Europe/Budapest 07:50 in CEST and CET; zoneinfo gate below
+    # skips the run that is not in the local wake window.
+    - cron: "50 5 * * *"
+    - cron: "50 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: render-prod-cold-wake
+  cancel-in-progress: false
+
+jobs:
+  cold-wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cold-wake prod /api/health if in morning window
+        run: |
+          python - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          now = datetime.now(ZoneInfo("Europe/Budapest"))
+          # Target ~07:50 Budapest; allow 07:45–08:14 for GHA schedule jitter.
+          in_window = (
+              (now.hour == 7 and now.minute >= 45)
+              or (now.hour == 8 and now.minute < 15)
+          )
+          if not in_window:
+              print(f"Skip outside morning cold-wake window: {now.isoformat()}")
+              raise SystemExit(0)
+          print(f"Cold-wake window OK: {now.isoformat()}")
+          PY
+
+      - name: Ping with retries (wait out cold start)
+        run: |
+          curl -fsS --max-time 90 \
+            --retry 5 --retry-delay 15 --retry-all-errors \
+            "https://ygo-app-jyek.onrender.com/api/health"

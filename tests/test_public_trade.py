@@ -18,7 +18,7 @@ from ygo_app.api.main import app
 from ygo_app.auth import create_access_token
 from ygo_app.database import get_db
 from ygo_app.models import Base, Card, CollectionItem, Printing, PrintingMarketPrice, User
-from ygo_app.trade_export import TRADE_HEADERS
+from ygo_app.trade_export import TRADE_HEADERS, TRADE_ORDER_HEADERS, write_trade_order_xlsx
 from ygo_app.trade_share import generate_trade_share_slug
 
 
@@ -555,6 +555,32 @@ class TestPublicTrade(unittest.TestCase):
         self.assertEqual(orders[0]["lines"][0]["quantity"], 1)
 
     @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
+    def test_order_request_send_copy_to_buyer(self, send_mock):
+        response = self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 1}],
+                "email": "buyer@test.example",
+                "gdpr_consent": True,
+                "send_copy_to_buyer": True,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        send_mock.assert_called_once()
+        self.assertTrue(send_mock.call_args.kwargs["send_copy_to_buyer"])
+
+    def test_order_request_send_copy_requires_email(self):
+        response = self.client.post(
+            "/api/public/trade/owner-trade-list/order-request",
+            json={
+                "lines": [{"item_id": self.trade_item_id, "quantity": 1}],
+                "gdpr_consent": True,
+                "send_copy_to_buyer": True,
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+
+    @patch("ygo_app.api.routes.public_trade.send_trade_order_request")
     def test_order_request_locks_prevent_oversell(self, _send_mock):
         first = self.client.post(
             "/api/public/trade/owner-trade-list/order-request",
@@ -891,6 +917,36 @@ class TestPublicTrade(unittest.TestCase):
         rows = list(wb.active.iter_rows(min_row=2, values_only=True))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][3], "UR")
+
+    def test_write_trade_order_xlsx_columns(self):
+        content = write_trade_order_xlsx(
+            [
+                {
+                    "card_name": "Relinquished",
+                    "set_code": "SS01-ENC08",
+                    "set_name": "Starter Deck",
+                    "rarity_display": "C",
+                    "condition": "NearMint",
+                    "quantity": 1,
+                    "list_price": 0.31,
+                    "offer_price": 0.25,
+                    "comment": "Ez egy comment",
+                }
+            ]
+        )
+        wb = load_workbook(io.BytesIO(content))
+        headers = [cell.value for cell in next(wb.active.iter_rows(min_row=1, max_row=1))]
+        self.assertEqual(headers, TRADE_ORDER_HEADERS)
+        row = next(wb.active.iter_rows(min_row=2, max_row=2, values_only=True))
+        self.assertEqual(row[0], "Relinquished")
+        self.assertEqual(row[1], "SS01-ENC08")
+        self.assertEqual(row[2], "Starter Deck")
+        self.assertEqual(row[3], "C")
+        self.assertEqual(row[4], "NearMint")
+        self.assertEqual(row[5], 1)
+        self.assertEqual(row[6], 0.31)
+        self.assertEqual(row[7], 0.25)
+        self.assertEqual(row[8], "Ez egy comment")
 
 
 if __name__ == "__main__":

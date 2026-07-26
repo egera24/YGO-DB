@@ -182,6 +182,7 @@ def submit_trade_order_request(
         buyer_contact=buyer_contact,
         lines=lines,
         submitted_at=submitted_at,
+        send_copy_to_buyer=body.send_copy_to_buyer,
     )
 
     logger.info(

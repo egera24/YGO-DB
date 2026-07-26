@@ -1493,6 +1493,15 @@ const $ = (sel) => document.querySelector(sel);
     }
   }
 
+  function syncSendCopyCheckbox() {
+    const emailInput = $("#trade-contact-email");
+    const copyCheckbox = $("#trade-send-copy");
+    if (!copyCheckbox) return;
+    const hasEmail = Boolean(emailInput?.value.trim());
+    copyCheckbox.disabled = !hasEmail;
+    if (!hasEmail) copyCheckbox.checked = false;
+  }
+
   async function submitOrder(event) {
     event.preventDefault();
     const errorEl = $("#trade-order-error");
@@ -1558,13 +1567,15 @@ const $ = (sel) => document.querySelector(sel);
     if (submitBtn) submitBtn.disabled = true;
 
     try {
+      const email = $("#trade-contact-email")?.value.trim() || undefined;
       const body = {
         lines,
         name: $("#trade-contact-name")?.value.trim() || undefined,
-        email: $("#trade-contact-email")?.value.trim() || undefined,
+        email,
         phone: $("#trade-contact-phone")?.value.trim() || undefined,
         address: $("#trade-contact-address")?.value.trim() || undefined,
         gdpr_consent: true,
+        send_copy_to_buyer: Boolean(email && $("#trade-send-copy")?.checked),
       };
       if (turnstileTokenAfterInit) body.turnstile_token = turnstileTokenAfterInit;
 
@@ -1576,6 +1587,7 @@ const $ = (sel) => document.querySelector(sel);
 
       clearCart();
       $("#trade-order-form")?.reset();
+      syncSendCopyCheckbox();
       resetTurnstile();
       setCartOpen(false);
       showToast("Order request sent. The seller will contact you if needed.", "success");
@@ -1723,6 +1735,9 @@ const $ = (sel) => document.querySelector(sel);
     $("#trade-cart-close")?.addEventListener("click", () => setCartOpen(false));
     $("#trade-cart-backdrop")?.addEventListener("click", () => setCartOpen(false));
     $("#trade-order-form")?.addEventListener("submit", submitOrder);
+    $("#trade-contact-email")?.addEventListener("input", syncSendCopyCheckbox);
+    $("#trade-contact-email")?.addEventListener("change", syncSendCopyCheckbox);
+    syncSendCopyCheckbox();
 
     $("#trade-card-modal-close")?.addEventListener("click", closeTradeCardModal);
     $("#trade-card-modal")?.addEventListener("click", (event) => {

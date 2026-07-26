@@ -705,6 +705,7 @@ class TradeOrderRequestIn(BaseModel):
     phone: str | None = Field(default=None, max_length=64)
     address: str | None = Field(default=None, max_length=500)
     gdpr_consent: bool
+    send_copy_to_buyer: bool = False
     turnstile_token: str | None = None
 
     @field_validator("name", "phone", "address")
@@ -716,6 +717,8 @@ class TradeOrderRequestIn(BaseModel):
     def require_consent(self):
         if not self.gdpr_consent:
             raise ValueError("GDPR consent is required")
+        if self.send_copy_to_buyer and not self.email:
+            raise ValueError("Email is required when requesting a copy")
         return self
 
 

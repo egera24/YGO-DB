@@ -2894,6 +2894,21 @@ def _validate_trade_order_lines(
         session, [(item.set_code, item.rarity_code) for item in items]
     )
 
+    # Resolve set names from Printing without joinedload (incompatible with FOR UPDATE).
+    printing_ids = [
+        item.printing_id
+        for item in items
+        if item.printing_id and not (item.set_name or "").strip()
+    ]
+    printings_by_id: dict[int, Printing] = {}
+    if printing_ids:
+        printings_by_id = {
+            p.id: p
+            for p in session.execute(
+                select(Printing).where(Printing.id.in_(printing_ids))
+            ).scalars().all()
+        }
+
     # Track remaining available trade qty as we walk lines (same item may repeat).
     remaining = {item.id: int(item.trade_quantity or 0) for item in items}
 
@@ -2910,6 +2925,10 @@ def _validate_trade_order_lines(
             )
         remaining[item_id] -= qty
         market_row = market_map.get((item.set_code, item.rarity_code))
+        set_name = item.set_name
+        linked = printings_by_id.get(item.printing_id) if item.printing_id else None
+        if not (set_name or "").strip() and linked is not None and linked.set_name:
+            set_name = linked.set_name
         built.append(
             {
                 "item_id": item_id,
@@ -2918,7 +2937,7 @@ def _validate_trade_order_lines(
                 "offer_price": line.get("offer_price"),
                 "card_name": item.card_name,
                 "set_code": item.set_code,
-                "set_name": item.set_name,
+                "set_name": set_name,
                 "rarity_code": item.rarity_code,
                 "rarity_display": rarity_display(item.rarity_code),
                 "condition": normalize_collection_condition(item.condition),

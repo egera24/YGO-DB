@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import tempfile
+from pathlib import Path
 
 import requests
 
@@ -165,22 +167,26 @@ def _send_trade_order_console(
         submitted_at=submitted_at,
     )
     attachment_bytes, attachment_name = _trade_order_attachment(lines)
+    preview_path = Path(tempfile.gettempdir()) / attachment_name
+    preview_path.write_bytes(attachment_bytes)
     buyer_email = buyer_contact.get("email")
     copy_note = ""
     if send_copy_to_buyer and buyer_email:
         copy_note = f"\n(Would also send buyer copy to {buyer_email})"
     print(
         f"TRADE ORDER to {owner_email}: {subject}\n{body}\n"
-        f"Attachment: {attachment_name} ({len(attachment_bytes)} bytes)"
+        f"Attachment: {attachment_name} ({len(attachment_bytes)} bytes)\n"
+        f"Saved locally for preview: {preview_path}"
         f"{copy_note}",
         flush=True,
     )
     logger.info(
-        "Trade order sent to %s (%d lines, attachment=%d bytes, buyer_copy=%s)",
+        "Trade order sent to %s (%d lines, attachment=%d bytes, buyer_copy=%s, preview=%s)",
         owner_email,
         len(lines),
         len(attachment_bytes),
         bool(send_copy_to_buyer and buyer_email),
+        preview_path,
     )
 
 

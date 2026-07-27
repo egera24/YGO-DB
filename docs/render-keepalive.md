@@ -43,18 +43,27 @@ Triggers the GHA workflow so curl can retry long enough for Render cold start. *
 
 **cron-job.org job:**
 
-- **Title**: `YGO App prod cold wake (trigger GHA)`
-- **URL**: `https://api.github.com/repos/egera24/YGO-DB/actions/workflows/render-prod-cold-wake.yml/dispatches`
-- **Method**: `POST`
-- **Schedule timezone**: `Europe/Budapest`
-- **Time**: **07:50** daily (10 min before the daytime window starts at 08:00)
-- **Request body**: `{"ref":"main"}`
-- **Headers** (cron-job.org Advanced):
-  - `Accept`: `application/vnd.github+json`
-  - `Authorization`: `Bearer github_pat_...` (your fine-grained PAT)
-  - `Content-Type`: `application/json`
+Open the **ADVANCED** tab — POST, headers, and body are **not** on the Common tab. Leaving the default GET causes **404 Not Found** from GitHub (confirmed: GET → 404, POST without auth → 401, POST with PAT → 204).
 
-**Test run** — expect HTTP **204 No Content** from GitHub. Confirm a new run appears under Actions → **Render prod cold wake** with event **workflow_dispatch**.
+- **Title**: `YGO App prod cold wake (trigger GHA)`
+- **URL** (Common tab): `https://api.github.com/repos/egera24/YGO-DB/actions/workflows/render-prod-cold-wake.yml/dispatches`
+- **Schedule** (Common tab): timezone `Europe/Budapest`, **07:50** daily
+
+**ADVANCED tab:**
+
+| Field | Value |
+|-------|-------|
+| **Request method** | `POST` (required — default GET returns 404) |
+| **Request body** | `{"ref":"main"}` |
+| **Header** `Accept` | `application/vnd.github+json` |
+| **Header** `Authorization` | `Bearer github_pat_...` (your fine-grained PAT; no quotes around token) |
+| **Header** `Content-Type` | `application/json` |
+
+Alternative URL (numeric workflow ID, same endpoint): `https://api.github.com/repos/egera24/YGO-DB/actions/workflows/320990751/dispatches`
+
+**Test run** — expect HTTP **204 No Content** from GitHub (empty body is normal). Confirm a new run appears under Actions → **Render prod cold wake** with event **workflow_dispatch**.
+
+**Troubleshooting 404:** Almost always **GET instead of POST**. Switch to ADVANCED → set method to POST. If you still get 404 on POST, check PAT repo access (`egera24/YGO-DB`) and **Actions: Read and write**. Wrong/missing auth on POST usually returns **401**, not 404.
 
 Optionally enable **failure email notifications** on both jobs — expect a failure at **08:00** on the daytime GET job if the morning trigger did not run; otherwise failures are worth investigating.
 

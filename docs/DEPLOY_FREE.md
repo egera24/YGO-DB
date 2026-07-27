@@ -93,7 +93,7 @@ Vendor migration later: `rclone sync` the bucket to any S3-compatible provider, 
 ### Optional: keep-alive
 
 - **Neon DB keep-alive** (GitHub Actions) — pings **production** and **dev** databases every few days (requires both secrets).
-- **Render prod keep-alive** — GHA **cold wake** (~07:50 Europe/Budapest) plus [cron-job.org](https://cron-job.org/en/) pings every 10 minutes during **08:00–22:00** so the free web service stays warm (~420 Free instance hours/month). cron-job.org cannot complete a cold start (30s timeout). Does **not** ping staging. Do **not** run a 24/7 keep-alive on free (shared 750-hour workspace quota; two always-on free services would exhaust it). Setup: **[render-keepalive.md](render-keepalive.md)**.
+- **Render prod keep-alive** — [cron-job.org](https://cron-job.org/en/) **POST → GHA cold wake** (~07:50 Europe/Budapest) plus daytime GET pings every 10 minutes during **08:00–22:00** so the free web service stays warm (~420 Free instance hours/month). cron-job.org cannot complete a cold start via direct GET (30s timeout); morning wake uses GHA `curl` retries. Does **not** ping staging. Do **not** run a 24/7 keep-alive on free (shared 750-hour workspace quota; two always-on free services would exhaust it). Setup: **[render-keepalive.md](render-keepalive.md)**.
 
 See **[ENVIRONMENTS.md](ENVIRONMENTS.md)** for the full local → staging → production workflow.
 
